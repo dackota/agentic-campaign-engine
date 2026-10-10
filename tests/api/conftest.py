@@ -1,11 +1,14 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import httpx
 import pytest
 
+from tests.api.helpers import APPROVER, OWNER
 from tests.harness.stack import Stack
 
 HTTP_TIMEOUT_SECONDS = 30
+
+SignIn = Callable[[str], httpx.Client]
 
 
 @pytest.fixture(scope="session")
@@ -15,7 +18,32 @@ def stack() -> Iterator[Stack]:
 
 
 @pytest.fixture
-def api(stack: Stack) -> Iterator[httpx.Client]:
+def sign_in(stack: Stack) -> Iterator[SignIn]:
+    """A Campaign API client that sends the named demo user's real Dex token."""
+    clients: list[httpx.Client] = []
+
+    def client_for(email: str) -> httpx.Client:
+        client = httpx.Client(
+            base_url=stack.api_url,
+            timeout=HTTP_TIMEOUT_SECONDS,
+            headers={"Authorization": f"Bearer {stack.dex.token(email)}"},
+        )
+        clients.append(client)
+        return client
+
+    yield client_for
+    for client in clients:
+        client.close()
+
+
+@pytest.fixture
+def api(stack: Stack, sign_in: SignIn) -> httpx.Client:
+    """Signed in as a Demand Gen owner: creates and runs campaigns."""
     stack.agent.script([])
-    with httpx.Client(base_url=stack.api_url, timeout=HTTP_TIMEOUT_SECONDS) as client:
-        yield client
+    return sign_in(OWNER)
+
+
+@pytest.fixture
+def approver(sign_in: SignIn) -> httpx.Client:
+    """Signed in as a Demand Gen approver: approves the owner's campaigns."""
+    return sign_in(APPROVER)

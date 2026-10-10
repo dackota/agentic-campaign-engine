@@ -1,12 +1,17 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   approveCampaign,
   createCampaign,
   getCampaign,
+  getMe,
+  listCampaigns,
+  SignedOutError,
   type Campaign,
   type EmailDraft,
+  type Me,
   type RunEvent,
 } from "./api";
+import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
 
@@ -55,11 +60,128 @@ function DraftView({ draft }: { draft: EmailDraft }) {
   );
 }
 
+/** The list label for a campaign: the first line of its report. */
+function titleOf(campaign: Campaign): string {
+  return campaign.report.split("\n", 1)[0] ?? campaign.id;
+}
+
+interface CampaignListProps {
+  campaigns: Campaign[];
+  onOpen: (id: string) => void;
+}
+
+function CampaignList({ campaigns, onOpen }: CampaignListProps) {
+  return (
+    <section>
+      <h2>Campaigns</h2>
+      <ul aria-label="Campaigns">
+        {campaigns.length === 0 && <li>No campaigns yet.</li>}
+        {campaigns.map((c) => (
+          <li key={c.id}>
+            <button type="button" onClick={() => onOpen(c.id)}>
+              {titleOf(c)}
+            </button>{" "}
+            {STATUS_LABELS[c.status]}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Approvers approve; nobody approves a campaign they created. The API enforces the same. */
+function canApprove(me: Me, campaign: Campaign): boolean {
+  return (
+    campaign.status === "awaiting_approval" &&
+    me.roles.includes("approver") &&
+    campaign.created_by !== me.subject
+  );
+}
+
+type Session = { state: "loading" } | { state: "signed-out" } | { state: "signed-in"; me: Me };
+
 export function App() {
+  const [session, setSession] = useState<Session>({ state: "loading" });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      await finishSignIn();
+      if (!accessToken()) return setSession({ state: "signed-out" });
+      setSession({ state: "signed-in", me: await getMe() });
+    })().catch((e: unknown) => {
+      signOut();
+      if (!(e instanceof SignedOutError)) setError(messageOf(e));
+      setSession({ state: "signed-out" });
+    });
+  }, []);
+
+  if (session.state === "loading") return <main aria-busy="true" />;
+  if (session.state === "signed-out") {
+    return (
+      <main>
+        <h1>Agentic Campaign Engine</h1>
+        {error && <p role="alert">{error}</p>}
+        <button
+          type="button"
+          onClick={() => void signIn().catch((e: unknown) => setError(messageOf(e)))}
+        >
+          Sign in
+        </button>
+      </main>
+    );
+  }
+  return (
+    <Workspace
+      me={session.me}
+      onSignOut={() => {
+        signOut();
+        setSession({ state: "signed-out" });
+      }}
+    />
+  );
+}
+
+interface WorkspaceProps {
+  me: Me;
+  onSignOut: () => void;
+}
+
+function Workspace({ me, onSignOut }: WorkspaceProps) {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [report, setReport] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
+
+  function fail(e: unknown) {
+    if (e instanceof SignedOutError) return onSignOut();
+    setError(messageOf(e));
+  }
+
+  async function refresh() {
+    try {
+      setCampaigns(await listCampaigns());
+    } catch (e) {
+      fail(e);
+    }
+  }
+
+  useEffect(() => {
+    void refresh();
+    // Load the list once on sign-in; actions below refresh it.
+  }, []);
+
+  async function open(id: string) {
+    setError(null);
+    setCampaign(null);
+    reset();
+    try {
+      setCampaign(await getCampaign(id));
+    } catch (e) {
+      fail(e);
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -68,8 +190,9 @@ export function App() {
     reset();
     try {
       setCampaign(await createCampaign(report));
+      await refresh();
     } catch (e) {
-      setError(messageOf(e));
+      fail(e);
     }
   }
 
@@ -77,13 +200,21 @@ export function App() {
     setError(null);
     try {
       await pollWhileSending(await approveCampaign(id), setCampaign);
+      await refresh();
     } catch (e) {
-      setError(messageOf(e));
+      fail(e);
     }
   }
 
   return (
     <main>
+      <p>
+        Signed in as <span data-testid="signed-in-as">{me.email}</span>{" "}
+        <button type="button" onClick={onSignOut}>
+          Sign out
+        </button>
+      </p>
+      <CampaignList campaigns={campaigns} onOpen={(id) => void open(id)} />
       <h1>New campaign</h1>
       <form onSubmit={submit}>
         <label>
@@ -103,7 +234,7 @@ export function App() {
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
         </p>
       )}
-      {campaign?.status === "awaiting_approval" && (
+      {campaign && canApprove(me, campaign) && (
         <button type="button" onClick={() => void approve(campaign.id)}>
           Approve
         </button>
