@@ -13,7 +13,10 @@ if ! command -v tilt >/dev/null 2>&1; then
   echo "FAIL tilt is not installed. Install $TILT_VERSION (docs/pinned-versions.md) on PATH or in .bin/" >&2
   exit 1
 fi
-version="$(tilt version)"
+if ! version="$(tilt version 2>&1)"; then
+  echo "FAIL tilt version failed: ${version%%$'\n'*}" >&2
+  exit 1
+fi
 case "$version" in
   "$TILT_VERSION",*|"$TILT_VERSION") ;;
   *)

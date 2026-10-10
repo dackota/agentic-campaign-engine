@@ -17,5 +17,6 @@ FROM nginxinc/nginx-unprivileged:1.31.5-alpine@sha256:19c132c9ab02d3b783f478743d
 # The image's entrypoint renders /etc/nginx/templates/*.template with the environment.
 COPY apps/web/nginx.conf.template /etc/nginx/templates/default.conf.template
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
+# Defaults for a bare `docker run`; the chart sets all three (API_HOST fully qualified).
 ENV API_HOST=api API_PORT=8000 DNS_RESOLVER=kube-dns.kube-system.svc.cluster.local
 EXPOSE 8080

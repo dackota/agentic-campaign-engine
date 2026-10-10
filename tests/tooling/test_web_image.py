@@ -33,7 +33,7 @@ def test_image_takes_oidc_issuer_build_arg_and_builds_the_app() -> None:
     code = _code(DOCKERFILE)
     assert re.search(r"^ARG VITE_OIDC_ISSUER\b", code, re.M)
     assert re.search(r"^ARG VITE_OIDC_CLIENT_ID\b", code, re.M)
-    assert re.search(r"build", code)
+    assert re.search(r"pnpm --filter web exec vite build", code)
     assert "--frozen-lockfile" in code
 
 

@@ -17,7 +17,7 @@ def render(*sets: str) -> list[dict[str, Any]]:
     args = ["helm", "template", "ace", str(CHART), "--namespace", "ace"]
     for value in sets:
         args += ["--set", value]
-    out = subprocess.run(args, capture_output=True, text=True, check=True).stdout
+    out = _helm(args)
     return [d for d in yaml.safe_load_all(out) if d]
 
 
@@ -59,7 +59,8 @@ def test_api_service_name_comes_from_values() -> None:
         e["name"]: e.get("value")
         for e in deploy["spec"]["template"]["spec"]["containers"][0]["env"]
     }
-    assert env["API_HOST"].startswith("my-api")
+    # nginx's resolver ignores search domains, so the name must be fully qualified.
+    assert env["API_HOST"] == "my-api.ace.svc.cluster.local"
     assert env["API_PORT"] == "9000"
     assert env["DNS_RESOLVER"]
 
@@ -68,14 +69,16 @@ def test_every_image_is_ours_or_pinned_by_digest() -> None:
     images = re.findall(r"^\s*image:\s*\"?([^\s\"]+)", _raw_render(), re.M)
     assert images
     for image in images:
-        ours = image.split(":")[0].split("/")[-1] in OUR_IMAGE_REPOS
+        name = image.rsplit("/", 1)[-1].split("@")[0].split(":")[0]
+        ours = name in OUR_IMAGE_REPOS
         assert ours or re.search(r"@sha256:[0-9a-f]{64}$", image), image
 
 
 def _raw_render() -> str:
-    return subprocess.run(
-        ["helm", "template", "ace", str(CHART), "--namespace", "ace"],
-        capture_output=True,
-        text=True,
-        check=True,
-    ).stdout
+    return _helm(["helm", "template", "ace", str(CHART), "--namespace", "ace"])
+
+
+def _helm(args: list[str]) -> str:
+    result = subprocess.run(args, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    return result.stdout

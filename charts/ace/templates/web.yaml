@@ -23,7 +23,8 @@ spec:
               containerPort: 8080
           env:
             - name: API_HOST
-              value: {{ .Values.api.serviceName | quote }}
+              # nginx's resolver ignores search domains: pass the full name.
+              value: {{ printf "%s.%s.svc.cluster.local" .Values.api.serviceName .Release.Namespace | quote }}
             - name: API_PORT
               value: {{ .Values.api.port | quote }}
             - name: DNS_RESOLVER
