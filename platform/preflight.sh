@@ -22,7 +22,8 @@ total_bytes="$(docker info --format '{{.MemTotal}}')"
 # Sum the running containers' memory (docker stats prints e.g. "3.54GiB / 23.4GiB").
 used_gib="$(docker stats --no-stream --format '{{.MemUsage}}' | awk -v bytes="$BYTES_PER_GIB" -v kib="$KIB_PER_GIB" -v mib="$MIB_PER_GIB" '
   { split($0, p, " / "); v = p[1]; n = v + 0
-    if (v ~ /GiB/) n *= 1; else if (v ~ /MiB/) n /= mib; else if (v ~ /[kK]iB/) n /= kib; else n /= bytes
+    # GiB values need no conversion.
+    if (v ~ /MiB/) n /= mib; else if (v ~ /[kK]iB/) n /= kib; else if (v !~ /GiB/) n /= bytes
     sum += n }
   END { printf "%.2f", sum }')"
 free_gib="$(awk -v t="$total_bytes" -v u="$used_gib" -v bytes="$BYTES_PER_GIB" 'BEGIN { printf "%.1f", t / bytes - u }')"

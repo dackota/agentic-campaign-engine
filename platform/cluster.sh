@@ -39,6 +39,12 @@ down() {
 
 first_line() { printf '%s\n' "$1" | head -n 1; }
 
+node_ready_states() {
+  kubectl --context "$CTX" get nodes -o 'jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}'
+}
+
+all_true() { [ -n "$1" ] && ! printf '%s\n' "$1" | tr ' ' '\n' | grep -qvx True; }
+
 status() {
   local failed=0 clusters ready version
   if ! clusters="$(k3d cluster list --no-headers 2>&1)"; then
@@ -53,11 +59,15 @@ status() {
     echo "FAIL Kubernetes version: no cluster"
     return 1
   fi
-  if ready="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
-    [ -n "$ready" ] && ! printf '%s\n' "$ready" | tr ' ' '\n' | grep -qvx True; then
-    echo "ok   node Ready"
+  if ready="$(node_ready_states 2>&1)"; then
+    if all_true "$ready"; then
+      echo "ok   node Ready"
+    else
+      echo "FAIL node Ready (saw: $(first_line "$ready"))"
+      failed=1
+    fi
   else
-    echo "FAIL node Ready (saw: $(first_line "$ready"))"
+    echo "FAIL node Ready (kubectl: $(first_line "$ready"))"
     failed=1
   fi
   if version="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[0].status.nodeInfo.kubeletVersion}' 2>&1)" && [ -n "$version" ]; then

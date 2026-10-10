@@ -229,9 +229,18 @@ def test_down_fails_when_k3d_errors(tmp_path: Path) -> None:
 
 
 def test_down_ignores_look_alike_names(tmp_path: Path) -> None:
+    # The stubs list ace-old, k3d-ace-registry-old, and ace-ate-old on every run.
+    # Only the exact names may be deleted, so with the real ones absent nothing goes.
     result, calls = _run(tmp_path, "down")
     assert result.returncode == 0, result.stderr
     assert not [c for c in calls if " delete" in c or "volume rm" in c]
+    result, calls = _run(tmp_path, "down", STUB_CLUSTER="1", STUB_REGISTRY="1", STUB_VOLUME="1")
+    deleted = [c for c in calls if " delete" in c or "volume rm" in c]
+    assert deleted == [
+        "k3d cluster delete ace",
+        "k3d registry delete k3d-ace-registry",
+        "docker volume rm ace-ate",
+    ]
 
 
 def test_status_reports_k3d_error_not_absence(tmp_path: Path) -> None:
