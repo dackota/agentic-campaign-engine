@@ -15,10 +15,12 @@ fmt: ## Format Python and fix lint
 	uv run ruff check --fix .
 	uv run ruff format .
 
-test: ## Run pytest and the web unit tests
+test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 	uv run pytest
 	pnpm install --frozen-lockfile
 	pnpm --filter web test
+	pnpm --filter web exec playwright install chromium
+	pnpm --filter web e2e
 
 up: ## Stub: start the local cluster (a later ticket fills it)
 	@echo "up: not implemented yet"

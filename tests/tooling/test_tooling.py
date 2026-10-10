@@ -70,3 +70,17 @@ def test_pre_commit_hooks_match_ci_and_install_web_deps() -> None:
     assert "pnpm install --frozen-lockfile" in text
     dev = tomllib.loads((ROOT / "pyproject.toml").read_text())["dependency-groups"]["dev"]
     assert any(d.startswith("pre-commit") for d in dev)
+
+
+def test_ci_runs_make_test_on_pull_request() -> None:
+    text = (ROOT / ".github/workflows/test.yml").read_text()
+    assert "pull_request" in text
+    assert "make test" in text
+    assert "playwright install" in text
+
+
+def test_make_test_runs_both_seams() -> None:
+    makefile = (ROOT / "Makefile").read_text()
+    test_target = makefile.split("\ntest:", 1)[1].split("\n\n", 1)[0]
+    assert "uv run pytest" in test_target
+    assert "e2e" in test_target
