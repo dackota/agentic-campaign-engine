@@ -119,6 +119,7 @@ function EmailPreview({ id }: EmailPreviewProps) {
 export function App() {
   const [session, setSession] = useState<Session>({ state: "loading" });
   const [error, setError] = useState<string | null>(null);
+  const showError = (e: unknown) => setError(messageOf(e));
 
   useEffect(() => {
     (async () => {
@@ -127,7 +128,7 @@ export function App() {
       setSession({ state: "signed-in", me: await getMe() });
     })().catch((e: unknown) => {
       signOut();
-      if (!(e instanceof SignedOutError)) setError(messageOf(e));
+      if (!(e instanceof SignedOutError)) showError(e);
       setSession({ state: "signed-out" });
     });
   }, []);
@@ -140,7 +141,7 @@ export function App() {
         {error && <p role="alert">{error}</p>}
         <button
           type="button"
-          onClick={() => void signIn().catch((e: unknown) => setError(messageOf(e)))}
+          onClick={() => void signIn().catch(showError)}
         >
           Sign in
         </button>

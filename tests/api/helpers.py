@@ -1,5 +1,6 @@
 """Helpers the Campaign API tests share: make a campaign, wait for it to reach a status."""
 
+import json
 import time
 from typing import Any
 
@@ -46,3 +47,26 @@ def until_status(api: httpx.Client, campaign_id: str, *wanted: str) -> dict[str,
 def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
     """Wait until drafting ends: the run waits for approval or has failed."""
     return until_status(api, campaign_id, AWAITING, FAILED)
+
+
+STREAM_TIMEOUT_SECONDS = 30
+
+
+def read_events(
+    api: httpx.Client, campaign_id: str, last_event_id: int | None = None
+) -> list[dict[str, Any]]:
+    """Read the stream until the server closes it; one dict per event."""
+    headers = {"Last-Event-ID": str(last_event_id)} if last_event_id is not None else {}
+    events: list[dict[str, Any]] = []
+    with api.stream(
+        "GET",
+        f"/campaigns/{campaign_id}/events",
+        headers=headers,
+        timeout=STREAM_TIMEOUT_SECONDS,
+    ) as response:
+        assert response.status_code == 200, response.read()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        for line in response.iter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: ") :]))
+    return events

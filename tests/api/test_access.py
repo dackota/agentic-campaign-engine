@@ -11,8 +11,7 @@ import httpx
 import pytest
 
 from tests.api.conftest import SignIn
-from tests.api.helpers import AWAITING, create, settle, until_status
-from tests.api.test_run_events import read_events
+from tests.api.helpers import AWAITING, create, read_events, settle, until_status
 from tests.harness.stack import Stack
 
 LEAD = "dg-lead@demo.example"
