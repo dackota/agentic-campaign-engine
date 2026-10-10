@@ -334,3 +334,59 @@ A suspended session costs no pod RAM: its state is a snapshot in rustfs. Budget 
 demo laptop: about 1 GiB for the platform, about 0.5 GiB per warm worker, plus whatever the
 running agents and the control plane's own node use. 2.3 GiB at the end of S0 (section 10)
 and 3.44 GiB now are both node totals; the pod sums above are the number to design to.
+
+## 18. S1: failover and team token limits
+
+Run 2026-10-10 on k3d-ace-spike, agentgateway v1.6.0. Decision record:
+`docs/decisions/llm-gateway-failover.md`.
+
+**Cross-style failover: failover works across an OpenAI-style and an Anthropic-style
+provider in one priority list.** The `opencode-go` backend now has two priority groups:
+OpenCode Go (provider `openai`, chat completions) and an Anthropic-style provider
+(provider `anthropic`). There is no Anthropic key yet, so group 2 is the in-cluster mock's
+new `/v1/messages` route (`manifests/spike/mock-llm.yaml`), which answers in the Anthropic
+Messages shape, streamed or not. The client sends OpenAI chat completions. agentgateway
+turns the request into an Anthropic Messages call and turns the answer back into a chat
+completion (`"model":"mock-anthropic"`, content `42`). No fallback was needed: we keep
+one list with both styles.
+
+Broken key test (`scripts/spike/gateway-failover-check.sh`, `make gateway-failover-check`):
+the `failover-test` backend (`manifests/spike/gateway-failover-test.yaml`) copies the
+groups but gives OpenCode Go a fixed fake key. OpenCode answers 401 (`Invalid API key.`).
+The health policy evicts group 1 on 401, 403 or 5xx after one failure. A route retry
+policy (one attempt, 1s backoff) then sends the same call to group 2, and the client gets
+200. Without the backoff, the retry went back to OpenCode before the eviction, and the
+client got the 401. The gateway log prints one line per request, for the last attempt:
+`route=agentgateway-system/failover-test endpoint=mock-llm.kagent.svc.cluster.local:8000
+http.status=200 gen_ai.provider.name=anthropic gen_ai.request.model=mock-anthropic
+retry.attempt=1`. That line shows the switch: a retried call that group 2 answered. The
+401 attempt itself gets no access log line.
+
+Team token limits: each team has a ModelConfig (`team-a-model`, `team-b-model`) whose
+`baseUrl` is its own route (`/team-a/v1`, `/team-b/v1`). Each route has its own
+`traffic.rateLimit.local` budget, 10000 tokens a minute (a spike number; S6 sets the real
+ones). The route sets `x-team`, and the access log prints it as `team="team-a"` next to
+`gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; the check sums both per
+team. In the check, team-a got 429 (`reason=RateLimit`) once its
+8k-token calls used up the budget (on the second or third call, depending on what an
+earlier run left in the window). team-b's call in the same minute got 200 from `opencode.ai`.
+
+Learned, and fixed: the gateway's own rate-limit 429 counts against the backend's health.
+With `response.code == 429` in the unhealthy rule, team-a going over its budget evicted
+OpenCode Go, and team-b's next call went to group 2. The rule now leaves out 429, and so
+does the retry list. A provider 429 still lowers health, and its `Retry-After` sets the
+wait (agentgateway failover docs). Open: OpenCode Go quota exhaustion now fails over more
+slowly than a bad key does.
+
+Sources, checked 2026-10-10: `docs/sources.md` rows "agentgateway model failover" and
+"agentgateway rate limiting". Live pages read the same day:
+https://agentgateway.dev/docs/kubernetes/latest/llm/failover/ (priority groups,
+`backend.health` eviction, retry needs eviction first, mixed provider types) and
+https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/ (`traffic.rateLimit.local`
+with `tokens` and `unit`, 429 with `retry-after` and `x-ratelimit-*` headers). Both match
+the manifests and what the check saw.
+
+Owed after the merge: the real Anthropic run. When the user adds `ANTHROPIC_API_KEY` to
+`.env`, `scripts/spike/gateway-install.sh` makes Secret `anthropic-key` and applies
+`manifests/spike/gateway-anthropic.yaml` (group 2 becomes `api.anthropic.com`, model
+`claude-haiku-4-5`). Then the broken key run needs repeating against the real API.

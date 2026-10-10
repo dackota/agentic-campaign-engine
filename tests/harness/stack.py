@@ -1,11 +1,13 @@
-"""Seam 1 harness: real Postgres, Temporal's time-skipping test server, the scripted
-A2A agent, the worker, and the Campaign API, started together on free local ports.
+"""Seam 1 harness: real Postgres, Dex with the demo users, Temporal's time-skipping test
+server, the scripted A2A agent, the worker, and the Campaign API, started together on
+free local ports.
 
 One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. Live depth
 is wired in a later ticket, so starting a live stack raises.
 """
 
 import asyncio
+import secrets
 import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +19,7 @@ import uvicorn
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
+from tests.harness.dex import CLIENT_ID, Dex
 from tests.harness.scripted_agent import ScriptedAgent
 
 if TYPE_CHECKING:
@@ -40,13 +43,24 @@ def free_port() -> int:
 
 
 class Stack:
-    def __init__(self, depth: str | None = None, api_port: int | None = None) -> None:
+    def __init__(
+        self,
+        depth: str | None = None,
+        api_port: int | None = None,
+        dex_port: int | None = None,
+        web_origin: str = "http://127.0.0.1:5173",
+    ) -> None:
         from ace_engine.settings import Depth
 
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        self.dex = Dex(dex_port or free_port(), web_origin)
+        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
+        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
+        self.marketo_client_secret = secrets.token_urlsafe(24)
+        self.marketo_webhook_secret = secrets.token_urlsafe(24)
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -66,8 +80,22 @@ class Stack:
 
     def marketo_malformed_reply(self, is_malformed: bool) -> None:
         """Make the fake Marketo answer sends with a reply that has no receipt id."""
+        self.marketo_fault(malformed_reply=is_malformed)
+
+    def marketo_drop_next_send_reply(self) -> None:
+        """Make the fake Marketo record the next send, then answer it with a 503."""
+        self.marketo_fault(drop_next_send_reply=True)
+
+    def marketo_fault(
+        self, *, malformed_reply: bool = False, drop_next_send_reply: bool = False
+    ) -> None:
         response = httpx.put(
-            f"{self.marketo_url}/_fault", json={"malformed_reply": is_malformed}, timeout=10
+            f"{self.marketo_url}/_fault",
+            json={
+                "malformed_reply": malformed_reply,
+                "drop_next_send_reply": drop_next_send_reply,
+            },
+            timeout=10,
         )
         assert response.status_code == 204, response.text
 
@@ -86,6 +114,7 @@ class Stack:
             raise NotImplementedError("live depth is wired in a later ticket")
         self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg")
         self._postgres.start()
+        self.dex.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
@@ -101,6 +130,7 @@ class Stack:
         if self._postgres is not None:
             self._postgres.stop()
             self._postgres = None
+        self.dex.stop()
 
     def __enter__(self) -> "Stack":
         return self.start()
@@ -137,6 +167,11 @@ class Stack:
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
+                oidc_issuer=self.dex.issuer,
+                oidc_client_id=CLIENT_ID,
+                marketo_client_id=self.marketo_client_id,
+                marketo_client_secret=self.marketo_client_secret,
+                marketo_webhook_secret=self.marketo_webhook_secret,
             )
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
@@ -151,11 +186,18 @@ class Stack:
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
+        from fake_marketo.app import MarketoConfig
         from fake_marketo.app import create_app as create_marketo
 
+        marketo = MarketoConfig(
+            client_id=self.marketo_client_id,
+            client_secret=self.marketo_client_secret,
+            webhook_url=f"{self.api_url}/webhooks/marketo",
+            webhook_secret=self.marketo_webhook_secret,
+        )
         apps = [
             (self.agent.app, agent_port),
-            (create_marketo(), self.marketo_port),
+            (create_marketo(marketo), self.marketo_port),
             (create_app(settings), self.api_port),
         ]
         return [

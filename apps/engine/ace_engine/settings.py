@@ -1,13 +1,14 @@
 """Settings shared by the API and the worker. `ACE_DEPTH` picks fast or live depth."""
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 
 WORKFLOW_NAME = "CampaignWorkflow"
 TASK_QUEUE = "campaigns"
 APPROVE_SIGNAL = "approve"
 DEPTH_ENV = "ACE_DEPTH"
+REQUIRED_SECRETS = ("marketo_client_id", "marketo_client_secret", "marketo_webhook_secret")
 
 
 class Depth(StrEnum):
@@ -34,10 +35,22 @@ class Settings:
     temporal_namespace: str
     agent_url: str
     marketo_url: str
+    # Marketo's OAuth2 client credentials and the key its activity webhooks are signed
+    # with. They come from the environment or a secret, never from code.
+    marketo_client_id: str
+    marketo_client_secret: str = field(repr=False)
+    marketo_webhook_secret: str = field(repr=False)
     agent_timeout_seconds: float = 30.0
     marketo_timeout_seconds: float = 30.0
+    # The OIDC provider (Dex) the Campaign API trusts, and the client id tokens are for.
+    # The worker never checks tokens, so it leaves them unset.
+    oidc_issuer: str = ""
+    oidc_client_id: str = "ace-web"
 
     def __post_init__(self) -> None:
         # Fail when the worker starts, not on the first send after an approval.
         if not self.marketo_url.strip():
             raise ValueError("marketo_url is required: set it to the Marketo base URL")
+        for name in REQUIRED_SECRETS:
+            if not getattr(self, name).strip():
+                raise ValueError(f"{name} is required: set it from the environment")

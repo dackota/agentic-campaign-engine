@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     create_engine,
     select,
@@ -23,6 +24,8 @@ AWAITING_APPROVAL = "awaiting_approval"
 SENDING = "sending"
 SENT = "sent"
 FAILED = "failed"
+# A run whose workflow has no publish step ends here.
+FINISHED = "finished"
 
 # Run events: one row per step status change; the step "run" carries the final state.
 RUN_STEP = "run"
@@ -41,10 +44,33 @@ class Campaign(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     report: Mapped[str] = mapped_column(Text)
+    # The team and the OIDC subject of the owner who created it (from their token).
+    team: Mapped[str] = mapped_column(String(100))
+    created_by: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), default=DRAFTING)
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # The A/B test's second email; `draft` is variant A.
+    variant_b: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The run pins its workflow: the version it started on and a copy of that DAG.
+    # Both are None for a campaign on the built-in default workflow.
+    workflow_name: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    workflow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dag: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class WorkflowVersion(Base):
+    """One saved version of a workflow DAG. Versions are never edited, only added."""
+
+    __tablename__ = "workflow_versions"
+
+    name: Mapped[str] = mapped_column(String(63), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dag: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -59,6 +85,23 @@ class RunEvent(Base):
     status: Mapped[str] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class Activity(Base):
+    """One activity webhook from a marketing system, recorded once per (source, event id)."""
+
+    __tablename__ = "activities"
+    __table_args__ = (UniqueConstraint("source", "event_id"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40))
+    event_id: Mapped[str] = mapped_column(String(200))
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    type: Mapped[str] = mapped_column(String(40))
+    variant: Mapped[str] = mapped_column(String(20))
+    received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
@@ -78,6 +121,12 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
                 .order_by(RunEvent.seq)
             )
         )
+
+
+def list_campaigns(engine: Engine) -> list[Campaign]:
+    """Every campaign, newest first."""
+    with Session(engine) as session:
+        return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
 
 
 def make_engine(database_url: str) -> Engine:
