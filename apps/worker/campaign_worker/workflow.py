@@ -1,12 +1,22 @@
-"""The campaign workflow: a thin shell that drafts the A/B emails, waits for a human to
-approve them, and only then publishes them."""
+"""The campaign workflow: a thin shell that follows the run's pinned workflow DAG.
 
+Each wave starts every step whose parents have all succeeded, at the same time. Agent
+steps draft the A/B emails, approval steps wait for a human, publish steps send only
+after an approval (the API rejects a workflow where they would not), and wait steps
+sleep."""
+
+import asyncio
 from datetime import timedelta
+from typing import Any
 
 from ace_engine.settings import APPROVE_SIGNAL, WORKFLOW_NAME
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
+
+with workflow.unsafe.imports_passed_through():
+    from ace_engine import dag as graph
+    from ace_engine.db import STEP_STARTED, STEP_SUCCEEDED
 
 AGENT_STEP_TIMEOUT = timedelta(minutes=5)
 DB_STEP_TIMEOUT = timedelta(seconds=30)
@@ -15,54 +25,108 @@ AGENT_RETRY = RetryPolicy(maximum_attempts=3)
 SEND_RETRY = RetryPolicy(maximum_attempts=5)
 
 
+class StepFailed(Exception):
+    def __init__(self, step_id: str, reason: str) -> None:
+        super().__init__(reason)
+        self.step_id = step_id
+        self.reason = reason
+
+
+def _reason(exc: ActivityError) -> str:
+    cause = exc.cause
+    return cause.message if isinstance(cause, ApplicationError) else str(exc)
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class CampaignWorkflow:
     def __init__(self) -> None:
-        self._is_approved = False
+        self._approvals = 0
+        self._outputs: dict[str, Any] = {}
 
     @workflow.signal(name=APPROVE_SIGNAL)
     def approve(self) -> None:
-        self._is_approved = True
+        self._approvals += 1
 
     @workflow.run
-    async def run(self, campaign_id: str, report: str) -> None:
+    async def run(self, campaign_id: str, report: str, dag: dict[str, Any]) -> None:
+        done: set[str] = set()
+        while wave := graph.ready_steps(dag, done):
+            # Approval steps that open together are settled by one approval.
+            approvals_needed = self._approvals + 1
+            results = await asyncio.gather(
+                *(self._step(campaign_id, report, dag, s, approvals_needed) for s in wave),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, StepFailed):
+                    await self._fail(campaign_id, result)
+                    return
+                if isinstance(result, BaseException):
+                    raise result
+            done.update(s["id"] for s in wave)
+        await self._db("finish_run", campaign_id)
+
+    async def _db(self, activity: str, *args: Any) -> Any:
+        return await workflow.execute_activity(
+            activity, args=list(args), start_to_close_timeout=DB_STEP_TIMEOUT
+        )
+
+    async def _step(
+        self,
+        campaign_id: str,
+        report: str,
+        dag: dict[str, Any],
+        step: dict[str, Any],
+        approvals_needed: int,
+    ) -> None:
+        step_id, kind = step["id"], step["kind"]
+        if kind == graph.AGENT:
+            await self._agent(campaign_id, report, step_id)
+        elif kind == graph.APPROVAL:
+            await self._db("open_approval", campaign_id)
+            await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
+            await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
+        elif kind == graph.PUBLISH:
+            await self._publish(campaign_id, dag, step_id)
+        elif kind == graph.WAIT:
+            await self._db("mark_step", campaign_id, step_id, STEP_STARTED)
+            await workflow.sleep(timedelta(seconds=step["duration_seconds"]))
+            await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
+        elif kind == graph.RENDER:
+            # The render service arrives in a later ticket; until then the step passes.
+            await self._db("mark_step", campaign_id, step_id, STEP_STARTED)
+            await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
+        else:
+            raise StepFailed(step_id, f"step {step_id!r} has an unknown kind {kind!r}")
+
+    async def _agent(self, campaign_id: str, report: str, step_id: str) -> None:
         try:
             drafts = await workflow.execute_activity(
                 "write_email_draft",
-                args=[campaign_id, report],
+                args=[campaign_id, report, step_id],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
                 retry_policy=AGENT_RETRY,
             )
         except ActivityError as exc:
-            await self._fail(campaign_id, exc)
-            return
-        await workflow.execute_activity(
-            "save_draft",
-            args=[campaign_id, drafts],
-            start_to_close_timeout=DB_STEP_TIMEOUT,
-        )
-        await workflow.wait_condition(lambda: self._is_approved)
+            raise StepFailed(step_id, _reason(exc)) from exc
+        await self._db("save_agent_output", campaign_id, step_id, drafts)
+        self._outputs[step_id] = drafts
+
+    async def _publish(self, campaign_id: str, dag: dict[str, Any], step_id: str) -> None:
+        source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)
+        if source is None:
+            raise StepFailed(step_id, f"publish step {step_id!r} has no agent step before it")
+        await self._db("mark_step", campaign_id, step_id, STEP_STARTED)
         try:
             receipt = await workflow.execute_activity(
                 "send_email",
-                args=[campaign_id, drafts],
+                args=[campaign_id, self._outputs[source]],
                 start_to_close_timeout=SEND_STEP_TIMEOUT,
                 retry_policy=SEND_RETRY,
             )
         except ActivityError as exc:
-            await self._fail(campaign_id, exc)
-            return
-        await workflow.execute_activity(
-            "mark_sent",
-            args=[campaign_id, receipt],
-            start_to_close_timeout=DB_STEP_TIMEOUT,
-        )
+            raise StepFailed(step_id, _reason(exc)) from exc
+        await self._db("mark_sent", campaign_id, step_id, receipt)
 
-    async def _fail(self, campaign_id: str, exc: ActivityError) -> None:
-        cause = exc.cause
-        reason = cause.message if isinstance(cause, ApplicationError) else str(exc)
-        await workflow.execute_activity(
-            "mark_failed",
-            args=[campaign_id, reason],
-            start_to_close_timeout=DB_STEP_TIMEOUT,
-        )
+    async def _fail(self, campaign_id: str, failure: StepFailed) -> None:
+        await self._db("mark_failed", campaign_id, failure.step_id, failure.reason)

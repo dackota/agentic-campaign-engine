@@ -2,7 +2,9 @@
 
 import hashlib
 import hmac
+import json
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -21,6 +23,7 @@ FAILED = "failed"
 SENT = "sent"
 POLL_SECONDS = 30
 POLL_INTERVAL_SECONDS = 0.2
+STREAM_TIMEOUT_SECONDS = 30
 
 
 def create(api: httpx.Client, report: str = REPORT) -> dict[str, Any]:
@@ -47,6 +50,60 @@ def until_status(api: httpx.Client, campaign_id: str, *wanted: str) -> dict[str,
 def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
     """Wait until drafting ends: the run waits for approval or has failed."""
     return until_status(api, campaign_id, AWAITING, FAILED)
+
+
+def workflow_name(prefix: str = "wf") -> str:
+    """A fresh workflow name: the stack is shared by tests, so names must not collide."""
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def save_workflow(api: httpx.Client, name: str, dag: dict[str, Any]) -> dict[str, Any]:
+    response = api.post(f"/workflows/{name}/versions", json=dag)
+    assert response.status_code == 201, response.text
+    saved: dict[str, Any] = response.json()
+    return saved
+
+
+def create_on(api: httpx.Client, workflow: str, report: str = REPORT) -> dict[str, Any]:
+    response = api.post("/campaigns", json={"report": report, "workflow": workflow})
+    assert response.status_code == 201, response.text
+    created: dict[str, Any] = response.json()
+    return created
+
+
+def step(step_id: str, kind: str, **extra: Any) -> dict[str, Any]:
+    return {"id": step_id, "kind": kind, **extra}
+
+
+def edge(source: str, target: str) -> dict[str, str]:
+    return {"from": source, "to": target}
+
+
+# The smallest workflow that drafts, waits for a human, then publishes.
+DRAFT_APPROVE_PUBLISH = {
+    "steps": [step("draft", "agent"), step("approve", "approval"), step("publish", "publish")],
+    "edges": [edge("draft", "approve"), edge("approve", "publish")],
+}
+
+
+def read_events(
+    api: httpx.Client, campaign_id: str, last_event_id: int | None = None
+) -> list[dict[str, Any]]:
+    """Read the run event stream until the server closes it; one dict per event."""
+    headers = {"Last-Event-ID": str(last_event_id)} if last_event_id is not None else {}
+    events: list[dict[str, Any]] = []
+    with api.stream(
+        "GET",
+        f"/campaigns/{campaign_id}/events",
+        headers=headers,
+        timeout=STREAM_TIMEOUT_SECONDS,
+    ) as response:
+        assert response.status_code == 200, response.read()
+        assert response.headers["content-type"].startswith("text/event-stream")
+        for line in response.iter_lines():
+            if line.startswith("data: "):
+                events.append(json.loads(line[len("data: ") :]))
+    return events
 
 
 # The fake Marketo, read from the outside through its own REST API.

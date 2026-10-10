@@ -1,4 +1,5 @@
-"""The Campaign API: create a campaign from a threat report, read it back with its draft."""
+"""The Campaign API: create a campaign from a threat report on a saved workflow, read it
+back with its draft and the steps of the workflow it pinned."""
 
 import asyncio
 import json
@@ -7,12 +8,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
+from ace_engine import dag as graph
 from ace_engine import db
 from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME, Settings
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, StreamingResponse
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 from render_service.email import EmailTooLarge, render_email
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
@@ -20,10 +22,11 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.webhook_routes import ActivityOut, activities, register_webhook_routes
+from campaign_api.workflows import NAME_PATTERN, latest_version, register_workflow_routes
 
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
-FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED}
+FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED}
 Report = Annotated[
     str, StringConstraints(strip_whitespace=False, min_length=1, max_length=MAX_REPORT_CHARS)
 ]
@@ -31,6 +34,8 @@ Report = Annotated[
 
 class NewCampaign(BaseModel):
     report: Report
+    # The saved workflow to run, at its latest version; None runs the default workflow.
+    workflow: str | None = Field(default=None, pattern=NAME_PATTERN)
 
     def model_post_init(self, _context: Any) -> None:
         if not self.report.strip():
@@ -45,6 +50,9 @@ class CampaignOut(BaseModel):
     variant_b: dict[str, Any] | None
     failure_reason: str | None
     receipt: str | None
+    workflow: str | None
+    workflow_version: int | None
+    steps: list[dict[str, Any]]
 
     @classmethod
     def of(cls, c: db.Campaign) -> "CampaignOut":
@@ -56,12 +64,27 @@ class CampaignOut(BaseModel):
             variant_b=c.variant_b,
             failure_reason=c.failure_reason,
             receipt=c.receipt,
+            workflow=c.workflow_name,
+            workflow_version=c.workflow_version,
+            steps=graph.ordered(c.dag),
         )
 
 
-def _insert(engine: Engine, campaign_id: uuid.UUID, report: str) -> None:
-    with Session(engine) as session, session.begin():
-        session.add(db.Campaign(id=campaign_id, report=report))
+def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
+    with Session(engine, expire_on_commit=False) as session, session.begin():
+        session.add(campaign)
+        session.flush()
+        return CampaignOut.of(campaign)
+
+
+async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
+    """The workflow name, version, and DAG a new run pins: the latest saved version."""
+    if workflow is None:
+        return None, None, graph.default_dag()
+    found = await latest_version(engine, workflow)
+    if found is None:
+        raise HTTPException(status_code=422, detail=f"workflow {workflow!r} has no saved version")
+    return found.name, found.version, found.dag
 
 
 def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -> bool:
@@ -189,23 +212,24 @@ def create_app(settings: Settings) -> FastAPI:
 
     @app.post("/campaigns", status_code=201)
     async def create_campaign(body: NewCampaign, request: Request) -> CampaignOut:
-        campaign_id = uuid.uuid4()
-        await run_in_threadpool(_insert, request.app.state.engine, campaign_id, body.report)
-        await request.app.state.temporal.start_workflow(
-            WORKFLOW_NAME,
-            args=[str(campaign_id), body.report],
-            id=f"campaign-{campaign_id}",
-            task_queue=TASK_QUEUE,
-        )
-        return CampaignOut(
-            id=campaign_id,
+        engine = request.app.state.engine
+        name, version, dag = await _pinned(engine, body.workflow)
+        campaign = db.Campaign(
+            id=uuid.uuid4(),
             report=body.report,
             status=db.DRAFTING,
-            draft=None,
-            variant_b=None,
-            failure_reason=None,
-            receipt=None,
+            workflow_name=name,
+            workflow_version=version,
+            dag=dag,
         )
+        created = await run_in_threadpool(_insert, engine, campaign)
+        await request.app.state.temporal.start_workflow(
+            WORKFLOW_NAME,
+            args=[str(created.id), body.report, dag],
+            id=f"campaign-{created.id}",
+            task_queue=TASK_QUEUE,
+        )
+        return created
 
     @app.get("/campaigns/{campaign_id}")
     async def get_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
@@ -215,5 +239,6 @@ def create_app(settings: Settings) -> FastAPI:
     _add_event_routes(app)
     _add_activity_routes(app, settings)
     _add_preview_route(app)
+    register_workflow_routes(app)
 
     return app
