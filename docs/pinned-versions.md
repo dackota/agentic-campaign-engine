@@ -38,3 +38,16 @@ alpha11 is a separate, deliberate step.
 |---|---|---|
 | agentgateway charts | `agentgateway-crds` and `agentgateway` v1.6.0 (`cr.agentgateway.dev/charts`) | n/a |
 | agentgateway proxy image (running `agentgateway-proxy` Deployment, read with `--context k3d-ace-spike`) | `cr.agentgateway.dev/agentgateway:v1.6.0` | `sha256:9d3e6044ddcdc0878b1787f77bd401252b95e22684203fb5e874c4c42d2ed90c` |
+
+## `make up` additions
+
+`platform/install.sh` fetches `kubectl-ate` v0.4.0-alpha1 from the Substrate GitHub release into
+`.bin/` (ignored by git), checks the download against this SHA-256, and ad-hoc signs it on macOS.
+The checksums are of the unsigned release files (computed 2026-10-10).
+
+| OS and arch | SHA-256 |
+|---|---|
+| darwin-amd64 | `031f28ebdc6fdb5a5ccb2dcc4b3873daf6644e0ba42f1ec5e051f11791180ed9` |
+| darwin-arm64 | `4e22bd87ed76f5b03f51b5f9fa1393e097ba8d19cbcbb6b568187fc65eed4379` |
+| linux-amd64 | `81e60a6dfd9691ff1c41c8ffafb1042db05bfd0a94f8e0ec466a853284956faf` |
+| linux-arm64 | `da62dd5137c03e9ede464ddd9cb43ab25577c8f2c3710406a9dbc3731c230cc9` |
