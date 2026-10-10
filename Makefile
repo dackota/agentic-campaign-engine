@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test up down gateway-check
+.PHONY: help lint fmt test types up down gateway-check
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -21,6 +21,9 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 	pnpm --filter web test
 	pnpm --filter web exec playwright install --with-deps chromium
 	pnpm --filter web e2e
+
+types: ## Regenerate the web app's workflow types from the workflow JSON Schema
+	uv run python scripts/gen_workflow_types.py
 
 up: ## Stub: start the local cluster (a later ticket fills it)
 	@echo "up: not implemented yet"
