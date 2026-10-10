@@ -5,7 +5,7 @@ import { defineConfig } from "@playwright/test";
 const apiPort = process.env.ACE_API_PORT ?? "18080";
 const webPort = process.env.ACE_WEB_PORT ?? "15173";
 const root = resolve(import.meta.dirname, "../..");
-const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes"]
+const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
   .map((p) => resolve(root, p))
   .join(delimiter);
 const env = { ...process.env, ACE_API_PORT: apiPort, PYTHONPATH: pythonPath } as Record<
