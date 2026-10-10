@@ -11,6 +11,7 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     create_engine,
     select,
@@ -43,6 +44,8 @@ class Campaign(Base):
     report: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(String(20), default=DRAFTING)
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    # The A/B test's second email; `draft` is variant A.
+    variant_b: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -59,6 +62,23 @@ class RunEvent(Base):
     status: Mapped[str] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class Activity(Base):
+    """One activity webhook from a marketing system, recorded once per (source, event id)."""
+
+    __tablename__ = "activities"
+    __table_args__ = (UniqueConstraint("source", "event_id"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40))
+    event_id: Mapped[str] = mapped_column(String(200))
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    type: Mapped[str] = mapped_column(String(40))
+    variant: Mapped[str] = mapped_column(String(20))
+    received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
 
