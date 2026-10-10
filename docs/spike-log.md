@@ -247,3 +247,76 @@ shared with `SO_REUSEPORT` so kagent-adk still binds it). Two runs, both:
 
 Upstream bug: draft 6, `docs/upstream-bugs/6-python-byo-wake-never-completes.md`.
 Decision: `docs/decisions/python-byo-wakeup.md`.
+## 14. Suspend and wake with context (S21)
+
+`scripts/spike/suspend-wake.sh` (live depth, exits 0 only on success). The mock model
+(`manifests/spike/mock-llm.yaml`) now answers "What is the code word?" from an earlier
+"The code word is X" in the history the harness sends it. A model that sees no history
+says "I do not know the code word", so a lost context fails the script.
+
+Run: message 1 sets the code word `violet-otter-17` on a new session. The actor
+`session-<contextId>` (`kubectl-ate get actors -A`) was `ACTOR_STATE_SUSPENDED` by the time the
+first poll ran, a few seconds after the reply, with no worker pod. Message 2 on the same
+`contextId` woke it (`ACTOR_STATE_RUNNING`) and the reply was `The code word is violet-otter-17`.
+Whole script: about 4 s. So idle suspend is eager in this config: the harness suspends right
+after a turn ends, there is no minutes-long idle timer to wait for. (The earlier
+"within a minute" note in section 8 was only the first poll.)
+
+Gotchas: the `kubectl-ate get actors` columns shift when a worker pod is absent (`<none>`),
+so read the state from column 4, not by position from the right. A2A sessions are the actors
+named `session-<contextId>`; the session id is the contextId the first reply returns.
+
+## 15. Standalone sandbox (S21)
+
+`scripts/spike/sandbox.sh`: `kagent sandbox create spike-sandbox --request-id ... -o json`
+returns `RUNTIME_STATE_READY` at once (the template is already prepared), `exec` prints
+`hello from s21 sandbox` with exit 0, `delete` then `get` shows `RUNTIME_STATE_DELETED`.
+The script deletes the sandbox on any failure too. A sandbox gets a default 1 h TTL
+(`expiresAt`; activity does not extend it).
+
+## 16. Sandbox network limits (for the design agent ticket)
+
+Measured from inside a sandbox (gVisor, alpine, root, 2 CPUs, 1024 MiB RAM, `/data` is a
+shared 165 GiB disk view). Default template, no network settings. The SandboxTemplate CRD
+(`api.kagent.dev/v1alpha3`) has no egress or network field: only `workload.image`, `env`,
+`substrate`. `SandboxConfig` (ate.dev) has only `assets`, `pauseImage`, `sandboxClass`.
+
+| Probe from the sandbox | Result |
+|---|---|
+| DNS (`nslookup example.com`) via 169.254.17.1 | works, returns real A and AAAA records |
+| Outbound HTTP and HTTPS to `example.com` | `HTTP/1.1 403 Forbidden` (the egress proxy answers) |
+| Outbound to in-cluster services (`kagent-controller`, `mock-llm`, the API server ClusterIP) | `403 Forbidden` |
+| Cloud metadata address 169.254.169.254 | `403 Forbidden` |
+| ICMP ping to 1.1.1.1 | 100% loss |
+| Proxy environment variables | none set; the redirect is transparent |
+
+Reading: egress is deny-by-default and goes through Substrate's `atenet-egress` proxy (the
+`egress-mitm` CA pool made in the install). Ingress (inferred, not probed): nothing reaches the sandbox except
+`kagent sandbox exec/upload/download` through the controller; the sandbox has no
+inbound route of its own. The design agent ticket must therefore not assume a sandbox can
+fetch a package, call an API, or reach the MCP tools service. Work in a sandbox is limited to
+code and files pushed in with `upload`, with results pulled out with `download`/`exec`. No way
+to allow-list a host was found in alpha9 (draft bug 6). Not tested: whether an egress policy
+exists on the Substrate side (`atenet-egress` config) and the HTTP 403 for an allowed host.
+
+## 17. Platform RAM (S21)
+
+Measured 2026-10-10 on the k3d node with `kubectl --context k3d-ace-spike top pods -A`, all
+sessions suspended, no sandbox running. Docker Desktop VM 23.4 GiB.
+
+| Part | RAM |
+|---|---|
+| Substrate (`ate-system`: atelet 247, rustfs 177, postgres 60, api-server 80, controller 21, atenet 71, credential provider 12) | 668 MiB |
+| Pod certificate controller | 17 MiB |
+| kagent (controller 89, postgresql 65, grafana-mcp 20, tools 20, kmcp 18, ui 3) | 215 MiB |
+| **Platform alone (the three rows above)** | **about 900 MiB** |
+| WorkerPool worker pod `kagent-default` (one warm worker, holds the running actors) | 535 MiB |
+| k3s system pods (coredns, traefik, metrics-server, provisioner) | 94 MiB |
+| Platform plus worker plus k3s system | about 1.5 GiB |
+| Mock model server | 11 MiB |
+| `docker stats` for the whole k3d node container | 3.44 GiB (page cache, containerd, kubelet; and ticket 22's agentgateway, 53 MiB, was installed at the time) |
+
+A suspended session costs no pod RAM: its state is a snapshot in rustfs. Budget for the
+demo laptop: about 1 GiB for the platform, about 0.5 GiB per warm worker, plus whatever the
+running agents and the control plane's own node use. 2.3 GiB at the end of S0 (section 10)
+and 3.44 GiB now are both node totals; the pod sums above are the number to design to.
