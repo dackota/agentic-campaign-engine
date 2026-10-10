@@ -1,0 +1,15 @@
+# The release is named `ace` in namespace `ace`, by `make up` and by the Tiltfile alike.
+web:
+  image:
+    # Ours: built from apps/web/Dockerfile and pushed to the cluster's local registry.
+    repository: ace-web
+    tag: dev
+    pullPolicy: IfNotPresent
+  # Fixed host port 15180 maps to this node port in platform/ace-cluster.yaml.
+  nodePort: 30180
+  # nginx looks the API up at request time, so the web pod starts before the API exists.
+  dnsResolver: kube-dns.kube-system.svc.cluster.local
+
+api:
+  serviceName: api
+  port: 8000

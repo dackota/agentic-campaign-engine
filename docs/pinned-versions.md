@@ -51,3 +51,17 @@ The checksums are of the unsigned release files (computed 2026-10-10).
 | darwin-arm64 | `4e22bd87ed76f5b03f51b5f9fa1393e097ba8d19cbcbb6b568187fc65eed4379` |
 | linux-amd64 | `81e60a6dfd9691ff1c41c8ffafb1042db05bfd0a94f8e0ec466a853284956faf` |
 | linux-arm64 | `da62dd5137c03e9ede464ddd9cb43ab25577c8f2c3710406a9dbc3731c230cc9` |
+
+## `make dev` and the web image
+
+Tilt is not fetched by any script: install this version on PATH or in `.bin/` (macOS arm64 asset:
+`tilt.0.37.8.mac.arm64.tar.gz` from the tilt-dev/tilt release). `platform/dev.sh` refuses any other version.
+The base image digests are index digests read with `docker buildx imagetools inspect` on 2026-10-10.
+
+| Part | Version | Digest |
+|---|---|---|
+| Tilt | v0.37.8 | n/a |
+| tilt-extensions (`helm_resource`), `ref` in the Tiltfile | commit `7f9f376076bbe18cb76474d7cdda16894d139b81` (master, 2026-09-12) | n/a |
+| Web image build base (`node`) | `node:22-bookworm-slim` | index `sha256:c3de60bf2f9dd0ac6370e6117950ff62d6e339527e7472301c9c78a017978392` |
+| Web image runtime base (`nginx-unprivileged`) | `nginxinc/nginx-unprivileged:1.31.5-alpine` | index `sha256:19c132c9ab02d3b783f478743dafc7a7f42e27aa7d2bdcbec1bb1128ca8f2a07` |
+| pnpm in the web image build | 9.15.9 (npm package) | n/a |

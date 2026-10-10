@@ -32,3 +32,6 @@ Home for this part. Later tickets fill it.
   when `OPENCODE_KEY` is missing or empty in `.env`; it never prints a value.
 - `status.sh` (the platform half of `make status`) prints `ok` or `FAIL` per Helm release,
   controller rollout, and Agent Ready condition.
+- `dev.sh` backs `make dev`: it checks the pinned Tilt version, cuts your kubeconfig down to the
+  `k3d-ace` context in a temporary file, and runs `tilt up` with it. The `Tiltfile` builds the web
+  image and deploys `charts/ace` as release `ace` with `helm_resource`. Run `make up` first.

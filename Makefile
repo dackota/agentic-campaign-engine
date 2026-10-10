@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test types up down status gateway-check gateway-failover-check env-check up-cluster up-platform status-cluster status-platform
+.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -46,6 +46,9 @@ status-cluster:
 
 status-platform:
 	platform/status.sh
+
+dev: ## Run Tilt on the ace cluster: saving a web file rebuilds and replaces the web pod (run make up first)
+	platform/dev.sh
 
 gateway-check: ## Live: check agents reach OpenCode Go only through agentgateway (needs the cluster)
 	scripts/spike/gateway-check.sh
