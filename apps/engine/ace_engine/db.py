@@ -23,6 +23,8 @@ AWAITING_APPROVAL = "awaiting_approval"
 SENDING = "sending"
 SENT = "sent"
 FAILED = "failed"
+# A run whose workflow has no publish step ends here.
+FINISHED = "finished"
 
 # Run events: one row per step status change; the step "run" carries the final state.
 RUN_STEP = "run"
@@ -45,6 +47,24 @@ class Campaign(Base):
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The run pins its workflow: the version it started on and a copy of that DAG.
+    # Both are None for a campaign on the built-in default workflow.
+    workflow_name: Mapped[str | None] = mapped_column(String(63), nullable=True)
+    workflow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    dag: Mapped[dict[str, Any]] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class WorkflowVersion(Base):
+    """One saved version of a workflow DAG. Versions are never edited, only added."""
+
+    __tablename__ = "workflow_versions"
+
+    name: Mapped[str] = mapped_column(String(63), primary_key=True)
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    dag: Mapped[dict[str, Any]] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

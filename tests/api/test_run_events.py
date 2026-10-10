@@ -2,34 +2,11 @@
 
 import json
 import uuid
-from typing import Any
 
 import httpx
 
-from tests.api.helpers import GOOD_DRAFT, create
+from tests.api.helpers import GOOD_DRAFT, create, read_events
 from tests.harness.stack import Stack
-
-STREAM_TIMEOUT_SECONDS = 30
-
-
-def read_events(
-    api: httpx.Client, campaign_id: str, last_event_id: int | None = None
-) -> list[dict[str, Any]]:
-    """Read the stream until the server closes it; one dict per event."""
-    headers = {"Last-Event-ID": str(last_event_id)} if last_event_id is not None else {}
-    events: list[dict[str, Any]] = []
-    with api.stream(
-        "GET",
-        f"/campaigns/{campaign_id}/events",
-        headers=headers,
-        timeout=STREAM_TIMEOUT_SECONDS,
-    ) as response:
-        assert response.status_code == 200, response.read()
-        assert response.headers["content-type"].startswith("text/event-stream")
-        for line in response.iter_lines():
-            if line.startswith("data: "):
-                events.append(json.loads(line[len("data: ") :]))
-    return events
 
 
 def test_stream_emits_step_events_in_order_ending_in_final_state(api: httpx.Client) -> None:

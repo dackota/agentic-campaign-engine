@@ -12,12 +12,12 @@ from tests.api.helpers import (
     create,
     create_on,
     edge,
+    read_events,
     save_workflow,
     step,
     until_status,
     workflow_name,
 )
-from tests.api.test_run_events import read_events
 
 FINISHED = "finished"
 
@@ -31,7 +31,9 @@ def events_after(api: httpx.Client, campaign_id: str, seq: int) -> list[dict[str
 
 
 def seq_of(events: list[dict[str, Any]], step_id: str, status: str) -> int:
-    matches = [e["seq"] for e in events if e["step"] == step_id and e["status"] == status]
+    matches: list[int] = [
+        e["seq"] for e in events if e["step"] == step_id and e["status"] == status
+    ]
     assert len(matches) == 1, (step_id, status, events)
     return matches[0]
 

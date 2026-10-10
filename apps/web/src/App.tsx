@@ -9,6 +9,7 @@ import {
 } from "./api";
 import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
+import type { WorkflowStep } from "./workflow.gen";
 
 const POLL_MS = 500;
 
@@ -20,7 +21,10 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   sending: "Sending",
   sent: "Sent",
   failed: "Failed",
+  finished: "Finished",
 };
+
+const PENDING = "pending";
 
 async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
   let current = first;
@@ -32,12 +36,13 @@ async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void
   }
 }
 
-function RunSteps({ steps }: { steps: Record<string, RunEvent> }) {
+/** The pinned workflow's steps in run order, each with its latest status. */
+function RunSteps({ dag, events }: { dag: WorkflowStep[]; events: Record<string, RunEvent> }) {
   return (
     <ul aria-label="Run steps">
-      {Object.values(steps).map((event) => (
-        <li key={event.step} data-testid={`step-${event.step}`}>
-          {STEP_LABELS[event.step] ?? event.step}: {event.status}
+      {dag.map((step) => (
+        <li key={step.id} data-testid={`step-${step.id}`}>
+          {STEP_LABELS[step.id] ?? step.id}: {events[step.id]?.status ?? PENDING}
         </li>
       ))}
     </ul>
@@ -57,6 +62,7 @@ function DraftView({ draft }: { draft: EmailDraft }) {
 
 export function App() {
   const [report, setReport] = useState("");
+  const [workflow, setWorkflow] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
@@ -67,7 +73,7 @@ export function App() {
     setCampaign(null);
     reset();
     try {
-      setCampaign(await createCampaign(report));
+      setCampaign(await createCampaign(report, workflow));
     } catch (e) {
       setError(messageOf(e));
     }
@@ -90,12 +96,20 @@ export function App() {
           Threat report
           <textarea value={report} onChange={(e) => setReport(e.target.value)} rows={10} />
         </label>
+        <label>
+          Workflow
+          <input
+            value={workflow}
+            onChange={(e) => setWorkflow(e.target.value)}
+            placeholder="default"
+          />
+        </label>
         <button type="submit" disabled={!report.trim()}>
           Create campaign
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
-      {campaign && <RunSteps steps={steps} />}
+      {campaign && <RunSteps dag={campaign.steps} events={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {campaign?.draft && <DraftView draft={campaign.draft} />}
       {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (

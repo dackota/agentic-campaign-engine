@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ace.local/schemas/workflow.schema.json",
+  "title": "Workflow",
+  "description": "A campaign workflow: a DAG of steps joined by edges. The one source of truth for workflow shape; the web app's TypeScript types are generated from it.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["steps", "edges"],
+  "properties": {
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": { "$ref": "#/$defs/WorkflowStep" }
+    },
+    "edges": {
+      "type": "array",
+      "maxItems": 200,
+      "items": { "$ref": "#/$defs/WorkflowEdge" }
+    }
+  },
+  "$defs": {
+    "StepKind": {
+      "description": "What a step does: call an agent, render an asset, wait for a human, publish, or wait a while.",
+      "enum": ["agent", "render", "approval", "publish", "wait"]
+    },
+    "StepId": {
+      "description": "Lower-case letters, digits, and underscores, starting with a letter.",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,39}$"
+    },
+    "WorkflowStep": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "kind"],
+      "properties": {
+        "id": { "$ref": "#/$defs/StepId" },
+        "kind": { "$ref": "#/$defs/StepKind" },
+        "duration_seconds": {
+          "description": "How long a wait step waits. Only wait steps have it, and they must.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 2592000
+        }
+      },
+      "if": { "properties": { "kind": { "const": "wait" } }, "required": ["kind"] },
+      "then": { "required": ["duration_seconds"] },
+      "else": { "not": { "required": ["duration_seconds"] } }
+    },
+    "WorkflowEdge": {
+      "description": "The step `to` starts only after the step `from` has succeeded.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["from", "to"],
+      "properties": {
+        "from": { "$ref": "#/$defs/StepId" },
+        "to": { "$ref": "#/$defs/StepId" }
+      }
+    }
+  }
+}
