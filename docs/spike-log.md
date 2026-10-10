@@ -335,6 +335,11 @@ demo laptop: about 1 GiB for the platform, about 0.5 GiB per warm worker, plus w
 running agents and the control plane's own node use. 2.3 GiB at the end of S0 (section 10)
 and 3.44 GiB now are both node totals; the pod sums above are the number to design to.
 
+Node total after `make up` on `k3d-ace` (S2, ticket 78): 3.11 GiB. Measured 2026-10-10
+with `docker stats --no-stream` on `k3d-ace-server-0` (3.11GiB of 23.43GiB, 13.27%), about
+11 minutes after the cluster came up, with the platform, agentgateway, and our app
+installed and no run in flight. The README quotes this number.
+
 ## 18. S1: failover and team token limits
 
 Run 2026-10-10 on k3d-ace-spike, agentgateway v1.6.0. Decision record:
