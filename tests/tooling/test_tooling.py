@@ -25,7 +25,7 @@ def test_make_help_lists_targets() -> None:
     out = subprocess.run(
         ["make", "help"], cwd=ROOT, capture_output=True, text=True, check=True
     ).stdout
-    for target in ("help", "lint", "fmt", "test", "up", "down"):
+    for target in ("help", "lint", "fmt", "test", "up", "down", "status"):
         assert any(line.split()[:1] == [target] for line in out.splitlines()), target
 
 
