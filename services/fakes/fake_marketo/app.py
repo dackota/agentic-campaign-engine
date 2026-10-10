@@ -41,14 +41,15 @@ def create_app() -> FastAPI:
     def set_fault(body: Fault) -> Response:
         """Test hook: make sends answer with a reply that has no receipt id."""
         nonlocal fault
-        fault = body
+        with lock:
+            fault = body
         return Response(status_code=204)
 
     @app.post("/rest/v1/emails/send")
     def send(body: SendRequest) -> dict[str, Any]:
-        if fault.malformed_reply:
-            return {"success": True, "result": []}
         with lock:
+            if fault.malformed_reply:
+                return {"success": True, "result": []}
             record = sends.get(body.campaign_id)
             if record is None:
                 receipt = f"fake-marketo-{uuid.uuid4().hex[:RECEIPT_HEX_LENGTH]}"
