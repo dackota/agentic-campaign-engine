@@ -1,5 +1,6 @@
 """Activities: the side-effecting steps the campaign workflow runs."""
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -26,8 +27,13 @@ class Activities:
         self._settings = settings
         self._engine = engine
 
+    def _record(self, campaign_id: str, step: str, status: str, reason: str | None = None) -> None:
+        with Session(self._engine) as session, session.begin():
+            db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
+
     @activity.defn
     async def write_email_draft(self, campaign_id: str, report: str) -> dict[str, Any]:
+        await asyncio.to_thread(self._record, campaign_id, db.EMAIL_DRAFT_STEP, db.STEP_STARTED)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
                 result = await invoker.invoke(
@@ -49,6 +55,8 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.draft = draft
             campaign.status = db.DRAFTED
+            db.add_event(session, campaign.id, db.EMAIL_DRAFT_STEP, db.STEP_SUCCEEDED)
+            db.add_event(session, campaign.id, db.RUN_STEP, db.DRAFTED)
 
     @activity.defn
     def mark_failed(self, campaign_id: str, reason: str) -> None:
@@ -56,3 +64,5 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.FAILED
             campaign.failure_reason = reason
+            db.add_event(session, campaign.id, db.EMAIL_DRAFT_STEP, db.STEP_FAILED, reason)
+            db.add_event(session, campaign.id, db.RUN_STEP, db.FAILED, reason)

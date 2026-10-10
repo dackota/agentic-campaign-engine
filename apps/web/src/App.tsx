@@ -1,29 +1,46 @@
-import { useState, type FormEvent } from "react";
-import { createCampaign, getCampaign, type Campaign } from "./api";
+import { useEffect, useState, type FormEvent } from "react";
+import {
+  createCampaign,
+  getCampaign,
+  isFinalEvent,
+  watchRun,
+  type Campaign,
+  type RunEvent,
+} from "./api";
 
-const POLL_MS = 500;
-
-async function untilSettled(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
-  let current = first;
-  onUpdate(current);
-  while (current.status === "drafting") {
-    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
-    current = await getCampaign(current.id);
-    onUpdate(current);
-  }
-}
+const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
 export function App() {
   const [report, setReport] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [steps, setSteps] = useState<Record<string, RunEvent>>({});
+  const campaignId = campaign?.id;
+
+  useEffect(() => {
+    if (!campaignId) return;
+    return watchRun(
+      campaignId,
+      (event) => {
+        if (isFinalEvent(event)) {
+          getCampaign(campaignId).then(setCampaign, (e: unknown) =>
+            setError(e instanceof Error ? e.message : String(e)),
+          );
+        } else {
+          setSteps((current) => ({ ...current, [event.step]: event }));
+        }
+      },
+      setError,
+    );
+  }, [campaignId]);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setCampaign(null);
+    setSteps({});
     try {
-      await untilSettled(await createCampaign(report), setCampaign);
+      setCampaign(await createCampaign(report));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -42,7 +59,15 @@ export function App() {
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
-      {campaign?.status === "drafting" && <p>Drafting the email...</p>}
+      {campaign && (
+        <ul aria-label="Run steps">
+          {Object.values(steps).map((event) => (
+            <li key={event.step} data-testid={`step-${event.step}`}>
+              {STEP_LABELS[event.step] ?? event.step}: {event.status}
+            </li>
+          ))}
+        </ul>
+      )}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {campaign?.draft && (
         <section aria-label="Email draft">
