@@ -12,6 +12,8 @@ from typing import Any
 
 import yaml
 
+from tests.tooling.platform_stubs import DOCKER_STUB, K3D_STUB
+
 ROOT = Path(__file__).resolve().parents[2]
 SPEC_CONFIG = ROOT / "k3d/ace-spike.yaml"
 CONFIG = ROOT / "platform/ace-cluster.yaml"
@@ -21,31 +23,6 @@ NODEPORT_MIN = 30000
 NODEPORT_MAX = 32767
 TOOLS = ("k3d", "docker", "kubectl", "helm", "jq")
 
-DOCKER_STUB = """#!/bin/sh
-echo "docker $*" >> "$STUB_LOG"
-if { [ -n "$STUB_FAIL" ] && [ "$1" != info ]; } || [ "$STUB_DOCKER_FAIL" = "$1 $2" ]; then
-  echo "docker: daemon unreachable" >&2; exit 1
-fi
-case "$1 $2" in
-  "info --format") echo "${STUB_MEM_TOTAL:-25159827456}" ;;
-  "stats --no-stream") echo "${STUB_MEM_USED:-3.54GiB / 23.4GiB}" ;;
-  "volume ls") [ -n "$STUB_VOLUME" ] && echo "ace-ate"; echo "ace-ate-old" ;;
-esac
-exit 0
-"""
-K3D_STUB = """#!/bin/sh
-echo "k3d $*" >> "$STUB_LOG"
-if [ -n "$STUB_FAIL" ] || [ "$STUB_K3D_FAIL" = "$1 $2" ]; then
-  echo "k3d: docker daemon unreachable" >&2; exit 1
-fi
-case "$1 $2" in
-  "cluster list") [ -n "$STUB_CLUSTER" ] && echo "ace 1/1 0/0 true"; echo "ace-old 1/1 0/0 true" ;;
-  "registry list")
-    [ -n "$STUB_REGISTRY" ] && echo "k3d-ace-registry"
-    echo "k3d-ace-registry-old" ;;
-esac
-exit 0
-"""
 KUBECTL_STUB = """#!/bin/sh
 echo "kubectl $*" >> "$STUB_LOG"
 if [ -n "$STUB_KUBECTL_FAIL" ]; then echo "kubectl: connection refused" >&2; exit 1; fi
@@ -150,35 +127,37 @@ def test_cluster_name_is_one_constant() -> None:
 
 
 def test_make_up_creates_cluster_from_platform_config(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up")
+    result, calls = _run(tmp_path, "up-cluster")
     assert result.returncode == 0, result.stderr
     create = [c for c in calls if c.startswith("k3d cluster create")]
     assert len(create) == 1 and "platform/ace-cluster.yaml" in create[0]
 
 
 def test_make_up_twice_does_not_recreate(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up", STUB_CLUSTER="1")
+    result, calls = _run(tmp_path, "up-cluster", STUB_CLUSTER="1")
     assert result.returncode == 0, result.stderr
     assert not [c for c in calls if "cluster create" in c]
     assert "already exists" in result.stdout + result.stderr
 
 
 def test_preflight_names_missing_tool_and_creates_nothing(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up", tools=("docker", "kubectl", "helm", "jq"))
+    result, calls = _run(tmp_path, "up-cluster", tools=("docker", "kubectl", "helm", "jq"))
     assert result.returncode != 0
     assert "k3d" in result.stdout + result.stderr
     assert not [c for c in calls if "cluster create" in c]
 
 
 def test_preflight_names_missing_env_file(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up", env_file=False)
+    result, calls = _run(tmp_path, "up-cluster", env_file=False)
     assert result.returncode != 0
     assert ".env" in result.stdout + result.stderr
     assert not [c for c in calls if "cluster create" in c]
 
 
 def test_preflight_names_low_memory_and_the_number_seen(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up", STUB_MEM_TOTAL="8589934592", STUB_MEM_USED="3GiB / 8GiB")
+    result, calls = _run(
+        tmp_path, "up-cluster", STUB_MEM_TOTAL="8589934592", STUB_MEM_USED="3GiB / 8GiB"
+    )
     assert result.returncode != 0
     out = result.stdout + result.stderr
     assert "memory" in out.lower() and "5.0" in out
@@ -186,7 +165,7 @@ def test_preflight_names_low_memory_and_the_number_seen(tmp_path: Path) -> None:
 
 
 def test_env_file_values_never_reach_output(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "up")
+    result, _ = _run(tmp_path, "up-cluster")
     assert "sk-secret" not in result.stdout + result.stderr
     code = CLUSTER_SCRIPT.read_text() + (ROOT / "platform/preflight.sh").read_text()
     assert not re.search(r"\b(cat|source|grep|head|sed)\b[^\n#]*ENV_FILE", code)
@@ -194,7 +173,7 @@ def test_env_file_values_never_reach_output(tmp_path: Path) -> None:
 
 
 def test_status_prints_ok_lines(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "status", STUB_CLUSTER="1")
+    result, _ = _run(tmp_path, "status-cluster", STUB_CLUSTER="1")
     assert result.returncode == 0, result.stderr
     lines = result.stdout.splitlines()
     assert len(lines) == 3 and all(line.startswith("ok") for line in lines)
@@ -202,13 +181,13 @@ def test_status_prints_ok_lines(tmp_path: Path) -> None:
 
 
 def test_status_fails_when_cluster_missing(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "status")
+    result, _ = _run(tmp_path, "status-cluster")
     assert result.returncode != 0
     assert any(line.startswith("FAIL") for line in result.stdout.splitlines())
 
 
 def test_status_fails_when_node_not_ready(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_READY="False")
+    result, _ = _run(tmp_path, "status-cluster", STUB_CLUSTER="1", STUB_READY="False")
     assert result.returncode != 0
     assert "FAIL" in result.stdout
 
@@ -247,20 +226,20 @@ def test_down_ignores_look_alike_names(tmp_path: Path) -> None:
 
 
 def test_status_reports_k3d_error_not_absence(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "status", STUB_FAIL="1")
+    result, _ = _run(tmp_path, "status-cluster", STUB_FAIL="1")
     assert result.returncode != 0
     assert "daemon unreachable" in result.stdout
     assert "does not exist" not in result.stdout
 
 
 def test_status_keeps_kubectl_error(tmp_path: Path) -> None:
-    result, _ = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_KUBECTL_FAIL="1")
+    result, _ = _run(tmp_path, "status-cluster", STUB_CLUSTER="1", STUB_KUBECTL_FAIL="1")
     assert result.returncode != 0
     assert "connection refused" in result.stdout
 
 
 def test_up_does_not_create_when_listing_clusters_fails(tmp_path: Path) -> None:
-    result, calls = _run(tmp_path, "up", STUB_K3D_FAIL="cluster list")
+    result, calls = _run(tmp_path, "up-cluster", STUB_K3D_FAIL="cluster list")
     assert result.returncode != 0
     assert "daemon unreachable" in result.stdout + result.stderr
     assert not [c for c in calls if "cluster create" in c]

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test types up down status gateway-check gateway-failover-check
+.PHONY: help lint fmt test types up down status gateway-check gateway-failover-check env-check up-cluster up-platform status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -25,14 +25,27 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py
 
-up: ## Create the ace cluster (checks tools, .env, and free Docker memory first)
+up: env-check up-cluster up-platform ## Create the ace cluster and install Substrate, kagent, and agentgateway on it
+
+env-check:
+	platform/install.sh check-env
+
+up-cluster:
 	platform/cluster.sh up
+
+up-platform:
+	platform/install.sh run
 
 down: ## Delete the ace cluster, its registry, and its volume
 	platform/cluster.sh down
 
-status: ## Report the ace cluster: ok or FAIL per check
+status: status-cluster status-platform ## Report the ace cluster and platform: ok or FAIL per check
+
+status-cluster:
 	platform/cluster.sh status
+
+status-platform:
+	platform/status.sh
 
 gateway-check: ## Live: check agents reach OpenCode Go only through agentgateway (needs the cluster)
 	scripts/spike/gateway-check.sh

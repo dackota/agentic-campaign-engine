@@ -19,3 +19,16 @@ Home for this part. Later tickets fill it.
   first on `up`: tools, `.env` present (never read), and at least 6 GiB free Docker memory.
 - `make up` is safe to repeat. `make down` removes the `ace` cluster, its registry, and its
   `ace-ate` volume, and nothing else.
+
+## The platform on the cluster
+
+- `install.sh run` (the platform half of `make up`) fetches `kubectl-ate` into `.bin/` (SHA-256
+  pinned in `docs/pinned-versions.md`), then calls `scripts/spike/install.sh` (Substrate and
+  kagent) and `scripts/spike/gateway-install.sh` (agentgateway and the model key Secrets), always
+  with `KCTX=k3d-ace`. The first is skipped on a re-run when both releases and the CA pool
+  Secrets exist; the second runs every time. It then applies the mock model and
+  `mock-agent.yaml` (a twin of `spike-agent` on the mock model), waits for both Agents, and
+  smokes the twin over A2A: no paid model call. `install.sh check-env` stops `make up` first
+  when `OPENCODE_KEY` is missing or empty in `.env`; it never prints a value.
+- `status.sh` (the platform half of `make status`) prints `ok` or `FAIL` per Helm release,
+  controller rollout, and Agent Ready condition.

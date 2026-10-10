@@ -1,0 +1,16 @@
+# A twin of the S0 agent that talks to the mock model, so the smoke at the end of `make up`
+# makes no paid call and does not depend on what .env holds.
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata: {name: spike-mock-template, namespace: kagent}
+spec:
+  description: Spike agent backed by the mock model
+  modelConfig: {name: mock-model}
+  systemPrompt: You are a concise, helpful assistant.
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: spike-agent-mock, namespace: kagent}
+spec:
+  templateRef: {name: spike-mock-template}
+  harnessRef: {name: spike-harness}
