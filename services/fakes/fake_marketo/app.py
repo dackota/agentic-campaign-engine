@@ -142,7 +142,14 @@ def create_app(config: MarketoConfig) -> FastAPI:
             raise HTTPException(status_code=401, detail=INVALID_TOKEN)
 
     authorized = [Depends(bearer)]
+    _add_ops_routes(app, store)
+    _add_token_route(app, store, config)
+    _add_program_routes(app, store, authorized)
+    _add_send_route(app, store, config, authorized)
+    return app
 
+
+def _add_ops_routes(app: FastAPI, store: _Store) -> None:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -154,6 +161,8 @@ def create_app(config: MarketoConfig) -> FastAPI:
             store.fault = body
         return Response(status_code=204)
 
+
+def _add_token_route(app: FastAPI, store: _Store, config: MarketoConfig) -> None:
     @app.post("/identity/oauth/token", response_model=None)
     async def token(request: Request) -> JSONResponse | dict[str, Any]:
         fields = await _credentials(request)
@@ -173,6 +182,8 @@ def create_app(config: MarketoConfig) -> FastAPI:
             "scope": config.client_id,
         }
 
+
+def _add_program_routes(app: FastAPI, store: _Store, authorized: list[Any]) -> None:
     @app.post("/rest/asset/v1/programs.json", dependencies=authorized)
     def create_program(body: NewProgram) -> dict[str, Any]:
         with store.lock:
@@ -204,6 +215,40 @@ def create_app(config: MarketoConfig) -> FastAPI:
         with store.lock:
             return {"success": True, "result": [_copy(store.program(program_id))]}
 
+
+def _record_send(store: _Store, program_id: int, body: AbSend) -> tuple[dict[str, Any], bool]:
+    """The program's one send, made now if it has none; and whether it was made now.
+    The caller holds the lock."""
+    program = store.program(program_id)
+    is_new = not program["sends"]
+    if is_new:
+        program["sends"].append(
+            {
+                "id": str(uuid.uuid4()),
+                "receiptId": f"fake-marketo-{uuid.uuid4().hex[:RECEIPT_HEX_LENGTH]}",
+                "status": "sent",
+                "variants": [v.model_dump() for v in body.variants],
+            }
+        )
+    return program, is_new
+
+
+def _send_events(program: dict[str, Any], labels: list[str]) -> list[dict[str, Any]]:
+    send_id = program["sends"][0]["id"]
+    return [
+        {
+            "id": f"{send_id}-{label}",
+            "type": "send",
+            "campaignId": program["externalId"],
+            "variant": label,
+        }
+        for label in labels
+    ]
+
+
+def _add_send_route(
+    app: FastAPI, store: _Store, config: MarketoConfig, authorized: list[Any]
+) -> None:
     @app.post(
         "/rest/asset/v1/program/{program_id}/abSend.json",
         dependencies=authorized,
@@ -214,34 +259,16 @@ def create_app(config: MarketoConfig) -> FastAPI:
         if len(set(labels)) != len(labels):
             raise HTTPException(status_code=400, detail="variant labels must differ")
         with store.lock:
-            program = store.program(program_id)
             fault = store.fault
             if fault.malformed_reply:
+                store.program(program_id)
                 return {"success": True, "result": []}
-            is_new = not program["sends"]
-            if is_new:
-                send_id = str(uuid.uuid4())
-                program["sends"].append(
-                    {
-                        "id": send_id,
-                        "receiptId": f"fake-marketo-{uuid.uuid4().hex[:RECEIPT_HEX_LENGTH]}",
-                        "status": "sent",
-                        "variants": [v.model_dump() for v in body.variants],
-                    }
-                )
-            send = program["sends"][0]
+            program, is_new = _record_send(store, program_id, body)
+            send = _copy(program["sends"][0])
+            events = _send_events(program, labels) if is_new else []
             if fault.drop_next_send_reply:
                 store.fault = fault.model_copy(update={"drop_next_send_reply": False})
-        if is_new:
-            events = [
-                {
-                    "id": f"{send['id']}-{label}",
-                    "type": "send",
-                    "campaignId": program["externalId"],
-                    "variant": label,
-                }
-                for label in labels
-            ]
+        if events:
             threading.Thread(target=_post_activity, args=(config, events), daemon=True).start()
         if fault.drop_next_send_reply:
             return JSONResponse({"success": False, "errors": [{"code": "604"}]}, status_code=503)
@@ -249,5 +276,3 @@ def create_app(config: MarketoConfig) -> FastAPI:
             "success": True,
             "result": [{"id": send["id"], "receiptId": send["receiptId"], "status": "sent"}],
         }
-
-    return app
