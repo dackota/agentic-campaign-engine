@@ -21,6 +21,7 @@ import pytest
 
 from tests.tooling.gateway_files import (
     ANTHROPIC,
+    FAILOVER_CHECK,
     FAILOVER_TEST,
     GATEWAY,
     INSTALL,
@@ -30,7 +31,6 @@ from tests.tooling.gateway_files import (
     script_code,
     yaml_docs,
 )
-from tests.tooling.gateway_files import FAILOVER_CHECK as CHECK
 
 ADR = ROOT / "docs/decisions/llm-gateway-failover.md"
 TEAMS = ("team-a", "team-b")
@@ -167,7 +167,7 @@ def test_access_log_names_the_team() -> None:
 
 
 def test_check_script_covers_failover_429_and_tokens_per_team() -> None:
-    code = script_code(CHECK)
+    code = script_code(FAILOVER_CHECK)
     for needle in (
         "--context",
         "failover-test",
