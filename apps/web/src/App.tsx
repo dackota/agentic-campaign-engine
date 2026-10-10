@@ -1,7 +1,17 @@
 import { useState, type FormEvent } from "react";
-import { approveCampaign, createCampaign, getCampaign, type Campaign } from "./api";
+import {
+  approveCampaign,
+  createCampaign,
+  getCampaign,
+  type Campaign,
+  type EmailDraft,
+  type RunEvent,
+} from "./api";
+import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
+
+const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
 const STATUS_LABELS: Record<Campaign["status"], string> = {
   drafting: "Drafting",
@@ -11,31 +21,52 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   failed: "Failed",
 };
 
-async function pollWhile(
-  first: Campaign,
-  isBusy: (c: Campaign) => boolean,
-  onUpdate: (c: Campaign) => void,
-): Promise<void> {
+async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
   let current = first;
   onUpdate(current);
-  while (isBusy(current)) {
+  while (current.status === "sending") {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     current = await getCampaign(current.id);
     onUpdate(current);
   }
 }
 
+function RunSteps({ steps }: { steps: Record<string, RunEvent> }) {
+  return (
+    <ul aria-label="Run steps">
+      {Object.values(steps).map((event) => (
+        <li key={event.step} data-testid={`step-${event.step}`}>
+          {STEP_LABELS[event.step] ?? event.step}: {event.status}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DraftView({ draft }: { draft: EmailDraft }) {
+  return (
+    <section aria-label="Email draft">
+      <h2 data-testid="draft-subject">{draft.subject}</h2>
+      <p>{draft.preheader}</p>
+      <pre data-testid="draft-body">{draft.body}</pre>
+      <p>{draft.call_to_action}</p>
+    </section>
+  );
+}
+
 export function App() {
   const [report, setReport] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setCampaign(null);
+    reset();
     try {
-      await pollWhile(await createCampaign(report), (c) => c.status === "drafting", setCampaign);
+      setCampaign(await createCampaign(report));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -44,11 +75,7 @@ export function App() {
   async function approve(id: string) {
     setError(null);
     try {
-      await pollWhile(
-        await approveCampaign(id),
-        (c) => c.status === "sending",
-        setCampaign,
-      );
+      await pollWhileSending(await approveCampaign(id), setCampaign);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -67,16 +94,9 @@ export function App() {
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
-      {campaign?.status === "drafting" && <p>Drafting the email...</p>}
+      {campaign && <RunSteps steps={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
-      {campaign?.draft && (
-        <section aria-label="Email draft">
-          <h2 data-testid="draft-subject">{campaign.draft.subject}</h2>
-          <p>{campaign.draft.preheader}</p>
-          <pre data-testid="draft-body">{campaign.draft.body}</pre>
-          <p>{campaign.draft.call_to_action}</p>
-        </section>
-      )}
+      {campaign?.draft && <DraftView draft={campaign.draft} />}
       {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>

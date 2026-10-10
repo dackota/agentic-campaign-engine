@@ -181,3 +181,34 @@ kubectl --context k3d-ace-spike get agent spike-agent -n kagent -o jsonpath='{.s
 scripts/spike/a2a-smoke.sh   -> 42, exit 0
 ```
 The smoke script already asserts both the digest pin and Agent Ready; unchanged.
+
+## 14. S1: agents call models through agentgateway
+
+agentgateway v1.6.0 (`agentgateway-crds` and `agentgateway` charts, `cr.agentgateway.dev`)
+in `agentgateway-system`. `scripts/spike/gateway-install.sh` installs it, makes Secret
+`opencode-go-key` (key `Authorization`) from `OPENCODE_KEY` in `.env`, and applies
+`manifests/spike/gateway.yaml`: a Gateway, an `AgentgatewayBackend` (host `opencode.ai`,
+path `/zen/go/v1/chat/completions`, TLS, auth from the Secret), an HTTPRoute on `/v1`, and
+ModelConfig `gateway-model` with `baseUrl` `http://agentgateway-proxy.agentgateway-system.svc.cluster.local/v1`.
+`spike-template` now uses `gateway-model` (model `glm-5.3-flash`). The ModelConfig still
+names the placeholder `kagent-openai` Secret, which holds `spike-not-a-real-key`.
+
+`scripts/spike/gateway-check.sh` (live, `make gateway-check`) saw: spike agent answers
+`42`; gateway log shows `http.status=200 gen_ai.usage.input_tokens=301
+gen_ai.usage.output_tokens=29` for the call; OpenCode headers `user-agent:
+agentic-campaign-engine/0.1` and `x-opencode-session`; no pod outside `agentgateway-system`
+has a provider key in env or mounted Secrets, and the key value is in no other Secret.
+Output saved in `.scratch/ace/proof/23-gateway-check.txt`.
+
+Learned: the HTTPRoute `RequestHeaderModifier` runs before the access log, so an
+`AgentgatewayPolicy` (`frontend.accessLog.attributes`) can print the headers OpenCode gets.
+
+### x-opencode-session: per agent, not per conversation
+
+The header is set per agent today. The route filter sets a fixed value. kagent
+ModelConfig has `spec.defaultHeaders`, also a fixed map per ModelConfig, and the golang
+ADK harness offers no per-request header hook. So one value per ModelConfig (one per agent
+if each agent gets its own) is what we can do. A per-conversation value would need the
+runtime to add the Session id to each model call; nothing in kagent 1.0.0-alpha9 does that.
+Open risk: OpenCode may read a constant session as one very long conversation.
+Revisit if OpenCode throttles or caches by session.

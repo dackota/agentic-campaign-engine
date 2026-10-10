@@ -53,3 +53,60 @@ export function getCampaign(id: string): Promise<Campaign> {
 export function approveCampaign(id: string): Promise<Campaign> {
   return request(`/campaigns/${id}/approve`, { method: "POST" });
 }
+
+export interface RunEvent {
+  seq: number;
+  step: string;
+  status: string;
+  reason: string | null;
+}
+
+const RUN_STEP = "run";
+const RUN_FINAL_STATUSES = ["awaiting_approval", "failed"];
+
+export function isFinalEvent(event: RunEvent): boolean {
+  return event.step === RUN_STEP && RUN_FINAL_STATUSES.includes(event.status);
+}
+
+function isRunEvent(value: unknown): value is RunEvent {
+  if (typeof value !== "object" || value === null) return false;
+  const e = value as Record<string, unknown>;
+  return (
+    typeof e.seq === "number" &&
+    typeof e.step === "string" &&
+    typeof e.status === "string" &&
+    (e.reason === null || typeof e.reason === "string")
+  );
+}
+
+/** Follow a run's event stream; close it after the final event. Returns a stop function. */
+export function watchRun(
+  id: string,
+  onEvent: (event: RunEvent) => void,
+  onError: (message: string) => void,
+): () => void {
+  const source = new EventSource(`/api/campaigns/${id}/events`);
+  source.addEventListener("step", (message) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse((message as MessageEvent<string>).data);
+    } catch (e) {
+      console.error("run event was not JSON", e);
+      parsed = null;
+    }
+    if (!isRunEvent(parsed)) {
+      source.close();
+      onError("the API sent an unexpected run event");
+      return;
+    }
+    onEvent(parsed);
+    if (isFinalEvent(parsed)) source.close();
+  });
+  source.onerror = () => {
+    // CONNECTING means the browser is retrying from the last event id; CLOSED means it gave up.
+    if (source.readyState !== EventSource.CLOSED) return;
+    onError("lost the live run status; reload to see the latest");
+  };
+  // A dropped connection is retried by the browser, resuming from the last event id.
+  return () => source.close();
+}

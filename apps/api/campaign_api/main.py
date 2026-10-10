@@ -1,5 +1,7 @@
 """The Campaign API: create a campaign from a threat report, read it back with its draft."""
 
+import asyncio
+import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -7,8 +9,9 @@ from typing import Annotated, Any
 
 from ace_engine import db
 from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME, Settings
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, StringConstraints
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
@@ -16,6 +19,8 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 MAX_REPORT_CHARS = 100_000
+EVENT_POLL_SECONDS = 0.1
+FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED}
 Report = Annotated[
     str, StringConstraints(strip_whitespace=False, min_length=1, max_length=MAX_REPORT_CHARS)
 ]
@@ -98,6 +103,47 @@ def _register_approval_route(app: FastAPI) -> None:
         return await run_in_threadpool(_read, engine, campaign_id)
 
 
+def _sse(event: db.RunEvent) -> str:
+    data = {
+        "seq": event.seq,
+        "step": event.step,
+        "status": event.status,
+        "reason": event.reason,
+    }
+    return f"id: {event.seq}\nevent: step\ndata: {json.dumps(data)}\n\n"
+
+
+async def _event_stream(
+    engine: Engine, campaign_id: uuid.UUID, after_seq: int
+) -> AsyncIterator[str]:
+    """Replay what happened after `after_seq`, then follow until the run's final state."""
+    while True:
+        events = await run_in_threadpool(db.events_after, engine, campaign_id, after_seq)
+        for event in events:
+            after_seq = event.seq
+            yield _sse(event)
+            if event.step == db.RUN_STEP and event.status in FINAL_STATES:
+                return
+        await asyncio.sleep(EVENT_POLL_SECONDS)
+
+
+def _add_event_routes(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/events")
+    def campaign_events(
+        campaign_id: uuid.UUID,
+        request: Request,
+        last_event_id: Annotated[int, Header(ge=0)] = 0,
+    ) -> StreamingResponse:
+        with Session(request.app.state.engine) as session:
+            if session.get(db.Campaign, campaign_id) is None:
+                raise HTTPException(status_code=404, detail="campaign not found")
+        return StreamingResponse(
+            _event_stream(request.app.state.engine, campaign_id, last_event_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -142,5 +188,6 @@ def create_app(settings: Settings) -> FastAPI:
             return CampaignOut.of(campaign)
 
     _register_approval_route(app)
+    _add_event_routes(app)
 
     return app
