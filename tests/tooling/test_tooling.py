@@ -42,6 +42,18 @@ def test_python_tooling_is_declared() -> None:
     assert (ROOT / "uv.lock").exists()
 
 
+def test_yaml_tooling_is_declared() -> None:
+    pyproject = tomllib.loads((ROOT / "pyproject.toml").read_text())
+    dev = [d.lower() for d in pyproject["dependency-groups"]["dev"]]
+    for package in ("pyyaml", "types-pyyaml"):
+        assert any(d.startswith(package) for d in dev), package
+    lock = (ROOT / "uv.lock").read_text()
+    assert 'name = "types-pyyaml"' in lock
+    manifests_test = (ROOT / "tests/tooling/test_gateway_manifests.py").read_text()
+    assert "import yaml\n" in manifests_test
+    assert "type: ignore" not in manifests_test
+
+
 def test_web_app_tooling_is_declared() -> None:
     pkg = json.loads((ROOT / "apps/web/package.json").read_text())
     deps = {**pkg.get("devDependencies", {}), **pkg.get("dependencies", {})}

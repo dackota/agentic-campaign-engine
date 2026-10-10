@@ -199,6 +199,20 @@ agentic-campaign-engine/0.1` and `x-opencode-session`; no pod outside `agentgate
 has a provider key in env or mounted Secrets, and the key value is in no other Secret.
 Output saved in `.scratch/ace/proof/23-gateway-check.txt`.
 
+Sources, checked 2026-10-10: `docs/sources.md` rows "agentgateway as model provider"
+(ModelConfig provider `OpenAI`, `baseUrl` at the gateway, `/v1` required), "OpenCode Go"
+(endpoint `https://opencode.ai/zen/go/v1/chat/completions`, own user agent,
+`x-opencode-session`) and "agentgateway model failover". Live pages read the same day:
+https://kagent.dev/docs/kagent/1.x/setup/model-providers/byo-agentgateway/ (the `/v1`
+suffix is required; kagent appends `/chat/completions`) and https://opencode.ai/docs/go/
+(asks for a stable `x-opencode-session` per conversation). Both match the manifests.
+
+Limit of the pod key check: the agent runs as a Substrate sandbox inside the WorkerPool
+pod (`ate.dev/worker-pool=kagent-default`), not as its own pod. `gateway-check.sh` says
+which WorkerPool pod it saw, checks the Harness, WorkerPool and SandboxTemplate specs for
+env and secret refs, and prints that the process env inside the sandbox is not checked:
+the cluster API does not show it. The WorkerPool pod's own env is in the pod check.
+
 Learned: the HTTPRoute `RequestHeaderModifier` runs before the access log, so an
 `AgentgatewayPolicy` (`frontend.accessLog.attributes`) can print the headers OpenCode gets.
 

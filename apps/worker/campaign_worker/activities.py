@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 from ace_engine import db, invoker
-from ace_engine.contracts import EMAIL_DRAFT_SCHEMA
+from ace_engine.contracts import EMAIL_DRAFT_SCHEMA, REPORT_MARKER
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -14,7 +14,6 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
-REPORT_MARKER = "THREAT REPORT:"
 EMAIL_PROMPT = (
     "You are the email writer. Turn the threat report into a marketing email. "
     "Reply with only JSON that has the keys subject, preheader, body, call_to_action.\n\n"
@@ -73,7 +72,7 @@ class Activities:
 
     @activity.defn
     async def send_email(self, campaign_id: str, draft: dict[str, Any]) -> str:
-        async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
             response = await client.post(
                 f"{self._settings.marketo_url}/rest/v1/emails/send",
                 json={"campaign_id": campaign_id, **draft},

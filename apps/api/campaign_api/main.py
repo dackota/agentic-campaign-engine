@@ -70,14 +70,18 @@ def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -
         return result.rowcount == 1  # type: ignore[attr-defined,no-any-return]
 
 
-def _exists(engine: Engine, campaign_id: uuid.UUID) -> bool:
+def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
     with Session(engine) as session:
-        return session.get(db.Campaign, campaign_id) is not None
+        campaign = session.get(db.Campaign, campaign_id)
+        return None if campaign is None else CampaignOut.of(campaign)
 
 
-def _read(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
-    with Session(engine) as session:
-        return CampaignOut.of(session.get_one(db.Campaign, campaign_id))
+async def _found(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
+    """The campaign, or a 404 when there is none. Every route's missing-campaign check."""
+    campaign = await run_in_threadpool(_find, engine, campaign_id)
+    if campaign is None:
+        raise HTTPException(status_code=404, detail="campaign not found")
+    return campaign
 
 
 def _register_approval_route(app: FastAPI) -> None:
@@ -88,9 +92,7 @@ def _register_approval_route(app: FastAPI) -> None:
             _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
         )
         if not is_claimed:
-            exists = await run_in_threadpool(_exists, engine, campaign_id)
-            if not exists:
-                raise HTTPException(status_code=404, detail="campaign not found")
+            await _found(engine, campaign_id)
             raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
@@ -100,7 +102,7 @@ def _register_approval_route(app: FastAPI) -> None:
                 _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
             )
             raise
-        return await run_in_threadpool(_read, engine, campaign_id)
+        return await _found(engine, campaign_id)
 
 
 def _sse(event: db.RunEvent) -> str:
@@ -129,14 +131,12 @@ async def _event_stream(
 
 def _add_event_routes(app: FastAPI) -> None:
     @app.get("/campaigns/{campaign_id}/events")
-    def campaign_events(
+    async def campaign_events(
         campaign_id: uuid.UUID,
         request: Request,
         last_event_id: Annotated[int, Header(ge=0)] = 0,
     ) -> StreamingResponse:
-        with Session(request.app.state.engine) as session:
-            if session.get(db.Campaign, campaign_id) is None:
-                raise HTTPException(status_code=404, detail="campaign not found")
+        await _found(request.app.state.engine, campaign_id)
         return StreamingResponse(
             _event_stream(request.app.state.engine, campaign_id, last_event_id),
             media_type="text/event-stream",
@@ -180,12 +180,8 @@ def create_app(settings: Settings) -> FastAPI:
         )
 
     @app.get("/campaigns/{campaign_id}")
-    def get_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
-        with Session(request.app.state.engine) as session:
-            campaign = session.get(db.Campaign, campaign_id)
-            if campaign is None:
-                raise HTTPException(status_code=404, detail="campaign not found")
-            return CampaignOut.of(campaign)
+    async def get_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
+        return await _found(request.app.state.engine, campaign_id)
 
     _register_approval_route(app)
     _add_event_routes(app)

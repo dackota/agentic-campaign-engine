@@ -7,6 +7,7 @@ import {
   type EmailDraft,
   type RunEvent,
 } from "./api";
+import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
@@ -68,7 +69,7 @@ export function App() {
     try {
       setCampaign(await createCampaign(report));
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
     }
   }
 
@@ -77,7 +78,7 @@ export function App() {
     try {
       await pollWhileSending(await approveCampaign(id), setCampaign);
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(messageOf(e));
     }
   }
 

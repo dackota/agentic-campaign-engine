@@ -5,16 +5,17 @@ export interface EmailDraft {
   call_to_action: string;
 }
 
+const STATUSES = ["drafting", "awaiting_approval", "sending", "sent", "failed"] as const;
+type CampaignStatus = (typeof STATUSES)[number];
+
 export interface Campaign {
   id: string;
   report: string;
-  status: "drafting" | "awaiting_approval" | "sending" | "sent" | "failed";
+  status: CampaignStatus;
   draft: EmailDraft | null;
   failure_reason: string | null;
   receipt: string | null;
 }
-
-const STATUSES = ["drafting", "awaiting_approval", "sending", "sent", "failed"];
 
 function isCampaign(value: unknown): value is Campaign {
   if (typeof value !== "object" || value === null) return false;
@@ -23,7 +24,7 @@ function isCampaign(value: unknown): value is Campaign {
     typeof c.id === "string" &&
     typeof c.report === "string" &&
     typeof c.status === "string" &&
-    STATUSES.includes(c.status) &&
+    (STATUSES as readonly string[]).includes(c.status) &&
     (c.draft === null || (typeof c.draft === "object" && c.draft !== null)) &&
     (c.failure_reason === null || typeof c.failure_reason === "string") &&
     (c.receipt === null || typeof c.receipt === "string")

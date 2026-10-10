@@ -36,3 +36,4 @@ alpha11 is a separate, deliberate step.
 | Part | Version | Digest |
 |---|---|---|
 | agentgateway charts | `agentgateway-crds` and `agentgateway` v1.6.0 (`cr.agentgateway.dev/charts`) | n/a |
+| agentgateway proxy image (running `agentgateway-proxy` Deployment, read with `--context k3d-ace-spike`) | `cr.agentgateway.dev/agentgateway:v1.6.0` | `sha256:9d3e6044ddcdc0878b1787f77bd401252b95e22684203fb5e874c4c42d2ed90c` |
