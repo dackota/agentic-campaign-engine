@@ -351,8 +351,10 @@ def test_status_fails_on_stuck_rollout_and_unready_agent(tmp_path: Path) -> None
 
 
 def test_listing_failure_does_not_read_as_not_installed(tmp_path: Path) -> None:
-    for fail_env in ({"STUB_HELM_FAIL": "1"}, {"STUB_SECRET_FAIL": "1"}):
-        result, calls = _run(tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1", **fail_env)
+    for fail_env in ("STUB_HELM_FAIL", "STUB_SECRET_FAIL"):
+        result, calls = _run(
+            tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1", **{fail_env: "1"}
+        )
         assert result.returncode != 0, fail_env
         assert not [c for c in calls if c.startswith("SPIKE")], fail_env
 
