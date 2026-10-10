@@ -8,7 +8,7 @@ Decision: **go**, on the condition below. Python BYO agents are allowed for S13.
 
 ## Evidence
 
-Details in `docs/spike-log.md`, section 14. Pinned `kagent-adk` digest, `byo: {}`,
+Details in `docs/spike-log.md`, section 15. Pinned `kagent-adk` digest, `byo: {}`,
 `KAGENT_PORT=80`, readiness on 8081.
 
 - It answers a message (`42`), and the golden snapshot restores in 0.1 s.
