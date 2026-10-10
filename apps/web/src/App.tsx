@@ -55,6 +55,21 @@ function DraftView({ draft }: { draft: EmailDraft }) {
   );
 }
 
+interface EmailPreviewProps {
+  id: string;
+}
+
+function EmailPreview({ id }: EmailPreviewProps) {
+  return (
+    <iframe
+      title="Email preview"
+      src={`/api/campaigns/${id}/preview`}
+      sandbox=""
+      style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
+    />
+  );
+}
+
 export function App() {
   const [report, setReport] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
@@ -98,6 +113,7 @@ export function App() {
       {campaign && <RunSteps steps={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {campaign?.draft && <DraftView draft={campaign.draft} />}
+      {campaign?.draft && <EmailPreview id={campaign.id} />}
       {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
