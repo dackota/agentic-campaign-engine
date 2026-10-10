@@ -12,18 +12,21 @@ APPROVAL = "approval"
 PUBLISH = "publish"
 WAIT = "wait"
 
-# The workflow a campaign runs when it names none: draft, wait for a human, publish.
-DEFAULT_DAG: Dag = {
-    "steps": [
-        {"id": "email_draft", "kind": AGENT},
-        {"id": "approval", "kind": APPROVAL},
-        {"id": "publish", "kind": PUBLISH},
-    ],
-    "edges": [
-        {"from": "email_draft", "to": "approval"},
-        {"from": "approval", "to": "publish"},
-    ],
-}
+
+def default_dag() -> Dag:
+    """The workflow a campaign runs when it names none: draft, wait for a human, publish.
+    A fresh dict each call, so no caller can change another's copy."""
+    return {
+        "steps": [
+            {"id": "email_draft", "kind": AGENT},
+            {"id": "approval", "kind": APPROVAL},
+            {"id": "publish", "kind": PUBLISH},
+        ],
+        "edges": [
+            {"from": "email_draft", "to": "approval"},
+            {"from": "approval", "to": "publish"},
+        ],
+    }
 
 
 def _parents(dag: Dag) -> dict[str, list[str]]:

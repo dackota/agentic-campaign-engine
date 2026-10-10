@@ -76,7 +76,7 @@ def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
     """The workflow name, version, and DAG a new run pins: the latest saved version."""
     if workflow is None:
-        return None, None, graph.DEFAULT_DAG
+        return None, None, graph.default_dag()
     found = await latest_version(engine, workflow)
     if found is None:
         raise HTTPException(status_code=422, detail=f"workflow {workflow!r} has no saved version")
