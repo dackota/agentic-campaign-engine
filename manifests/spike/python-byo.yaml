@@ -1,0 +1,62 @@
+# S0 (#22): minimal Python BYO agent on the kagent-adk image, pinned by digest.
+# The agent code is inline in spec.workload.command, so no registry is needed.
+# It serves gRPC A2A on port 80 and /readyz on 8081 (KAgentApp does both), and
+# answers every message with a fixed answer plus a boot id and a message counter.
+# The counter lives in process memory: it proves the snapshot kept the process.
+# Names are prefixed s22- so they do not collide with other spike resources.
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata: {name: s22-py-harness, namespace: kagent}
+spec:
+  byo: {}
+  env:
+  - {name: KAGENT_PORT, value: "80"}
+  workload:
+    image: ghcr.io/kagent-dev/kagent/kagent-adk@sha256:f60b442fc9f729a7441db2b0814105354c118d5b940cc55bce3ac8c9c1f02f28
+    command:
+    - /.kagent/.venv/bin/python
+    - -c
+    - |
+      import json, os, uuid
+      import uvicorn
+      from a2a.types import AgentCard
+      from google.adk.agents import BaseAgent
+      from google.adk.events import Event
+      from google.genai import types
+      from google.protobuf.json_format import ParseDict
+      from kagent.adk import KAgentApp
+
+      BOOT = uuid.uuid4().hex[:8]
+      COUNT = [0]
+
+      class Fixed(BaseAgent):
+          async def _run_async_impl(self, ctx):
+              COUNT[0] += 1
+              text = "42 boot=%s pid=%d n=%d" % (BOOT, os.getpid(), COUNT[0])
+              yield Event(author=self.name, content=types.Content(role="model", parts=[types.Part(text=text)]))
+
+      card = ParseDict(json.loads(os.environ["KAGENT_AGENT_CARD_JSON"]), AgentCard())
+      app = KAgentApp(
+          lambda: Fixed(name="s22_py_agent"),
+          card,
+          os.environ.get("KAGENT_API_URL", "http://kagent-controller.kagent.svc.cluster.local:8083"),
+          "s22-py-agent",
+      ).build()
+      uvicorn.run(app, host="0.0.0.0", port=8080, log_level="info")
+  substrate:
+    workerPoolRef: {name: kagent-default}
+    snapshotPolicy:
+      location: s3://ate-snapshots/kagent/
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata: {name: s22-py-template, namespace: kagent}
+spec:
+  description: Minimal Python BYO agent for the wake-up test
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: s22-py-agent, namespace: kagent}
+spec:
+  templateRef: {name: s22-py-template}
+  harnessRef: {name: s22-py-harness}

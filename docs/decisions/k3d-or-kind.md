@@ -27,12 +27,12 @@ kind.
 |---|---|
 | 1. gVisor workers inside k3d on arm64 | Yes, with the `/var/lib/ate` volume |
 | 2. k3s accepts v1beta1 and the feature gates through k3d args | Yes |
-| 3. Python BYO agent survives wake-up | Not tested in this spike. See S13 below |
+| 3. Python BYO agent survives wake-up | Only with a fast readiness endpoint. See `python-byo-wakeup.md` |
 | 8. Alpha churn | Pinned in `docs/pinned-versions.md` |
 
 ## S13 (Python BYO agent): no, for now
 
-Decision: **no**. Keep every agent on the Go harness. Reason: kagent's own
+Decision: **no** (superseded by `python-byo-wakeup.md`: go, with conditions). Keep every agent on the Go harness. Reason: kagent's own
 `scripts/setup-cluster/README.md` says the Python runtime dies on golden-snapshot
 restore (`Fatal Python error: Illegal instruction`) and the Go ADK restores
 cleanly. This spike did not build and run a Python image (it needs a registry
