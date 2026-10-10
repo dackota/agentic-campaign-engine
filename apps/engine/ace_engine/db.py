@@ -19,7 +19,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
 
 DRAFTING = "drafting"
-DRAFTED = "drafted"
+AWAITING_APPROVAL = "awaiting_approval"
+SENDING = "sending"
+SENT = "sent"
 FAILED = "failed"
 
 # Run events: one row per step status change; the step "run" carries the final state.
@@ -42,6 +44,7 @@ class Campaign(Base):
     status: Mapped[str] = mapped_column(String(20), default=DRAFTING)
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
