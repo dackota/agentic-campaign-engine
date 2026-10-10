@@ -13,14 +13,15 @@ from ace_engine import db
 from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME, Settings
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import StreamingResponse
+from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, StringConstraints
+from render_service.email import EmailTooLarge, render_email
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
-from campaign_api.auth import Action, CurrentUser, StreamUser, TokenVerifier, User, authorize
+from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, User, authorize
 
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
@@ -165,7 +166,7 @@ def _add_event_routes(app: FastAPI) -> None:
     async def campaign_events(
         campaign_id: uuid.UUID,
         request: Request,
-        user: StreamUser,
+        user: BrowserUser,
         last_event_id: Annotated[int, Header(ge=0)] = 0,
     ) -> StreamingResponse:
         authorize(user, Action.READ)
@@ -175,6 +176,22 @@ def _add_event_routes(app: FastAPI) -> None:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+
+def _add_preview_route(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/preview", response_class=HTMLResponse)
+    async def preview_email(
+        campaign_id: uuid.UUID, request: Request, user: BrowserUser
+    ) -> HTMLResponse:
+        authorize(user, Action.READ)
+        campaign = await _found(request.app.state.engine, campaign_id)
+        if campaign.draft is None:
+            raise HTTPException(status_code=409, detail="campaign has no draft yet")
+        try:
+            html = await run_in_threadpool(render_email, campaign.draft)
+        except EmailTooLarge as e:
+            raise HTTPException(status_code=422, detail=str(e)) from e
+        return HTMLResponse(html)
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -229,5 +246,6 @@ def create_app(settings: Settings) -> FastAPI:
 
     _register_approval_route(app)
     _add_event_routes(app)
+    _add_preview_route(app)
 
     return app

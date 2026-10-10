@@ -5,6 +5,7 @@ import {
   getCampaign,
   getMe,
   listCampaigns,
+  previewUrl,
   SignedOutError,
   type Campaign,
   type EmailDraft,
@@ -99,6 +100,21 @@ function canApprove(me: Me, campaign: Campaign): boolean {
 }
 
 type Session = { state: "loading" } | { state: "signed-out" } | { state: "signed-in"; me: Me };
+
+interface EmailPreviewProps {
+  id: string;
+}
+
+function EmailPreview({ id }: EmailPreviewProps) {
+  return (
+    <iframe
+      title="Email preview"
+      src={previewUrl(id)}
+      sandbox=""
+      style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
+    />
+  );
+}
 
 export function App() {
   const [session, setSession] = useState<Session>({ state: "loading" });
@@ -229,6 +245,7 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
       {campaign && <RunSteps steps={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {campaign?.draft && <DraftView draft={campaign.draft} />}
+      {campaign?.draft && <EmailPreview id={campaign.id} />}
       {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>

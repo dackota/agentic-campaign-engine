@@ -6,6 +6,7 @@ dependencies = [
     "fastapi>=0.143.0",
     "httpx>=0.28.1",
     "jsonschema>=4.26.0",
+    "mjml-python>=1.4.2",
     "psycopg[binary]>=3.3.6",
     "pyjwt[crypto]>=2.10",
     "sqlalchemy>=2",
@@ -34,9 +35,9 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.mypy]
 strict = true
-files = ["tests", "apps/engine", "apps/api", "apps/worker", "services/fakes"]
-mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes"]
+files = ["tests", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes"]
+pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]

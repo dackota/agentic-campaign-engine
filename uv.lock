@@ -14,6 +14,7 @@ dependencies = [
     { name = "fastapi" },
     { name = "httpx" },
     { name = "jsonschema" },
+    { name = "mjml-python" },
     { name = "psycopg", extra = ["binary"] },
     { name = "pyjwt", extra = ["crypto"] },
     { name = "sqlalchemy" },
@@ -38,6 +39,7 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.143.0" },
     { name = "httpx", specifier = ">=0.28.1" },
     { name = "jsonschema", specifier = ">=4.26.0" },
+    { name = "mjml-python", specifier = ">=1.4.2" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.3.6" },
     { name = "pyjwt", extras = ["crypto"], specifier = ">=2.10" },
     { name = "sqlalchemy", specifier = ">=2" },
@@ -715,6 +717,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c1/ea/7421d9e6db894cd6cd788b604b3394a163ded6b942052b6f96c23ccf08e1/librt-0.16.0-cp315-cp315t-win32.whl", hash = "sha256:375bfe6b572a8f6cfc398709356046173bf27e64c4c5edaf5f7062f051fb4bf9", size = 104355, upload-time = "2026-09-29T00:55:04.533Z" },
     { url = "https://files.pythonhosted.org/packages/85/6d/7c31a506eb847bc58aeb2402d58e17605e821f68ab5df5e66fe274a6df41/librt-0.16.0-cp315-cp315t-win_amd64.whl", hash = "sha256:bd3150023d3dc2bc70f3784e59ffa1140d56ddba3d8125b3d6f9f85221279bfc", size = 126134, upload-time = "2026-09-29T00:55:06.017Z" },
     { url = "https://files.pythonhosted.org/packages/36/69/7a5d10ac409c4da0355e054a14371871da9b5557fcc42772cd00181c6cce/librt-0.16.0-cp315-cp315t-win_arm64.whl", hash = "sha256:8ceafb70f2a4f0826f11031942e59c0728fd98da112dc346d4352bde1e486866", size = 116391, upload-time = "2026-09-29T00:55:07.484Z" },
+]
+
+[[package]]
+name = "mjml-python"
+version = "1.4.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/50/20c4f6d8ce095317b3bad5e287ba2131e9e43fb8db1a2744b5a3bc5d1119/mjml_python-1.4.2.tar.gz", hash = "sha256:a3b10d0325653e85a7d2c4180ebc521141bedc0944c9a334d075151500b252b5", size = 17980, upload-time = "2026-09-01T10:44:58.602Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/61/15/e05e37b710b874b905afc0fa1f31e31c0262450a3f24620e93fa6d50a286/mjml_python-1.4.2-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:29342a947af5a578cf30ed1802726e5ed71e7226a13af6b16030164ad836fde5", size = 551379, upload-time = "2026-09-01T10:44:49.002Z" },
+    { url = "https://files.pythonhosted.org/packages/4b/70/09a519382e58aae8894c0213210339d5d5649f52db84ba499c99fb90dab3/mjml_python-1.4.2-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:0a79b021110ea36b5f86a57c3f95a38f0b94f32b8c5fc421b672783c7fc8e06c", size = 548813, upload-time = "2026-09-01T10:44:50.598Z" },
+    { url = "https://files.pythonhosted.org/packages/87/33/7d2fd059e99e38f813ea3682c5aa379dfe3c6587659c103a81e195964351/mjml_python-1.4.2-cp38-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:0e91e925a2fc6324dc39fe7b500166d3480e70e00f13b2c3bb78b1953f887c45", size = 616839, upload-time = "2026-09-01T10:44:52.004Z" },
+    { url = "https://files.pythonhosted.org/packages/ec/41/336a9a2d112662b4ded8d135573feda15fa67e2307fc8e8591be7b0ee939/mjml_python-1.4.2-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:6d05b2b86679e6539b6eb63b027a56870af2e08b63c67bdddaaff2d532e6088d", size = 611726, upload-time = "2026-09-01T10:44:53.496Z" },
+    { url = "https://files.pythonhosted.org/packages/75/c4/d5e398455bc1295d35674c848391f0c461bb8dcb65d83b307f5d4bcd1afd/mjml_python-1.4.2-cp38-abi3-musllinux_1_2_aarch64.whl", hash = "sha256:355bedef9e3d858425ca4664cd8f16849341db6abc15b351a846f12ec687db27", size = 793413, upload-time = "2026-09-01T10:44:54.812Z" },
+    { url = "https://files.pythonhosted.org/packages/38/91/b5e3606fbc61a0c05c3c9aa7ab3a7e2c8c2c79800c3179a154458cfd2611/mjml_python-1.4.2-cp38-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:e3cb288724e89125a9735e367345d01bdf4d1ac57e973650cb9c7929885fb7d3", size = 701351, upload-time = "2026-09-01T10:44:56.128Z" },
+    { url = "https://files.pythonhosted.org/packages/2a/c7/518db6d835daaeb85608714a35cb738dd1a4e871b2b6d840a0f6c6c9bf76/mjml_python-1.4.2-cp38-abi3-win_amd64.whl", hash = "sha256:e4df81e22e5c9d93a9b799fd7eb2a9f1eba5edbc02efb43804de5a2a50d683e0", size = 451002, upload-time = "2026-09-01T10:44:57.426Z" },
 ]
 
 [[package]]

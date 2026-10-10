@@ -105,6 +105,17 @@ export function approveCampaign(id: string): Promise<Campaign> {
   return request(`/campaigns/${id}/approve`, { method: "POST" });
 }
 
+/** A URL the browser loads itself (an iframe, an EventSource), so it cannot send the
+ * Authorization header: the API also takes the token as the `access_token` parameter. */
+function withToken(path: string): string {
+  const query = new URLSearchParams({ access_token: accessToken() ?? "" });
+  return `/api${path}?${query}`;
+}
+
+export function previewUrl(id: string): string {
+  return withToken(`/campaigns/${id}/preview`);
+}
+
 export interface RunEvent {
   seq: number;
   step: string;
@@ -136,9 +147,7 @@ export function watchRun(
   onEvent: (event: RunEvent) => void,
   onError: (message: string) => void,
 ): () => void {
-  // EventSource cannot send headers, so the stream takes the token as a query parameter.
-  const query = new URLSearchParams({ access_token: accessToken() ?? "" });
-  const source = new EventSource(`/api/campaigns/${id}/events?${query}`);
+  const source = new EventSource(withToken(`/campaigns/${id}/events`));
   source.addEventListener("step", (message) => {
     let parsed: unknown;
     try {

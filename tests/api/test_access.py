@@ -28,40 +28,40 @@ ROLE_TABLE: dict[str, tuple[str, list[str], dict[str, int]]] = {
     "dg-owner@demo.example": (
         "demand-gen",
         ["owner"],
-        {"list": 200, "read": 200, "events": 200, "create": 201, "approve": 403},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 403},
     ),
     "dg-approver@demo.example": (
         "demand-gen",
         ["approver"],
-        {"list": 200, "read": 200, "events": 200, "create": 403, "approve": 202},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 202},
     ),
     "dg-viewer@demo.example": (
         "demand-gen",
         ["viewer"],
-        {"list": 200, "read": 200, "events": 200, "create": 403, "approve": 403},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 403},
     ),
     "dg-lead@demo.example": (
         "demand-gen",
         ["approver", "owner"],
-        {"list": 200, "read": 200, "events": 200, "create": 201, "approve": 202},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 202},
     ),
     "pm-owner@demo.example": (
         "product-marketing",
         ["owner"],
-        {"list": 200, "read": 200, "events": 200, "create": 201, "approve": 403},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 403},
     ),
     "pm-approver@demo.example": (
         "product-marketing",
         ["approver"],
-        {"list": 200, "read": 200, "events": 200, "create": 403, "approve": 202},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 202},
     ),
     "pm-viewer@demo.example": (
         "product-marketing",
         ["viewer"],
-        {"list": 200, "read": 200, "events": 200, "create": 403, "approve": 403},
+        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 403},
     ),
 }
-ACTIONS = ["list", "read", "events", "create", "approve"]
+ACTIONS = ["list", "read", "events", "preview", "create", "approve"]
 CASES = [(email, action) for email in ROLE_TABLE for action in ACTIONS]
 
 
@@ -87,6 +87,8 @@ def _act(client: httpx.Client, action: str, campaign_id: str | None) -> int:
         return client.get(f"/campaigns/{campaign_id}").status_code
     if action == "events":
         return _events_status(client, campaign_id or "")
+    if action == "preview":
+        return client.get(f"/campaigns/{campaign_id}/preview").status_code
     return client.post(f"/campaigns/{campaign_id}/approve").status_code
 
 
@@ -104,7 +106,7 @@ def test_every_demo_user_signs_in_with_team_and_roles(sign_in: SignIn) -> None:
 def test_role_table(stack: Stack, sign_in: SignIn, email: str, action: str) -> None:
     stack.agent.script([])
     team, _, expected = ROLE_TABLE[email]
-    needs_campaign = action in {"read", "events", "approve"}
+    needs_campaign = action in {"read", "events", "preview", "approve"}
     campaign_id = _waiting_campaign(sign_in, team) if needs_campaign else None
 
     status = _act(sign_in(email), action, campaign_id)
@@ -150,6 +152,7 @@ def test_requests_without_a_valid_token_get_401(
         ("POST", "/campaigns"),
         ("GET", f"/campaigns/{campaign_id}"),
         ("GET", f"/campaigns/{campaign_id}/events"),
+        ("GET", f"/campaigns/{campaign_id}/preview"),
         ("POST", f"/campaigns/{campaign_id}/approve"),
         ("GET", "/me"),
     ]
@@ -159,6 +162,17 @@ def test_requests_without_a_valid_token_get_401(
 
             assert response.status_code == 401, (method, path, response.text)
             assert response.headers["www-authenticate"].startswith("Bearer")
+
+
+def test_preview_takes_the_token_as_a_query_parameter(stack: Stack, api: httpx.Client) -> None:
+    """The browser loads the preview in an iframe, which cannot send headers either."""
+    campaign_id = settle(api, create(api)["id"])["id"]
+    token = stack.dex.token("dg-viewer@demo.example")
+
+    with httpx.Client(base_url=stack.api_url, params={"access_token": token}) as browser:
+        response = browser.get(f"/campaigns/{campaign_id}/preview")
+
+    assert response.status_code == 200, response.text
 
 
 def test_event_stream_takes_the_token_as_a_query_parameter(stack: Stack, api: httpx.Client) -> None:

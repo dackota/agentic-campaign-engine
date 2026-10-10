@@ -126,19 +126,19 @@ async def current_user(request: Request, credentials: Bearer) -> User:
     return await _verified(request, credentials.credentials if credentials else None)
 
 
-async def stream_user(
+async def browser_user(
     request: Request,
     credentials: Bearer,
     access_token: Annotated[str | None, Query()] = None,
 ) -> User:
-    """Like `current_user`, but a browser EventSource cannot send headers, so the event
-    stream also takes the token as the `access_token` query parameter."""
+    """Like `current_user`, for URLs the browser loads itself: an EventSource and an
+    iframe cannot send headers, so these routes also take the `access_token` parameter."""
     token = credentials.credentials if credentials else access_token
     return await _verified(request, token)
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
-StreamUser = Annotated[User, Depends(stream_user)]
+BrowserUser = Annotated[User, Depends(browser_user)]
 
 
 def authorize(user: User, action: Action, created_by: str | None = None) -> None:
