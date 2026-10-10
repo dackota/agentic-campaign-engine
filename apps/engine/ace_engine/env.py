@@ -7,7 +7,6 @@ A missing or malformed variable fails at start with the variable's name, never i
 import dataclasses
 import typing
 from collections.abc import Callable, Collection, Mapping
-from typing import Any
 
 from sqlalchemy.engine import make_url
 from sqlalchemy.exc import ArgumentError
@@ -18,7 +17,13 @@ PREFIX = "ACE_"
 DATABASE_PASSWORD_ENV = "ACE_DATABASE_PASSWORD"
 OIDC_FIELDS = ("oidc_issuer", "oidc_client_id")
 
-_PARSERS: dict[Any, Callable[[str], Any]] = {str: str, float: float, Depth: Depth.parse}
+type Parsed = str | float | Depth
+
+_PARSERS: dict[type[object], Callable[[str], Parsed]] = {
+    str: str,
+    float: float,
+    Depth: Depth.parse,
+}
 
 
 def env_name(field: str, prefix: str = PREFIX) -> str:
@@ -36,7 +41,7 @@ def from_env[T](
     """`cls` built from `environ`. A field with no default, or named in `require`, must be
     set; a field in `skip` keeps its default."""
     hints = typing.get_type_hints(cls)
-    values: dict[str, Any] = {}
+    values: dict[str, Parsed] = {}
     for field in dataclasses.fields(cls):  # type: ignore[arg-type]
         if field.name in skip:
             continue
@@ -51,7 +56,7 @@ def from_env[T](
     return cls(**values)
 
 
-def _parse(name: str, kind: Any, raw: str) -> Any:
+def _parse(name: str, kind: type[object], raw: str) -> Parsed:
     try:
         return _PARSERS[kind](raw)
     except ValueError:
