@@ -46,7 +46,7 @@ url="http://127.0.0.1:$LOCAL_PORT"
 for _ in $(seq 30); do curl -s -o /dev/null "$url/" && break; sleep 1; done
 
 post() { # route body_file -> prints the status code; body goes to $tmp/out
-  curl -s -o "$tmp/out" -w '%{http_code}' "$url/$1/v1/chat/completions" \
+  curl -s -o "$tmp/out" -D "$tmp/headers" -w '%{http_code}' "$url/$1/v1/chat/completions" \
     -H content-type:application/json -d @"$2"
 }
 log_since() { k logs -n "$GW_NS" deploy/agentgateway-proxy --since-time="$1" | { grep 'protocol=llm' || true; } | redact; }
@@ -73,6 +73,13 @@ echo "ok failover: fake OpenCode key, retry answered by the Anthropic-style grou
 echo "gateway log: $line"
 
 # 2. Team token limits: team-a goes over, team-b still gets through to OpenCode Go.
+# A run in the last minute may have spent team-a's budget: wait for its window to reset,
+# so this run's team-a calls (and their token counts) land in the log.
+if [ "$(post team-a "$tmp/small.json")" = 429 ]; then
+  wait_s="$(tr -d '\r' <"$tmp/headers" | awk -F': ' 'tolower($1)=="retry-after" {print $2}' || true)"
+  echo "team-a budget spent by an earlier run; waiting ${wait_s:-60}s for its window"
+  sleep "$(( ${wait_s:-60} + 1 ))"
+fi
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 calls=0
 code=""
