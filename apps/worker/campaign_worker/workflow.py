@@ -53,10 +53,7 @@ class CampaignWorkflow:
         while wave := graph.ready_steps(dag, done):
             # Approval steps that open together are settled by one approval.
             approvals_needed = self._approvals + 1
-            results = await asyncio.gather(
-                *(self._step(campaign_id, report, dag, s, approvals_needed) for s in wave),
-                return_exceptions=True,
-            )
+            results = await self._run_wave(campaign_id, report, dag, wave, approvals_needed)
             for result in results:
                 if isinstance(result, StepFailed):
                     await self._fail(campaign_id, result)
@@ -65,6 +62,30 @@ class CampaignWorkflow:
                     raise result
             done.update(s["id"] for s in wave)
         await self._db("finish_run", campaign_id)
+
+    async def _run_wave(
+        self,
+        campaign_id: str,
+        report: str,
+        dag: dict[str, Any],
+        wave: list[dict[str, Any]],
+        approvals_needed: int,
+    ) -> list[Any]:
+        """Run a wave's steps together. On the first failure, cancel the rest so a step
+        waiting on a human cannot keep a failed run open. Returns each step's outcome."""
+        tasks = [
+            asyncio.ensure_future(self._step(campaign_id, report, dag, s, approvals_needed))
+            for s in wave
+        ]
+        await workflow.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        # Await every task so a cancelled one finishes before the failure is recorded.
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        # A step that failed on its own comes first; the cancelled ones are fallout.
+        failures = [o for o in outcomes if isinstance(o, StepFailed)]
+        return failures or outcomes
 
     async def _db(self, activity: str, *args: Any) -> Any:
         return await workflow.execute_activity(
