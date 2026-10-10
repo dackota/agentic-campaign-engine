@@ -1,0 +1,16 @@
+{
+  "name": "web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "lint": "eslint .",
+    "test": "node --test",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@playwright/test": "^1.48.0",
+    "eslint": "^9.0.0",
+    "globals": "^15.0.0"
+  }
+}
