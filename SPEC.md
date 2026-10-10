@@ -1,6 +1,7 @@
 # Agentic Campaign Engine: spec
 
-Status: plan. Date: 2026-10-09.
+Status: plan. Date: 2026-10-09. User stories, module design, and test seams:
+[spec, issue #18](https://github.com/dackota/agentic-campaign-engine/issues/18).
 
 ## What this is
 
@@ -150,6 +151,7 @@ in `docs/decisions/` as each slice lands.
 | 16 | Order | Spike, walking skeleton, then widen one bullet per slice | The demo always works, so we can stop at any point |
 | 17 | Repo | `dackota/agentic-campaign-engine`, private until S14 | |
 | 18 | Plan home | This file + one GitHub issue per slice | Progress is visible. Agents can pick up issues |
+| 19 | Test seams | Two seams: the Campaign API (fast depth with scripted agents, live depth on k3d) and the browser. Row-level security is the only team filter | Few seams keep tests stable while modules change. API tests then prove the database rule too |
 
 Defaults chosen without a question:
 
@@ -225,6 +227,11 @@ Not built. Written down so the design holds up.
 | Secrets in Kubernetes | Secrets Manager through External Secrets Operator |
 | Anthropic as failover | Amazon Bedrock as a third priority group |
 | grafana/otel-lgtm | The company observability stack |
+
+## Sources
+
+Every page read during planning, and what each one told us, is in
+[docs/sources.md](docs/sources.md).
 
 ## Out of scope
 
