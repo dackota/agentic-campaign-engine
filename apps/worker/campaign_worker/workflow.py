@@ -1,8 +1,9 @@
 """The campaign workflow: a thin shell that follows the run's pinned workflow DAG.
 
 Each wave starts every step whose parents have all succeeded, at the same time. Agent
-steps draft, approval steps wait for a human, publish steps send only after an approval
-(the API rejects a workflow where they would not), and wait steps sleep."""
+steps draft the A/B emails, approval steps wait for a human, publish steps send only
+after an approval (the API rejects a workflow where they would not), and wait steps
+sleep."""
 
 import asyncio
 from datetime import timedelta
@@ -100,7 +101,7 @@ class CampaignWorkflow:
 
     async def _agent(self, campaign_id: str, report: str, step_id: str) -> None:
         try:
-            draft = await workflow.execute_activity(
+            drafts = await workflow.execute_activity(
                 "write_email_draft",
                 args=[campaign_id, report, step_id],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
@@ -108,8 +109,8 @@ class CampaignWorkflow:
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
-        await self._db("save_agent_output", campaign_id, step_id, draft)
-        self._outputs[step_id] = draft
+        await self._db("save_agent_output", campaign_id, step_id, drafts)
+        self._outputs[step_id] = drafts
 
     async def _publish(self, campaign_id: str, dag: dict[str, Any], step_id: str) -> None:
         source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)

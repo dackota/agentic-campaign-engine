@@ -13,6 +13,9 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from campaign_worker import publisher
+from campaign_worker.marketo import MarketoAdapter
+
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
 EMAIL_PROMPT = (
     "You are the email writer. Turn the threat report into a marketing email. "
@@ -20,8 +23,12 @@ EMAIL_PROMPT = (
     + REPORT_MARKER
 )
 
-
-MARKETO_REPLY_INVALID = "MarketoReplyInvalid"
+VARIANT_B_PROMPT = (
+    "You are the email writer. Write variant B of an A/B test for this threat report: "
+    "the same facts, a different subject line and angle. "
+    "Reply with only JSON that has the keys subject, preheader, body, call_to_action.\n\n"
+    + REPORT_MARKER
+)
 
 
 class Activities:
@@ -36,28 +43,39 @@ class Activities:
     @activity.defn
     async def write_email_draft(
         self, campaign_id: str, report: str, step_id: str
-    ) -> dict[str, Any]:
+    ) -> list[dict[str, Any]]:
+        """Both A/B variants of the email, A first; each in its own agent session."""
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED)
+        variants = [("", EMAIL_PROMPT), ("-b", VARIANT_B_PROMPT)]
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                result = await invoker.invoke(
-                    client,
-                    self._settings.agent_url,
-                    session_key=f"campaign-{campaign_id}",
-                    prompt=f"{EMAIL_PROMPT}\n{report}",
-                    schema=EMAIL_DRAFT_SCHEMA,
-                )
+                return [
+                    (
+                        await invoker.invoke(
+                            client,
+                            self._settings.agent_url,
+                            session_key=f"campaign-{campaign_id}{suffix}",
+                            prompt=f"{prompt}\n{report}",
+                            schema=EMAIL_DRAFT_SCHEMA,
+                        )
+                    ).output
+                    for suffix, prompt in variants
+                ]
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        return result.output
 
     @activity.defn
-    def save_agent_output(self, campaign_id: str, step_id: str, draft: dict[str, Any]) -> None:
+    def save_agent_output(
+        self, campaign_id: str, step_id: str, drafts: list[dict[str, Any]]
+    ) -> None:
+        """Store an agent step's A/B email variants and mark the step succeeded."""
+        variant_a, variant_b = drafts
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
-            campaign.draft = draft
+            campaign.draft = variant_a
+            campaign.variant_b = variant_b
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
 
     @activity.defn
@@ -89,14 +107,12 @@ class Activities:
             db.add_event(session, campaign.id, db.RUN_STEP, campaign.status)
 
     @activity.defn
-    async def send_email(self, campaign_id: str, draft: dict[str, Any]) -> str:
+    async def send_email(self, campaign_id: str, drafts: list[dict[str, Any]]) -> str:
+        """Publish the approved A/B emails; the receipt id of the Marketo send."""
+        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
         async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
-            response = await client.post(
-                f"{self._settings.marketo_url}/rest/v1/emails/send",
-                json={"campaign_id": campaign_id, **draft},
-            )
-            response.raise_for_status()
-        return _receipt_from(response)
+            receipts = await publisher.publish(client, [MarketoAdapter(self._settings)], campaign)
+        return receipts[0].receipt_id
 
     @activity.defn
     def mark_sent(self, campaign_id: str, step_id: str, receipt: str) -> None:
@@ -104,22 +120,3 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.receipt = receipt
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
-
-
-def _receipt_from(response: httpx.Response) -> str:
-    """The receipt id in a Marketo send reply, or a non-retryable error naming what is wrong."""
-    try:
-        receipt = response.json()["result"][0]["receiptId"]
-    except (ValueError, KeyError, IndexError, TypeError) as exc:
-        raise ApplicationError(
-            f"Marketo send reply has no receiptId: {response.text[:200]!r}",
-            type=MARKETO_REPLY_INVALID,
-            non_retryable=True,
-        ) from exc
-    if not isinstance(receipt, str) or not receipt:
-        raise ApplicationError(
-            f"Marketo send reply has an invalid receiptId: {receipt!r}",
-            type=MARKETO_REPLY_INVALID,
-            non_retryable=True,
-        )
-    return receipt

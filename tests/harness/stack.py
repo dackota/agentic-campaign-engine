@@ -6,6 +6,7 @@ is wired in a later ticket, so starting a live stack raises.
 """
 
 import asyncio
+import secrets
 import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -47,6 +48,10 @@ class Stack:
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
+        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
+        self.marketo_client_secret = secrets.token_urlsafe(24)
+        self.marketo_webhook_secret = secrets.token_urlsafe(24)
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -66,8 +71,22 @@ class Stack:
 
     def marketo_malformed_reply(self, is_malformed: bool) -> None:
         """Make the fake Marketo answer sends with a reply that has no receipt id."""
+        self.marketo_fault(malformed_reply=is_malformed)
+
+    def marketo_drop_next_send_reply(self) -> None:
+        """Make the fake Marketo record the next send, then answer it with a 503."""
+        self.marketo_fault(drop_next_send_reply=True)
+
+    def marketo_fault(
+        self, *, malformed_reply: bool = False, drop_next_send_reply: bool = False
+    ) -> None:
         response = httpx.put(
-            f"{self.marketo_url}/_fault", json={"malformed_reply": is_malformed}, timeout=10
+            f"{self.marketo_url}/_fault",
+            json={
+                "malformed_reply": malformed_reply,
+                "drop_next_send_reply": drop_next_send_reply,
+            },
+            timeout=10,
         )
         assert response.status_code == 204, response.text
 
@@ -137,6 +156,9 @@ class Stack:
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
+                marketo_client_id=self.marketo_client_id,
+                marketo_client_secret=self.marketo_client_secret,
+                marketo_webhook_secret=self.marketo_webhook_secret,
             )
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
@@ -151,11 +173,18 @@ class Stack:
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
+        from fake_marketo.app import MarketoConfig
         from fake_marketo.app import create_app as create_marketo
 
+        marketo = MarketoConfig(
+            client_id=self.marketo_client_id,
+            client_secret=self.marketo_client_secret,
+            webhook_url=f"{self.api_url}/webhooks/marketo",
+            webhook_secret=self.marketo_webhook_secret,
+        )
         apps = [
             (self.agent.app, agent_port),
-            (create_marketo(), self.marketo_port),
+            (create_marketo(marketo), self.marketo_port),
             (create_app(settings), self.api_port),
         ]
         return [
