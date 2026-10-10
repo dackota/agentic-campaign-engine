@@ -15,6 +15,8 @@ ATE_VERSION="v0.4.0-alpha1"
 ATE_URL="https://github.com/kagent-dev/substrate/releases/download/$ATE_VERSION"
 WORKER_IMAGE="ghcr.io/kagent-dev/substrate/ateom-gvisor@sha256:a1ce5b950724c6167889324df6729ccf8c5b3b2963863f4602c21c17587ba454"
 READY_TIMEOUT="${READY_TIMEOUT:-600s}"
+SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-120}"
+SMOKE_RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 TWIN="spike-agent-mock"
 AGENT="spike-agent"
 HARNESS="spike-harness"
@@ -28,10 +30,15 @@ k() { kubectl --context "$CTX" "$@"; }
 # caller in a plain assignment, so a tool failure stops the script).
 has_line() { printf '%s\n' "$2" | grep -qxF -- "$1"; }
 
+# Reject a missing file or an OPENCODE_KEY that is empty once whitespace and quotes are
+# stripped. The value is held in a variable only to test it, and is never printed.
 check_env() {
+  local line value
   [ -f "$ENV_FILE" ] || fail "missing .env file at $ENV_FILE (copy .env.example and fill it in)"
   [ -r "$ENV_FILE" ] || fail "cannot read .env file at $ENV_FILE"
-  grep -q '^OPENCODE_KEY=.' "$ENV_FILE" || fail "OPENCODE_KEY is missing or empty in $ENV_FILE"
+  line="$(grep -m1 '^OPENCODE_KEY=' "$ENV_FILE" || true)"
+  value="$(printf '%s' "${line#OPENCODE_KEY=}" | tr -d "[:space:]\"'")"
+  [ -n "$value" ] || fail "OPENCODE_KEY is missing or empty in $ENV_FILE"
 }
 
 pinned_sha() {
@@ -71,26 +78,52 @@ fetch_kubectl_ate() {
   mv "$tmp" "$BIN_DIR/kubectl-ate"
 }
 
-# True (exit 0) when Substrate and kagent are deployed and their CA pool Secrets exist.
-# Secrets are listed with -o name, so no Secret data is ever read.
+# Exit 0 when the release and Secret listings ($1 releases, $2 ate-system Secrets, $3
+# podcertificate-controller-system Secrets) show Substrate and kagent installed. Pure
+# string checks: the caller captures the listings (Secrets by -o name, never data) in plain
+# assignments with `|| fail`, so a failing tool stops the script instead of reading as
+# "not installed" (set -e is off inside an `if` condition).
 platform_installed() {
-  local releases ate_secrets podcert_secrets pool
-  releases="$(helm --kube-context "$CTX" list -A --deployed -q)"
-  ate_secrets="$(k get secret -n ate-system -o name)"
-  podcert_secrets="$(k get secret -n podcertificate-controller-system -o name)"
+  local pool release
   for release in substrate kagent; do
-    has_line "$release" "$releases" || return 1
+    has_line "$release" "$1" || return 1
   done
-  for pool in $CA_POOLS_ATE; do has_line "secret/$pool" "$ate_secrets" || return 1; done
-  for pool in $CA_POOLS_PODCERT; do has_line "secret/$pool" "$podcert_secrets" || return 1; done
+  for pool in $CA_POOLS_ATE; do has_line "secret/$pool" "$2" || return 1; done
+  for pool in $CA_POOLS_PODCERT; do has_line "secret/$pool" "$3" || return 1; done
+}
+
+# The smoke can reach a freshly Ready Agent before its session is available; the controller
+# answers JSON-RPC -32004 (input not accepted). Retry only that error, until a timeout.
+smoke_twin() {
+  local deadline=$((SECONDS + SMOKE_TIMEOUT)) out
+  while :; do
+    if out="$(KCTX="$CTX" AGENT="$TWIN" HARNESS="$HARNESS" "$SPIKE_DIR/a2a-smoke.sh" 2>&1)"; then
+      printf '%s\n' "$out"
+      return 0
+    fi
+    if ! printf '%s' "$out" | grep -q -- '-32004'; then
+      printf '%s\n' "$out" >&2
+      return 1
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      printf '%s\n' "$out" >&2
+      fail "A2A smoke: the twin still did not accept input (JSON-RPC -32004, not accepted) after ${SMOKE_TIMEOUT}s"
+    fi
+    echo "twin not accepting input yet (-32004); retrying in ${SMOKE_RETRY_DELAY}s"
+    sleep "$SMOKE_RETRY_DELAY"
+  done
 }
 
 run() {
   check_env
   fetch_kubectl_ate
   export PATH="$BIN_DIR:$PATH"
-  local installed=0
-  if platform_installed; then installed=1; fi
+  local installed=0 releases ate_secrets podcert_secrets
+  releases="$(helm --kube-context "$CTX" list -A --deployed -q)" || fail "could not list Helm releases"
+  ate_secrets="$(k get secret -n ate-system -o name)" || fail "could not list Secrets in ate-system"
+  podcert_secrets="$(k get secret -n podcertificate-controller-system -o name)" ||
+    fail "could not list Secrets in podcertificate-controller-system"
+  if platform_installed "$releases" "$ate_secrets" "$podcert_secrets"; then installed=1; fi
   if [ "$installed" = 1 ]; then
     echo "skipping the Substrate and kagent install: both releases and the CA pools are there"
   else
@@ -100,7 +133,7 @@ run() {
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
   k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" -n kagent --timeout="$READY_TIMEOUT"
-  KCTX="$CTX" AGENT="$TWIN" HARNESS="$HARNESS" "$SPIKE_DIR/a2a-smoke.sh"
+  smoke_twin
   echo "platform is up; total time ${SECONDS}s"
 }
 

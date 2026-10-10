@@ -36,6 +36,7 @@ KUBECTL_STUB = """#!/bin/sh
 echo "kubectl $*" >> "$STUB_LOG"
 case "$*" in
   *"get secret"*"-o name"*)
+    if [ -n "$STUB_SECRET_FAIL" ]; then echo "kubectl: forbidden" >&2; exit 1; fi
     if [ -n "$STUB_INSTALLED" ]; then
       for s in service-dns-ca-pool pod-identity-ca-pool actor-id-jwt-pool \\
         actor-id-ca-pool egress-mitm-ca-pool; do
@@ -56,6 +57,7 @@ exit 0
 HELM_STUB = """#!/bin/sh
 echo "helm $*" >> "$STUB_LOG"
 if [ "$3" = list ]; then
+  if [ -n "$STUB_HELM_FAIL" ]; then echo "helm: cluster unreachable" >&2; exit 1; fi
   if [ -n "$STUB_INSTALLED" ]; then
     for r in substrate-crds substrate kagent-crds kagent agentgateway-crds agentgateway; do
       [ "$r" = "$STUB_MISSING_RELEASE" ] || echo "$r"
@@ -76,7 +78,16 @@ SPIKE_STUB = """#!/bin/sh
 echo "SPIKE $(basename "$0") KCTX=$KCTX AGENT=$AGENT HARNESS=$HARNESS \\
 WORKER_IMAGE=${WORKER_IMAGE:+set}" >> "$STUB_LOG"
 [ "$(basename "$0")" = "$STUB_SPIKE_FAIL" ] && { echo "$0 failed" >&2; exit 1; }
-[ "$(basename "$0")" = a2a-smoke.sh ] && echo 42
+if [ "$(basename "$0")" = a2a-smoke.sh ]; then
+  n="$(cat "$STUB_LOG.smoke" 2>/dev/null || echo 0)"
+  echo $((n + 1)) > "$STUB_LOG.smoke"
+  if [ "$n" -lt "${STUB_SMOKE_BUSY:-0}" ]; then
+    echo 'FAIL: no answer in response: {"error":{"code":-32004,"message":"not accepted"}}' >&2
+    exit 1
+  fi
+  [ -z "$STUB_SMOKE_OTHER_FAIL" ] || { echo "FAIL: A2A request failed" >&2; exit 1; }
+  echo 42
+fi
 exit 0
 """
 
@@ -186,7 +197,8 @@ def test_spike_script_failure_stops_up(tmp_path: Path) -> None:
 
 
 def test_missing_or_empty_opencode_key_stops_up_before_creating_anything(tmp_path: Path) -> None:
-    for text in ("ANTHROPIC_API_KEY=sk-other-value\n", "OPENCODE_KEY=\n"):
+    empties = ("OPENCODE_KEY=\n", 'OPENCODE_KEY=""\n', "OPENCODE_KEY=''\n", "OPENCODE_KEY=   \n")
+    for text in ("ANTHROPIC_API_KEY=sk-other-value\n", *empties):
         result, calls = _run(tmp_path, "up", env_text=text)
         out = result.stdout + result.stderr
         assert result.returncode != 0
@@ -336,3 +348,32 @@ def test_status_fails_on_stuck_rollout_and_unready_agent(tmp_path: Path) -> None
     )
     assert result.returncode != 0
     assert any("FAIL" in line and "spike-agent" in line for line in result.stdout.splitlines())
+
+
+def test_listing_failure_does_not_read_as_not_installed(tmp_path: Path) -> None:
+    for fail_env in ({"STUB_HELM_FAIL": "1"}, {"STUB_SECRET_FAIL": "1"}):
+        result, calls = _run(tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1", **fail_env)
+        assert result.returncode != 0, fail_env
+        assert not [c for c in calls if c.startswith("SPIKE")], fail_env
+
+
+def test_smoke_retries_while_the_session_is_not_accepted(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up", STUB_SMOKE_BUSY="1", SMOKE_RETRY_DELAY="0")
+    assert result.returncode == 0, result.stderr
+    assert len([c for c in calls if "a2a-smoke.sh" in c]) == 2
+    assert "42" in result.stdout
+
+
+def test_smoke_gives_up_after_its_timeout_with_a_clear_message(tmp_path: Path) -> None:
+    result, _ = _run(
+        tmp_path, "up", STUB_SMOKE_BUSY="1000", SMOKE_RETRY_DELAY="1", SMOKE_TIMEOUT="2"
+    )
+    assert result.returncode != 0
+    assert "32004" in result.stdout + result.stderr
+    assert "not accepted" in (result.stdout + result.stderr).lower()
+
+
+def test_smoke_does_not_retry_other_failures(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up", STUB_SMOKE_OTHER_FAIL="1", SMOKE_RETRY_DELAY="0")
+    assert result.returncode != 0
+    assert len([c for c in calls if "a2a-smoke.sh" in c]) == 1
