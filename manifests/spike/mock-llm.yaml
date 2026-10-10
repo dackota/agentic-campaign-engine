@@ -1,0 +1,67 @@
+# Scripted OpenAI-compatible model for the spike: no API key needed.
+# Answers "42" to the smoke prompt, otherwise echoes the last user message.
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: mock-llm, namespace: kagent}
+data:
+  server.py: |
+    import json, time
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    def reply(messages):
+        last = ""
+        for m in messages:
+            if m.get("role") == "user":
+                c = m.get("content")
+                last = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c)
+        return "42" if "7 times 6" in last else "mock: " + last[:200]
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, f, *a): print(f % a, flush=True)
+        def _json(self, code, obj):
+            b = json.dumps(obj).encode()
+            self.send_response(code); self.send_header("content-type", "application/json")
+            self.send_header("content-length", str(len(b))); self.end_headers(); self.wfile.write(b)
+        def do_GET(self):
+            self._json(200, {"object": "list", "data": [{"id": "mock", "object": "model"}]})
+        def do_POST(self):
+            req = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
+            text = reply(req.get("messages", []))
+            base = {"id": "chatcmpl-mock", "created": int(time.time()), "model": req.get("model", "mock")}
+            if req.get("stream"):
+                self.send_response(200); self.send_header("content-type", "text/event-stream"); self.end_headers()
+                for delta, fin in (({"role": "assistant", "content": text}, None), ({}, "stop")):
+                    c = dict(base, object="chat.completion.chunk", choices=[{"index": 0, "delta": delta, "finish_reason": fin}])
+                    self.wfile.write(("data: " + json.dumps(c) + "\n\n").encode())
+                u = dict(base, object="chat.completion.chunk", choices=[], usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
+                self.wfile.write(("data: " + json.dumps(u) + "\n\ndata: [DONE]\n\n").encode())
+                return
+            self._json(200, dict(base, object="chat.completion",
+                choices=[{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
+                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}))
+
+    ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mock-llm, namespace: kagent}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: mock-llm}}
+  template:
+    metadata: {labels: {app: mock-llm}}
+    spec:
+      containers:
+      - name: server
+        image: python:3.12-alpine
+        command: [python, /app/server.py]
+        ports: [{containerPort: 8000}]
+        volumeMounts: [{name: app, mountPath: /app}]
+      volumes: [{name: app, configMap: {name: mock-llm}}]
+---
+apiVersion: v1
+kind: Service
+metadata: {name: mock-llm, namespace: kagent}
+spec:
+  selector: {app: mock-llm}
+  ports: [{port: 8000, targetPort: 8000}]

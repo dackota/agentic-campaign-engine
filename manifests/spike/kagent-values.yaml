@@ -1,0 +1,17 @@
+providers:
+  default: openAI
+  openAI:
+    apiKey: spike-not-a-real-key
+controller:
+  grpc:
+    reflection: true
+  substrate:
+    enabled: true
+    ateApiEndpoint: dns:///api.ate-system.svc:443
+    atenetRouterURL: http://atenet-router.ate-system.svc:80
+  sandbox:
+    guestImage:
+      digest: sha256:d5ac5bfa263a0bfa0953804ba9cfec4d9c13b6c78c0af7d36f6e5952630987a2
+substrateWorkerPool:
+  create: true
+  replicas: 1
