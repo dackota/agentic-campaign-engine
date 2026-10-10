@@ -1,8 +1,10 @@
 import js from "@eslint/js";
 import globals from "globals";
+import tseslint from "typescript-eslint";
 
-export default [
+export default tseslint.config(
   js.configs.recommended,
-  { languageOptions: { globals: globals.node } },
+  ...tseslint.configs.recommended,
+  { languageOptions: { globals: { ...globals.node, ...globals.browser } } },
   { ignores: ["node_modules/", "dist/", "playwright-report/", "test-results/"] },
-];
+);

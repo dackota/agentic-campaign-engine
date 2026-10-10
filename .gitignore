@@ -22,3 +22,5 @@ dist/
 .tilt-cache/
 *.log
 .DS_Store
+test-results/
+playwright-report/
