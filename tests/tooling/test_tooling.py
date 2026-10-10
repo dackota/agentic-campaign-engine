@@ -49,9 +49,10 @@ def test_yaml_tooling_is_declared() -> None:
         assert any(d.startswith(package) for d in dev), package
     lock = (ROOT / "uv.lock").read_text()
     assert 'name = "types-pyyaml"' in lock
-    manifests_test = (ROOT / "tests/tooling/test_gateway_manifests.py").read_text()
-    assert "import yaml\n" in manifests_test
-    assert "type: ignore" not in manifests_test
+    # The gateway tests read manifests through this shared module.
+    gateway_files = (ROOT / "tests/tooling/gateway_files.py").read_text()
+    assert "import yaml\n" in gateway_files
+    assert "type: ignore" not in gateway_files
 
 
 def test_web_app_tooling_is_declared() -> None:

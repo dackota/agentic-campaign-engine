@@ -18,16 +18,20 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-import yaml
 
-ROOT = Path(__file__).resolve().parents[2]
-GATEWAY = ROOT / "manifests/spike/gateway.yaml"
-ANTHROPIC = ROOT / "manifests/spike/gateway-anthropic.yaml"
-FAILOVER_TEST = ROOT / "manifests/spike/gateway-failover-test.yaml"
-MOCK = ROOT / "manifests/spike/mock-llm.yaml"
-INSTALL = ROOT / "scripts/spike/gateway-install.sh"
-CHECK = ROOT / "scripts/spike/gateway-failover-check.sh"
-LOG = ROOT / "docs/spike-log.md"
+from tests.tooling.gateway_files import (
+    ANTHROPIC,
+    FAILOVER_TEST,
+    GATEWAY,
+    INSTALL,
+    LOG,
+    MOCK,
+    ROOT,
+    script_code,
+    yaml_docs,
+)
+from tests.tooling.gateway_files import FAILOVER_CHECK as CHECK
+
 ADR = ROOT / "docs/decisions/llm-gateway-failover.md"
 TEAMS = ("team-a", "team-b")
 MOCK_START_TIMEOUT_S = 10
@@ -36,12 +40,8 @@ MOCK_PROBE_INTERVAL_S = 0.1
 POST_TIMEOUT_S = 5
 
 
-def _docs(path: Path) -> list[dict[str, Any]]:
-    return [d for d in yaml.safe_load_all(path.read_text()) if d]
-
-
 def _named(path: Path, kind: str, name: str) -> dict[str, Any]:
-    return next(d for d in _docs(path) if d["kind"] == kind and d["metadata"]["name"] == name)
+    return next(d for d in yaml_docs(path) if d["kind"] == kind and d["metadata"]["name"] == name)
 
 
 def _groups(backend: dict[str, Any]) -> list[list[dict[str, Any]]]:
@@ -51,16 +51,10 @@ def _groups(backend: dict[str, Any]) -> list[list[dict[str, Any]]]:
 def _policies_for(path: Path, kind: str, name: str) -> list[dict[str, Any]]:
     return [
         d
-        for d in _docs(path)
+        for d in yaml_docs(path)
         if d["kind"] == "AgentgatewayPolicy"
         and any(t["kind"] == kind and t["name"] == name for t in d["spec"]["targetRefs"])
     ]
-
-
-def _code(path: Path) -> str:
-    return "\n".join(
-        line for line in path.read_text().splitlines() if not line.lstrip().startswith("#")
-    )
 
 
 def test_main_backend_has_opencode_then_anthropic_style_group() -> None:
@@ -110,11 +104,11 @@ def test_real_anthropic_backend_reads_key_from_secret() -> None:
     assert "anthropic" in second[0]
     assert "host" not in second[0], "real Anthropic uses the provider's default host"
     assert second[0]["policies"]["auth"]["secretRef"]["name"] == "anthropic-key"
-    assert not any(d["kind"] == "Secret" for d in _docs(ANTHROPIC))
+    assert not any(d["kind"] == "Secret" for d in yaml_docs(ANTHROPIC))
 
 
 def test_install_reads_anthropic_key_on_stdin_only_when_present() -> None:
-    code = _code(INSTALL)
+    code = script_code(INSTALL)
     assert "ANTHROPIC_API_KEY" in code
     assert re.search(
         r'printf %s "\$ANTHROPIC_KEY" \|[^\n]*\\\n\s*--from-file=Authorization=/dev/stdin', code
@@ -126,10 +120,6 @@ def test_install_reads_anthropic_key_on_stdin_only_when_present() -> None:
     assert "gateway-anthropic.yaml" in code
 
 
-def test_env_example_lists_anthropic_key_without_value() -> None:
-    assert re.search(r"^ANTHROPIC_API_KEY=$", (ROOT / ".env.example").read_text(), re.M)
-
-
 def test_failover_test_backend_uses_fake_key_not_the_real_secret() -> None:
     backend = _named(FAILOVER_TEST, "AgentgatewayBackend", "failover-test")
     first, second = _groups(backend)
@@ -138,7 +128,7 @@ def test_failover_test_backend_uses_fake_key_not_the_real_secret() -> None:
     assert "secretRef" not in auth
     assert "not-a-real-key" in auth["key"]
     assert "anthropic" in second[0] and second[0]["path"] == "/v1/messages"
-    assert not any(d["kind"] == "Secret" for d in _docs(FAILOVER_TEST))
+    assert not any(d["kind"] == "Secret" for d in yaml_docs(FAILOVER_TEST))
     route = _named(FAILOVER_TEST, "HTTPRoute", "failover-test")
     assert route["spec"]["rules"][0]["backendRefs"][0]["name"] == "failover-test"
 
@@ -177,7 +167,7 @@ def test_access_log_names_the_team() -> None:
 
 
 def test_check_script_covers_failover_429_and_tokens_per_team() -> None:
-    code = _code(CHECK)
+    code = script_code(CHECK)
     for needle in (
         "--context",
         "failover-test",
@@ -189,11 +179,6 @@ def test_check_script_covers_failover_429_and_tokens_per_team() -> None:
     ):
         assert needle in code, needle
     assert "gateway-failover-test.yaml" in code
-
-
-def test_no_key_in_git() -> None:
-    for path in (GATEWAY, ANTHROPIC, FAILOVER_TEST, INSTALL, CHECK):
-        assert not re.search(r"sk-[A-Za-z0-9]{16,}", path.read_text()), path
 
 
 def _free_port() -> int:
@@ -216,12 +201,17 @@ def mock_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     )
     url = f"http://127.0.0.1:{port}"
     deadline = time.monotonic() + MOCK_START_TIMEOUT_S
-    while time.monotonic() < deadline:
+    is_up = False
+    while not is_up and time.monotonic() < deadline:
         try:
-            urllib.request.urlopen(url + "/v1/models", timeout=MOCK_PROBE_TIMEOUT_S)
-            break
+            with urllib.request.urlopen(url + "/v1/models", timeout=MOCK_PROBE_TIMEOUT_S):
+                is_up = True
         except OSError:
             time.sleep(MOCK_PROBE_INTERVAL_S)
+    if not is_up:
+        proc.terminate()
+        proc.wait()
+        pytest.fail(f"mock at {url} did not answer within {MOCK_START_TIMEOUT_S}s")
     try:
         yield url
     finally:

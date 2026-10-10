@@ -92,6 +92,8 @@ echo "gateway log: $line"
 # so this run's team-a calls (and their token counts) land in the log.
 if [ "$(post team-a "$tmp/small.json")" = 429 ]; then
   wait_s="$(tr -d '\r' <"$tmp/headers" | awk -F': ' 'tolower($1)=="retry-after" {print $2}' || true)"
+  # Retry-After may be an HTTP date; only a number of seconds is used.
+  [[ "$wait_s" =~ ^[0-9]+$ ]] || wait_s=""
   echo "team-a budget spent by an earlier run; waiting ${wait_s:-$DEFAULT_BUDGET_WAIT_S}s for its window"
   sleep "$(( ${wait_s:-$DEFAULT_BUDGET_WAIT_S} + BUDGET_WAIT_MARGIN_S ))"
 fi
