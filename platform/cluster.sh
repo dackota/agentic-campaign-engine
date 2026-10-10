@@ -7,19 +7,21 @@ CTX="k3d-$CLUSTER"
 REGISTRY="k3d-$CLUSTER-registry"
 VOLUME="$CLUSTER-ate"
 
-# True when NAME is the first column of the command's output. Tool errors are not
-# swallowed: the captured call runs under set -e, so a failing tool stops the script.
+# True when NAME is the first column of the listing passed as $2. Listings are captured by
+# the caller in a plain assignment (or an explicit `if !`), never inside an if condition,
+# because bash ignores set -e in a function called from a condition.
 has_name() { printf '%s\n' "$2" | awk -v n="$1" '$1 == n { found = 1 } END { exit !found }'; }
 
-cluster_exists() {
-  local list
-  list="$(k3d cluster list --no-headers)"
-  has_name "$CLUSTER" "$list"
-}
+first_line() { printf '%s\n' "$1" | head -n 1; }
 
 up() {
+  local clusters
   "$HERE/preflight.sh"
-  if cluster_exists; then
+  if ! clusters="$(k3d cluster list --no-headers 2>&1)"; then
+    echo "FAIL could not list k3d clusters: $(first_line "$clusters")" >&2
+    exit 1
+  fi
+  if has_name "$CLUSTER" "$clusters"; then
     echo "cluster $CLUSTER already exists; not recreating it"
   else
     k3d cluster create --config "$HERE/ace-cluster.yaml"
@@ -37,10 +39,12 @@ down() {
   echo "cluster $CLUSTER, its registry, and its volume are gone"
 }
 
-first_line() { printf '%s\n' "$1" | head -n 1; }
-
 node_ready_states() {
   kubectl --context "$CTX" get nodes -o 'jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}'
+}
+
+kubelet_version() {
+  kubectl --context "$CTX" get nodes -o 'jsonpath={.items[0].status.nodeInfo.kubeletVersion}'
 }
 
 all_true() { [ -n "$1" ] && ! printf '%s\n' "$1" | tr ' ' '\n' | grep -qvx True; }
@@ -70,7 +74,7 @@ status() {
     echo "FAIL node Ready (kubectl: $(first_line "$ready"))"
     failed=1
   fi
-  if version="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[0].status.nodeInfo.kubeletVersion}' 2>&1)" && [ -n "$version" ]; then
+  if version="$(kubelet_version 2>&1)" && [ -n "$version" ]; then
     echo "ok   Kubernetes version $version"
   else
     echo "FAIL Kubernetes version (kubectl: $(first_line "$version"))"

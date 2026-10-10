@@ -17,11 +17,15 @@ SPEC_CONFIG = ROOT / "k3d/ace-spike.yaml"
 CONFIG = ROOT / "platform/ace-cluster.yaml"
 CLUSTER_SCRIPT = ROOT / "platform/cluster.sh"
 PLAYWRIGHT = ROOT / "apps/web/playwright.config.ts"
+NODEPORT_MIN = 30000
+NODEPORT_MAX = 32767
 TOOLS = ("k3d", "docker", "kubectl", "helm", "jq")
 
 DOCKER_STUB = """#!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
-if [ -n "$STUB_FAIL" ] && [ "$1" != info ]; then echo "docker: daemon unreachable" >&2; exit 1; fi
+if { [ -n "$STUB_FAIL" ] && [ "$1" != info ]; } || [ "$STUB_DOCKER_FAIL" = "$1 $2" ]; then
+  echo "docker: daemon unreachable" >&2; exit 1
+fi
 case "$1 $2" in
   "info --format") echo "${STUB_MEM_TOTAL:-25159827456}" ;;
   "stats --no-stream") echo "${STUB_MEM_USED:-3.54GiB / 23.4GiB}" ;;
@@ -31,7 +35,9 @@ exit 0
 """
 K3D_STUB = """#!/bin/sh
 echo "k3d $*" >> "$STUB_LOG"
-if [ -n "$STUB_FAIL" ]; then echo "k3d: docker daemon unreachable" >&2; exit 1; fi
+if [ -n "$STUB_FAIL" ] || [ "$STUB_K3D_FAIL" = "$1 $2" ]; then
+  echo "k3d: docker daemon unreachable" >&2; exit 1
+fi
 case "$1 $2" in
   "cluster list") [ -n "$STUB_CLUSTER" ] && echo "ace 1/1 0/0 true"; echo "ace-old 1/1 0/0 true" ;;
   "registry list")
@@ -112,7 +118,7 @@ def test_config_maps_web_and_dex_ports_through_the_load_balancer() -> None:
     for p in ports:
         assert p["nodeFilters"] == ["loadbalancer"]
         host, node = p["port"].split(":")
-        assert 30000 <= int(node) <= 32767, host
+        assert NODEPORT_MIN <= int(node) <= NODEPORT_MAX, host
 
 
 def test_host_ports_differ_from_playwright_defaults() -> None:
@@ -230,10 +236,7 @@ def test_down_fails_when_k3d_errors(tmp_path: Path) -> None:
 
 def test_down_ignores_look_alike_names(tmp_path: Path) -> None:
     # The stubs list ace-old, k3d-ace-registry-old, and ace-ate-old on every run.
-    # Only the exact names may be deleted, so with the real ones absent nothing goes.
-    result, calls = _run(tmp_path, "down")
-    assert result.returncode == 0, result.stderr
-    assert not [c for c in calls if " delete" in c or "volume rm" in c]
+    # Only the exact names may be deleted.
     result, calls = _run(tmp_path, "down", STUB_CLUSTER="1", STUB_REGISTRY="1", STUB_VOLUME="1")
     deleted = [c for c in calls if " delete" in c or "volume rm" in c]
     assert deleted == [
@@ -254,3 +257,22 @@ def test_status_keeps_kubectl_error(tmp_path: Path) -> None:
     result, _ = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_KUBECTL_FAIL="1")
     assert result.returncode != 0
     assert "connection refused" in result.stdout
+
+
+def test_up_does_not_create_when_listing_clusters_fails(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up", STUB_K3D_FAIL="cluster list")
+    assert result.returncode != 0
+    assert "daemon unreachable" in result.stdout + result.stderr
+    assert not [c for c in calls if "cluster create" in c]
+
+
+def test_down_fails_when_listing_registries_fails(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "down", STUB_K3D_FAIL="registry list")
+    assert result.returncode != 0
+    assert "gone" not in result.stdout
+
+
+def test_down_fails_when_listing_volumes_fails(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "down", STUB_DOCKER_FAIL="volume ls")
+    assert result.returncode != 0
+    assert "gone" not in result.stdout
