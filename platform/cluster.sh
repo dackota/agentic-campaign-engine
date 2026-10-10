@@ -7,7 +7,15 @@ CTX="k3d-$CLUSTER"
 REGISTRY="k3d-$CLUSTER-registry"
 VOLUME="$CLUSTER-ate"
 
-cluster_exists() { k3d cluster get "$CLUSTER" >/dev/null 2>&1; }
+# True when NAME is the first column of the command's output. Tool errors are not
+# swallowed: the captured call runs under set -e, so a failing tool stops the script.
+has_name() { printf '%s\n' "$2" | awk -v n="$1" '$1 == n { found = 1 } END { exit !found }'; }
+
+cluster_exists() {
+  local list
+  list="$(k3d cluster list --no-headers)"
+  has_name "$CLUSTER" "$list"
+}
 
 up() {
   "$HERE/preflight.sh"
@@ -19,15 +27,25 @@ up() {
 }
 
 down() {
-  if cluster_exists; then k3d cluster delete "$CLUSTER"; fi
-  if k3d registry list 2>/dev/null | grep -q "$REGISTRY"; then k3d registry delete "$REGISTRY"; fi
-  if docker volume inspect "$VOLUME" >/dev/null 2>&1; then docker volume rm "$VOLUME"; fi
+  local clusters registries volumes
+  clusters="$(k3d cluster list --no-headers)"
+  if has_name "$CLUSTER" "$clusters"; then k3d cluster delete "$CLUSTER"; fi
+  registries="$(k3d registry list --no-headers)"
+  if has_name "$REGISTRY" "$registries"; then k3d registry delete "$REGISTRY"; fi
+  volumes="$(docker volume ls -q)"
+  if has_name "$VOLUME" "$volumes"; then docker volume rm "$VOLUME"; fi
   echo "cluster $CLUSTER, its registry, and its volume are gone"
 }
 
+first_line() { printf '%s\n' "$1" | head -n 1; }
+
 status() {
-  local failed=0 ready version
-  if cluster_exists; then
+  local failed=0 clusters ready version
+  if ! clusters="$(k3d cluster list --no-headers 2>&1)"; then
+    echo "FAIL cluster check: k3d failed: $(first_line "$clusters")"
+    return 1
+  fi
+  if has_name "$CLUSTER" "$clusters"; then
     echo "ok   cluster $CLUSTER exists"
   else
     echo "FAIL cluster $CLUSTER does not exist"
@@ -35,15 +53,19 @@ status() {
     echo "FAIL Kubernetes version: no cluster"
     return 1
   fi
-  ready="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}' 2>/dev/null || true)"
-  if [ -n "$ready" ] && [ -z "$(printf '%s\n' $ready | grep -vx True)" ]; then
+  if ready="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[*].status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
+    [ -n "$ready" ] && ! printf '%s\n' "$ready" | tr ' ' '\n' | grep -qvx True; then
     echo "ok   node Ready"
   else
-    echo "FAIL node Ready (saw: ${ready:-none})"
+    echo "FAIL node Ready (saw: $(first_line "$ready"))"
     failed=1
   fi
-  version="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[0].status.nodeInfo.kubeletVersion}' 2>/dev/null || true)"
-  if [ -n "$version" ]; then echo "ok   Kubernetes version $version"; else echo "FAIL Kubernetes version unknown"; failed=1; fi
+  if version="$(kubectl --context "$CTX" get nodes -o 'jsonpath={.items[0].status.nodeInfo.kubeletVersion}' 2>&1)" && [ -n "$version" ]; then
+    echo "ok   Kubernetes version $version"
+  else
+    echo "FAIL Kubernetes version (kubectl: $(first_line "$version"))"
+    failed=1
+  fi
   return "$failed"
 }
 

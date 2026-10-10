@@ -21,23 +21,28 @@ TOOLS = ("k3d", "docker", "kubectl", "helm", "jq")
 
 DOCKER_STUB = """#!/bin/sh
 echo "docker $*" >> "$STUB_LOG"
+if [ -n "$STUB_FAIL" ] && [ "$1" != info ]; then echo "docker: daemon unreachable" >&2; exit 1; fi
 case "$1 $2" in
   "info --format") echo "${STUB_MEM_TOTAL:-25159827456}" ;;
   "stats --no-stream") echo "${STUB_MEM_USED:-3.54GiB / 23.4GiB}" ;;
-  "volume inspect") [ -n "$STUB_VOLUME" ] || exit 1 ;;
+  "volume ls") [ -n "$STUB_VOLUME" ] && echo "ace-ate"; echo "ace-ate-old" ;;
 esac
 exit 0
 """
 K3D_STUB = """#!/bin/sh
 echo "k3d $*" >> "$STUB_LOG"
+if [ -n "$STUB_FAIL" ]; then echo "k3d: docker daemon unreachable" >&2; exit 1; fi
 case "$1 $2" in
-  "cluster get") [ -n "$STUB_CLUSTER" ] || exit 1 ;;
-  "registry list") [ -n "$STUB_REGISTRY" ] && echo "k3d-ace-registry" ;;
+  "cluster list") [ -n "$STUB_CLUSTER" ] && echo "ace 1/1 0/0 true"; echo "ace-old 1/1 0/0 true" ;;
+  "registry list")
+    [ -n "$STUB_REGISTRY" ] && echo "k3d-ace-registry"
+    echo "k3d-ace-registry-old" ;;
 esac
 exit 0
 """
 KUBECTL_STUB = """#!/bin/sh
 echo "kubectl $*" >> "$STUB_LOG"
+if [ -n "$STUB_KUBECTL_FAIL" ]; then echo "kubectl: connection refused" >&2; exit 1; fi
 case "$*" in
   *Ready*) echo "${STUB_READY:-True}" ;;
   *kubeletVersion*) echo "v1.37.1+k3s1" ;;
@@ -215,3 +220,28 @@ def test_down_exits_zero_when_already_gone(tmp_path: Path) -> None:
     result, calls = _run(tmp_path, "down")
     assert result.returncode == 0, result.stderr
     assert not [c for c in calls if " delete" in c or "volume rm" in c]
+
+
+def test_down_fails_when_k3d_errors(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "down", STUB_FAIL="1")
+    assert result.returncode != 0
+    assert "gone" not in result.stdout
+
+
+def test_down_ignores_look_alike_names(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "down")
+    assert result.returncode == 0, result.stderr
+    assert not [c for c in calls if " delete" in c or "volume rm" in c]
+
+
+def test_status_reports_k3d_error_not_absence(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "status", STUB_FAIL="1")
+    assert result.returncode != 0
+    assert "daemon unreachable" in result.stdout
+    assert "does not exist" not in result.stdout
+
+
+def test_status_keeps_kubectl_error(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_KUBECTL_FAIL="1")
+    assert result.returncode != 0
+    assert "connection refused" in result.stdout
