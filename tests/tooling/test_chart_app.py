@@ -8,7 +8,7 @@ from typing import Any
 
 import yaml
 
-from tests.tooling.test_chart import CHART, _helm, by_kind, render
+from tests.tooling.chart_files import CHART, by_kind, raw_render, render
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRET_TEMPLATE = CHART / "templates/secret.yaml"
@@ -175,7 +175,7 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
 
 
 def test_render_and_values_hold_no_secret_literal() -> None:
-    out = _helm(["helm", "template", "ace", str(CHART), "--namespace", "ace"])
+    out = raw_render()
     docs = [d for d in yaml.safe_load_all(out) if d]
     secret_values = [base64.b64decode(v).decode() for v in _secret(docs)["data"].values()]
     without_secret = yaml.safe_dump_all([d for d in docs if d["kind"] != "Secret"])

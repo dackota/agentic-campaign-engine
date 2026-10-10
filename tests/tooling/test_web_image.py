@@ -102,3 +102,11 @@ def test_image_starts_without_api_and_serves_app() -> None:
     finally:
         subprocess.run(["docker", "rm", "-f", name], capture_output=True)
         subprocess.run(["docker", "rmi", tag], capture_output=True)
+
+
+def test_proxy_does_not_log_api_requests() -> None:
+    # The event stream carries the bearer token as `?access_token=`; nginx's default access
+    # log writes the whole request line, so /api requests are not logged at all.
+    conf = _code(NGINX)
+    api_block = conf.split("location /api/", 1)[1].split("\n  }", 1)[0]
+    assert re.search(r"access_log\s+off\s*;", api_block)

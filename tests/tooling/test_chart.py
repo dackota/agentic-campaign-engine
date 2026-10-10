@@ -1,28 +1,16 @@
 """The one chart for our services: rendered with `helm template`, offline."""
 
 import re
-import subprocess
 from pathlib import Path
 from typing import Any
 
 import yaml
 
+from tests.tooling.chart_files import by_kind, raw_render, render
+
 ROOT = Path(__file__).resolve().parents[2]
-CHART = ROOT / "charts/ace"
 CLUSTER_CONFIG = ROOT / "platform/ace-cluster.yaml"
 OUR_IMAGE_REPOS = ("ace-web", "ace-python")
-
-
-def render(*sets: str) -> list[dict[str, Any]]:
-    args = ["helm", "template", "ace", str(CHART), "--namespace", "ace"]
-    for value in sets:
-        args += ["--set", value]
-    out = _helm(args)
-    return [d for d in yaml.safe_load_all(out) if d]
-
-
-def by_kind(docs: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
-    return [d for d in docs if d["kind"] == kind]
 
 
 def web_objects(docs: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
@@ -70,19 +58,9 @@ def test_api_service_name_comes_from_values() -> None:
 
 
 def test_every_image_is_ours_or_pinned_by_digest() -> None:
-    images = re.findall(r"^\s*image:\s*\"?([^\s\"]+)", _raw_render(), re.M)
+    images = re.findall(r"^\s*image:\s*\"?([^\s\"]+)", raw_render(), re.M)
     assert images
     for image in images:
         name = image.rsplit("/", 1)[-1].split("@")[0].split(":")[0]
         ours = name in OUR_IMAGE_REPOS
         assert ours or re.search(r"@sha256:[0-9a-f]{64}$", image), image
-
-
-def _raw_render() -> str:
-    return _helm(["helm", "template", "ace", str(CHART), "--namespace", "ace"])
-
-
-def _helm(args: list[str]) -> str:
-    result = subprocess.run(args, capture_output=True, text=True)
-    assert result.returncode == 0, result.stderr
-    return result.stdout
