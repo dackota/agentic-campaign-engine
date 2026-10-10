@@ -36,6 +36,17 @@ Home for this part. Later tickets fill it.
   `k3d-ace` context in a temporary file, and runs `tilt up` with it. The `Tiltfile` builds the web
   image and deploys `charts/ace` as release `ace` with `helm_resource`. Run `make up` first.
 
+## The app on the cluster
+
+- `app.sh run` (the last step of `make up`, after the platform) builds the web image (with the
+  Dex issuer from `oidc-issuer.txt` as `VITE_OIDC_ISSUER`) and the Python image, pushes both to
+  the cluster's local registry (`ace-registry`, on its published local port; nothing goes to
+  GHCR), and runs `helm upgrade --install ace charts/ace` with `--wait`. Image tags come from
+  the image id, so a changed image rolls its pods. It is the same release `make dev` uses, and
+  the chart keeps the app Secret on every upgrade.
+- `make status` adds one `app <name>` line for the API, worker, fake Marketo, web, Postgres,
+  and Temporal rollouts.
+
 ## Dex on the cluster
 
 - `dex/install.sh` (run by `install.sh run`, after agentgateway) installs Dex from plain

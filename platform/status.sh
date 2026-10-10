@@ -6,6 +6,8 @@ CTX="k3d-ace"
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-10s}"
 RELEASES="substrate-crds substrate kagent-crds kagent agentgateway-crds agentgateway"
 ROLLOUTS="ate-system/ate-controller ate-system/ate-api-server kagent/kagent-controller agentgateway-system/agentgateway-proxy"
+APP_NAMESPACE="ace"
+APP_DEPLOYMENTS="api worker fake-marketo web postgres temporal"
 AGENTS="spike-agent spike-agent-mock"
 ISSUER_FILE="$(cd "$(dirname "$0")" && pwd)/oidc-issuer.txt"
 DEX_TIMEOUT="${DEX_TIMEOUT:-5}"
@@ -42,6 +44,17 @@ check_rollouts() {
   done
 }
 
+check_app() {
+  local name out
+  for name in $APP_DEPLOYMENTS; do
+    if out="$(k rollout status "deployment/$name" -n "$APP_NAMESPACE" --timeout="$ROLLOUT_TIMEOUT" 2>&1)"; then
+      pass "app $name"
+    else
+      flunk "app $name (kubectl: $(first_line "$out"))"
+    fi
+  done
+}
+
 check_agents() {
   local agent ready
   for agent in $AGENTS; do
@@ -73,4 +86,5 @@ check_releases
 check_rollouts
 check_agents
 check_dex
+check_app
 exit "$failed"
