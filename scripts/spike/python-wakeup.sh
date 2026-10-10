@@ -3,16 +3,24 @@
 # Live depth against the k3d-ace-spike cluster (override with KCTX). Needs kubectl-ate on PATH.
 # Phase 1: send a message, print the answer. Phase 2: suspend the session actor, check it is
 # suspended, send again on the same contextId, print the answer or the crash.
-# Exit 0: answered before and after the wake. Exit 2: answered before, failed after (crash).
-# Exit 1: anything else (setup or phase 1 failed).
+# Exit 0: phase 1 answered and phase 2 printed its outcome (RESULT: survived or RESULT: crashed;
+# a recorded crash is a valid result). Exit 1: the harness failed (setup, phase 1, or the suspend).
 set -euo pipefail
 
-ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 KCTX="${KCTX:-k3d-ace-spike}"
 NS="${NS:-kagent}"
 AGENT="${AGENT:-s22-py-agent}"
 HARNESS="${HARNESS:-${AGENT%-agent}-harness}"
 LOCAL_PORT="${LOCAL_PORT:-18122}"
+CONTROLLER_PORT=8083      # kagent-controller service port
+RETRIES="${RETRIES:-120}" # send retries while the actor resumes
+SEND_TIMEOUT_S=180        # per-request curl timeout
+RETRY_SLEEP_S=1
+PF_WAIT_TRIES=30          # port-forward readiness polls
+SUSPEND_WAIT_TRIES=60     # actor state polls after suspend
+SUSPEND_POLL_S=2
+LOG_TAIL_LINES=40
+LOG_MATCH_LINES=15
 # The server mints the contextId on the first message; the second message reuses it.
 # send_message runs in a subshell, so the id travels through a file.
 CTX_FILE="$(mktemp)"
@@ -33,12 +41,12 @@ send_message() { # prints the answer text; non-zero when the call fails or has n
   body="$(jq -n --arg t "$PROMPT" --arg id "$(uuidgen)" --arg c "$CONTEXT_ID" \
     '{jsonrpc:"2.0",id:1,method:"SendMessage",params:{message:({messageId:$id,role:"ROLE_USER",parts:[{text:$t}]} + (if $c == "" then {} else {contextId:$c} end))}}')"
   # While the actor resumes, the controller answers KAGENT_SEND_NOT_ACCEPTED with a retry hint.
-  for _ in $(seq 1 "${RETRIES:-120}"); do
-    resp="$(curl -sS --max-time 180 -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
+  for _ in $(seq 1 "$RETRIES"); do
+    resp="$(curl -sS --max-time "$SEND_TIMEOUT_S" -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
       "http://localhost:$LOCAL_PORT/agents/$NS/$AGENT")" || { echo "request failed" >&2; return 1; }
     [[ "$resp" == *KAGENT_SEND_NOT_ACCEPTED* ]] || break
     echo "  (session not available yet, retrying)" >&2
-    sleep 1
+    sleep "$RETRY_SLEEP_S"
   done
   [ -s "$CTX_FILE" ] || echo "$resp" | jq -r '.result.task.contextId // empty' >"$CTX_FILE"
   echo "$resp" | jq -r '[.result.task.artifacts[]?.parts[]?.text // empty] | join("\n")' | grep . \
@@ -52,10 +60,10 @@ image="$(k get harness "$HARNESS" -n "$NS" -o jsonpath='{.spec.workload.image}')
 [[ "$image" == *@sha256:* ]] || fail "harness image is not pinned by digest: $image"
 echo "image: $image"
 
-k port-forward -n "$NS" svc/kagent-controller "$LOCAL_PORT:8083" >/dev/null 2>&1 &
+k port-forward -n "$NS" svc/kagent-controller "$LOCAL_PORT:$CONTROLLER_PORT" >/dev/null 2>&1 &
 PF=$!
 trap 'kill $PF 2>/dev/null || true; rm -f "$CTX_FILE"' EXIT
-for _ in $(seq 1 30); do
+for _ in $(seq 1 "$PF_WAIT_TRIES"); do
   curl -fs "http://localhost:$LOCAL_PORT/agents/$NS/$AGENT/.well-known/agent-card.json" >/dev/null 2>&1 && break
   sleep 1
 done
@@ -71,11 +79,11 @@ actor="$(comm -13 <(echo "$before") <(actors) | head -1)"
 echo "actor: $actor"
 
 echo "== suspend"
-ate suspend actor "$actor" -n "$NS" >/dev/null 2>&1 || ate suspend actor "$NS/$actor" >/dev/null 2>&1 || true
-for _ in $(seq 1 60); do
+out="$(ate suspend actor "$actor" -a "$NS" 2>&1)" || fail "suspend failed: $out"
+for _ in $(seq 1 "$SUSPEND_WAIT_TRIES"); do
   state="$(ate get actors -A | awk -v a="$actor" '$2 == a {print $4}')"
   [ "$state" = "ACTOR_STATE_SUSPENDED" ] && break
-  sleep 2
+  sleep "$SUSPEND_POLL_S"
 done
 echo "state: $state"
 [ "$state" = "ACTOR_STATE_SUSPENDED" ] || fail "actor did not reach ACTOR_STATE_SUSPENDED"
@@ -89,6 +97,6 @@ if second="$(send_message)"; then
 fi
 echo "state: $(ate get actors -A | awk -v a="$actor" '$2 == a {print $4}')"
 echo "-- worker log tail"
-k logs -n "$NS" -l app.kubernetes.io/name=kagent-default --tail=40 2>&1 | grep -iE "fatal|illegal|sigill|crash|error" | tail -15 || true
+k logs -n "$NS" -l app.kubernetes.io/name=kagent-default --tail="$LOG_TAIL_LINES" 2>&1 | grep -iE "fatal|illegal|sigill|crash|error" | tail -"$LOG_MATCH_LINES" || true
 echo "RESULT: crashed"
-exit 2
+exit 0

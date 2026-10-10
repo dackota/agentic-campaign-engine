@@ -2,7 +2,7 @@
 # The agent code is inline in spec.workload.command, so no registry is needed.
 # It serves gRPC A2A on port 80 and /readyz on 8081 (KAgentApp does both), and
 # answers every message with a fixed answer plus a boot id and a message counter.
-# The counter lives in process memory: it proves the snapshot kept the process.
+# The boot id and counter live in process memory: a reset shows the wake cold-started the process.
 # Names are prefixed s22- so they do not collide with other spike resources.
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness

@@ -49,3 +49,16 @@ def test_decision_states_go_or_no_go() -> None:
     text = DECISION.read_text()
     assert "S13" in text
     assert re.search(r"Decision: \*\*(go|no-go)\*\*", text)
+
+
+def test_script_exits_zero_when_a_crash_is_recorded() -> None:
+    text = SCRIPT.read_text()
+    assert "exit 2" not in text
+    assert text.rstrip().endswith("exit 0")
+
+
+def test_decision_result_matches_spike_log() -> None:
+    pattern = r"Result: (survived|crashed)"
+    log = re.search(pattern, LOG.read_text())
+    decision = re.search(pattern, DECISION.read_text())
+    assert log and decision and log.group(1) == decision.group(1)

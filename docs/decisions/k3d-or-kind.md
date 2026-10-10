@@ -30,15 +30,11 @@ kind.
 | 3. Python BYO agent survives wake-up | Only with a fast readiness endpoint. See `python-byo-wakeup.md` |
 | 8. Alpha churn | Pinned in `docs/pinned-versions.md` |
 
-## S13 (Python BYO agent): no, for now
+## S13 (Python BYO agent): see its own decision
 
-Decision: **no** (superseded by `python-byo-wakeup.md`: go, with conditions). Keep every agent on the Go harness. Reason: kagent's own
-`scripts/setup-cluster/README.md` says the Python runtime dies on golden-snapshot
-restore (`Fatal Python error: Illegal instruction`) and the Go ADK restores
-cleanly. This spike did not build and run a Python image (it needs a registry
-the node can pull from, and it was out of the ticket's criteria), so the crash is
-neither confirmed nor ruled out here. Revisit S13 only if a quick test on the
-pinned versions shows the Python agent surviving wake-up.
+The Python wake-up test ran in ticket #22. The decision for S13 is in
+`python-byo-wakeup.md`: go, with conditions. It replaces the earlier "no, for now",
+which rested on kagent's README alone.
 
 ## Fallback
 

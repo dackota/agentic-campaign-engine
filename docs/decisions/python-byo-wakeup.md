@@ -1,6 +1,6 @@
 # Decision: Python BYO agent for S13 (S0 spike, #22)
 
-Date: 2026-10-10. Status: accepted. Replaces the "S13: no, for now" note in `k3d-or-kind.md`.
+Date: 2026-10-09. Status: accepted. Replaces the "S13: no, for now" note in `k3d-or-kind.md`.
 
 Result: crashed (the stock Python BYO never wakes; with a fast readiness endpoint it survives).
 

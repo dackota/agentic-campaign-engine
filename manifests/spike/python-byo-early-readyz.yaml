@@ -1,6 +1,8 @@
 # S0 (#22) variant: same agent, but /readyz answers within a fraction of a second.
 # A stdlib thread serves /readyz on 8081 before the heavy imports start, and
 # asyncio.start_server is patched to reuse the port so kagent-adk can bind it later.
+# Spike artifact: a copy of python-byo.yaml with new names and the block below. The asyncio patch is a
+# process-wide monkeypatch; do not copy it into S13 without a proper fix.
 # Tests whether the wake-up failure is only a slow boot against Substrate's ~5 s probe.
 apiVersion: api.kagent.dev/v1alpha3
 kind: Harness

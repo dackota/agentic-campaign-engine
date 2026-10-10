@@ -14,7 +14,7 @@ The Go harness wakes in 0.1 s with the same scope. kagent's README reports
 **Repro:**
 ```
 kubectl --context <ctx> apply -f manifests/spike/python-byo.yaml      # Harness, AgentTemplate, Agent s22-py-agent
-scripts/spike/python-wakeup.sh                                        # exit 2: answered before, failed after the wake
+scripts/spike/python-wakeup.sh                                        # prints RESULT: crashed, exit 0
 kubectl-ate --context <ctx> get actors -A                             # the session stays ACTOR_STATE_RESUMING
 kubectl --context <ctx> logs -n ate-system <atelet pod> | grep "Restore timing"   # error.type=Canceled, ~4.98 s
 ```
