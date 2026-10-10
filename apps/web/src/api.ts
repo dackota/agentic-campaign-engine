@@ -8,12 +8,13 @@ export interface EmailDraft {
 export interface Campaign {
   id: string;
   report: string;
-  status: "drafting" | "drafted" | "failed";
+  status: "drafting" | "awaiting_approval" | "sending" | "sent" | "failed";
   draft: EmailDraft | null;
   failure_reason: string | null;
+  receipt: string | null;
 }
 
-const STATUSES = ["drafting", "drafted", "failed"];
+const STATUSES = ["drafting", "awaiting_approval", "sending", "sent", "failed"];
 
 function isCampaign(value: unknown): value is Campaign {
   if (typeof value !== "object" || value === null) return false;
@@ -24,7 +25,8 @@ function isCampaign(value: unknown): value is Campaign {
     typeof c.status === "string" &&
     STATUSES.includes(c.status) &&
     (c.draft === null || (typeof c.draft === "object" && c.draft !== null)) &&
-    (c.failure_reason === null || typeof c.failure_reason === "string")
+    (c.failure_reason === null || typeof c.failure_reason === "string") &&
+    (c.receipt === null || typeof c.receipt === "string")
   );
 }
 
@@ -46,4 +48,8 @@ export function createCampaign(report: string): Promise<Campaign> {
 
 export function getCampaign(id: string): Promise<Campaign> {
   return request(`/campaigns/${id}`);
+}
+
+export function approveCampaign(id: string): Promise<Campaign> {
+  return request(`/campaigns/${id}/approve`, { method: "POST" });
 }

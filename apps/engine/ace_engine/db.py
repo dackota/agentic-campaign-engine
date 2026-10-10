@@ -9,7 +9,9 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 DRAFTING = "drafting"
-DRAFTED = "drafted"
+AWAITING_APPROVAL = "awaiting_approval"
+SENDING = "sending"
+SENT = "sent"
 FAILED = "failed"
 
 
@@ -25,6 +27,7 @@ class Campaign(Base):
     status: Mapped[str] = mapped_column(String(20), default=DRAFTING)
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    receipt: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )

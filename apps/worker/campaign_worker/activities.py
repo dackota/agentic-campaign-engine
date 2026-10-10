@@ -48,7 +48,7 @@ class Activities:
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.draft = draft
-            campaign.status = db.DRAFTED
+            campaign.status = db.AWAITING_APPROVAL
 
     @activity.defn
     def mark_failed(self, campaign_id: str, reason: str) -> None:
@@ -56,3 +56,21 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.FAILED
             campaign.failure_reason = reason
+
+    @activity.defn
+    async def send_email(self, campaign_id: str, draft: dict[str, Any]) -> str:
+        async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+            response = await client.post(
+                f"{self._settings.marketo_url}/rest/v1/emails/send",
+                json={"campaign_id": campaign_id, **draft},
+            )
+            response.raise_for_status()
+        receipt: str = response.json()["result"][0]["receiptId"]
+        return receipt
+
+    @activity.defn
+    def mark_sent(self, campaign_id: str, receipt: str) -> None:
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            campaign.status = db.SENT
+            campaign.receipt = receipt

@@ -1,12 +1,24 @@
 import { useState, type FormEvent } from "react";
-import { createCampaign, getCampaign, type Campaign } from "./api";
+import { approveCampaign, createCampaign, getCampaign, type Campaign } from "./api";
 
 const POLL_MS = 500;
 
-async function untilSettled(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
+const STATUS_LABELS: Record<Campaign["status"], string> = {
+  drafting: "Drafting",
+  awaiting_approval: "Waiting for approval",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+};
+
+async function pollWhile(
+  first: Campaign,
+  isBusy: (c: Campaign) => boolean,
+  onUpdate: (c: Campaign) => void,
+): Promise<void> {
   let current = first;
   onUpdate(current);
-  while (current.status === "drafting") {
+  while (isBusy(current)) {
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     current = await getCampaign(current.id);
     onUpdate(current);
@@ -23,7 +35,20 @@ export function App() {
     setError(null);
     setCampaign(null);
     try {
-      await untilSettled(await createCampaign(report), setCampaign);
+      await pollWhile(await createCampaign(report), (c) => c.status === "drafting", setCampaign);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function approve(id: string) {
+    setError(null);
+    try {
+      await pollWhile(
+        await approveCampaign(id),
+        (c) => c.status === "sending",
+        setCampaign,
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -51,6 +76,21 @@ export function App() {
           <pre data-testid="draft-body">{campaign.draft.body}</pre>
           <p>{campaign.draft.call_to_action}</p>
         </section>
+      )}
+      {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
+        <p>
+          Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+        </p>
+      )}
+      {campaign?.status === "awaiting_approval" && (
+        <button type="button" onClick={() => void approve(campaign.id)}>
+          Approve
+        </button>
+      )}
+      {campaign?.receipt && (
+        <p>
+          Receipt: <code data-testid="receipt">{campaign.receipt}</code>
+        </p>
       )}
     </main>
   );

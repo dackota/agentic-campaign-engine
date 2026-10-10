@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from ace_engine import db
-from ace_engine.settings import TASK_QUEUE, WORKFLOW_NAME, Settings
+from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME, Settings
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, StringConstraints
+from sqlalchemy import update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
@@ -34,6 +35,7 @@ class CampaignOut(BaseModel):
     status: str
     draft: dict[str, Any] | None
     failure_reason: str | None
+    receipt: str | None
 
     @classmethod
     def of(cls, c: db.Campaign) -> "CampaignOut":
@@ -43,12 +45,34 @@ class CampaignOut(BaseModel):
             status=c.status,
             draft=c.draft,
             failure_reason=c.failure_reason,
+            receipt=c.receipt,
         )
 
 
 def _insert(engine: Engine, campaign_id: uuid.UUID, report: str) -> None:
     with Session(engine) as session, session.begin():
         session.add(db.Campaign(id=campaign_id, report=report))
+
+
+def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -> bool:
+    """Move the campaign `wanted` -> `new` in one statement; False if it was not in `wanted`."""
+    with Session(engine) as session, session.begin():
+        result = session.execute(
+            update(db.Campaign)
+            .where(db.Campaign.id == campaign_id, db.Campaign.status == wanted)
+            .values(status=new)
+        )
+        return result.rowcount == 1  # type: ignore[attr-defined,no-any-return]
+
+
+def _exists(engine: Engine, campaign_id: uuid.UUID) -> bool:
+    with Session(engine) as session:
+        return session.get(db.Campaign, campaign_id) is not None
+
+
+def _read(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
+    with Session(engine) as session:
+        return CampaignOut.of(session.get_one(db.Campaign, campaign_id))
 
 
 def create_app(settings: Settings) -> FastAPI:
@@ -83,6 +107,7 @@ def create_app(settings: Settings) -> FastAPI:
             status=db.DRAFTING,
             draft=None,
             failure_reason=None,
+            receipt=None,
         )
 
     @app.get("/campaigns/{campaign_id}")
@@ -92,5 +117,26 @@ def create_app(settings: Settings) -> FastAPI:
             if campaign is None:
                 raise HTTPException(status_code=404, detail="campaign not found")
             return CampaignOut.of(campaign)
+
+    @app.post("/campaigns/{campaign_id}/approve", status_code=202)
+    async def approve_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
+        engine = request.app.state.engine
+        claimed = await run_in_threadpool(
+            _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
+        )
+        if not claimed:
+            exists = await run_in_threadpool(_exists, engine, campaign_id)
+            if not exists:
+                raise HTTPException(status_code=404, detail="campaign not found")
+            raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
+        try:
+            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
+            await handle.signal(APPROVE_SIGNAL)
+        except Exception:
+            await run_in_threadpool(
+                _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
+            )
+            raise
+        return await run_in_threadpool(_read, engine, campaign_id)
 
     return app

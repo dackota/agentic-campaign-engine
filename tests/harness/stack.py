@@ -21,6 +21,9 @@ POSTGRES_IMAGE = "postgres:16-alpine"
 START_TIMEOUT_SECONDS = 180
 STOP_TIMEOUT_SECONDS = 60
 WORKER_THREADS = 8
+# Temporal's test server never falls back from a stopped worker's sticky queue, so a
+# restarted worker would wait forever. No cache means every task replays from history.
+NO_WORKFLOW_CACHE = 0
 STARTUP_POLLS = 600
 STARTUP_POLL_SECONDS = 0.1
 
@@ -38,6 +41,9 @@ class Stack:
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
+        self.marketo_port = free_port()
+        self._restart_requested: asyncio.Event | None = None
+        self._restarted = threading.Event()
         self._ready = threading.Event()
         self._stop: asyncio.Event | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -48,6 +54,18 @@ class Stack:
     @property
     def api_url(self) -> str:
         return f"http://127.0.0.1:{self.api_port}"
+
+    @property
+    def marketo_url(self) -> str:
+        return f"http://127.0.0.1:{self.marketo_port}"
+
+    def restart_worker(self) -> None:
+        """Stop the worker and start a fresh one; the workflow resumes by replay."""
+        assert self._loop is not None and self._restart_requested is not None
+        self._restarted.clear()
+        self._loop.call_soon_threadsafe(self._restart_requested.set)
+        if not self._restarted.wait(START_TIMEOUT_SECONDS):
+            raise RuntimeError("worker did not restart")
 
     def start(self) -> "Stack":
         from ace_engine.settings import Depth
@@ -94,10 +112,12 @@ class Stack:
         from ace_engine.settings import Settings
         from campaign_api.main import create_app
         from campaign_worker.worker import build_worker
+        from fake_marketo.app import create_app as create_marketo
 
         assert self._postgres is not None
         self._loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
+        self._restart_requested = asyncio.Event()
         agent_port = free_port()
         env = await WorkflowEnvironment.start_time_skipping()
         try:
@@ -107,11 +127,20 @@ class Stack:
                 temporal_address=env.client.service_client.config.target_host,
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
+                marketo_url=self.marketo_url,
             )
             servers = [
                 uvicorn.Server(
                     uvicorn.Config(
                         self.agent.app, port=agent_port, host="127.0.0.1", log_level="warning"
+                    )
+                ),
+                uvicorn.Server(
+                    uvicorn.Config(
+                        create_marketo(),
+                        port=self.marketo_port,
+                        host="127.0.0.1",
+                        log_level="warning",
                     )
                 ),
                 uvicorn.Server(
@@ -125,16 +154,35 @@ class Stack:
             ]
             tasks = [asyncio.create_task(s.serve()) for s in servers]
             with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
-                worker = build_worker(env.client, settings, executor)
-                async with worker:
-                    await self._wait_started(servers)
-                    self._ready.set()
-                    await self._stop.wait()
+                await self._wait_started(servers)
+                first = True
+                while not self._stop.is_set():
+                    worker = build_worker(
+                        env.client, settings, executor, max_cached_workflows=NO_WORKFLOW_CACHE
+                    )
+                    async with worker:
+                        if first:
+                            self._ready.set()
+                            first = False
+                        else:
+                            self._restarted.set()
+                        await self._until_stop_or_restart()
             for s in servers:
                 s.should_exit = True
             await asyncio.gather(*tasks)
         finally:
             await env.shutdown()
+
+    async def _until_stop_or_restart(self) -> None:
+        assert self._stop is not None and self._restart_requested is not None
+        waiters = [
+            asyncio.create_task(self._stop.wait()),
+            asyncio.create_task(self._restart_requested.wait()),
+        ]
+        await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
+        for w in waiters:
+            w.cancel()
+        self._restart_requested.clear()
 
     async def _wait_started(self, servers: list[uvicorn.Server]) -> None:
         for _ in range(STARTUP_POLLS):
