@@ -15,3 +15,6 @@ to the Dex Service, which listens on 15656. Port 15656 is chosen because the bro
 binds 15556 (`apps/web/playwright.config.ts`), and both must run at once. This needs no code change.
 The rejected alternative, a second "JWKS URL" setting in the API, is the fallback if the rewrite
 fails on k3s.
+
+The issuer is written once, in `platform/oidc-issuer.txt`. The Dex step (`platform/dex/install.sh`),
+`platform/status.sh`, and the `Tiltfile` read that file.

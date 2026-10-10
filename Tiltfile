@@ -8,8 +8,9 @@ allow_k8s_contexts('k3d-ace')
 
 RELEASE = 'ace'  # the release `make up` installs too
 NAMESPACE = 'ace'
-# Baked into the web build (apps/web/src/auth.ts); the Dex issuer from decisions A20.
-OIDC_ISSUER = 'http://dex.ace.localhost:15656/dex'
+# Baked into the web build (apps/web/src/auth.ts). One constant for the Dex step, make status,
+# and this build: platform/oidc-issuer.txt (decisions A20).
+OIDC_ISSUER = str(read_file('platform/oidc-issuer.txt')).strip()
 
 # tilt-extensions, pinned by commit (docs/pinned-versions.md).
 v1alpha1.extension_repo(

@@ -7,6 +7,8 @@ ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-10s}"
 RELEASES="substrate-crds substrate kagent-crds kagent agentgateway-crds agentgateway"
 ROLLOUTS="ate-system/ate-controller ate-system/ate-api-server kagent/kagent-controller agentgateway-system/agentgateway-proxy"
 AGENTS="spike-agent spike-agent-mock"
+ISSUER_FILE="$(cd "$(dirname "$0")" && pwd)/oidc-issuer.txt"
+DEX_TIMEOUT="${DEX_TIMEOUT:-5}"
 failed=0
 
 first_line() { printf '%s\n' "$1" | head -n 1; }
@@ -52,7 +54,23 @@ check_agents() {
   done
 }
 
+# Dex's discovery document must be reachable at the issuer, and name the same issuer.
+check_dex() {
+  local issuer body
+  issuer="$(tr -d '[:space:]' <"$ISSUER_FILE")" || { flunk "dex (cannot read $ISSUER_FILE)"; return 0; }
+  if ! body="$(curl -sS -f --max-time "$DEX_TIMEOUT" "$issuer/.well-known/openid-configuration" 2>&1)"; then
+    flunk "dex discovery at $issuer (curl: $(first_line "$body"))"
+    return 0
+  fi
+  if printf '%s' "$body" | tr -d '[:space:]' | grep -qF -- "\"issuer\":\"$issuer\""; then
+    pass "dex discovery at $issuer"
+  else
+    flunk "dex discovery at $issuer names another issuer"
+  fi
+}
+
 check_releases
 check_rollouts
 check_agents
+check_dex
 exit "$failed"

@@ -35,3 +35,19 @@ Home for this part. Later tickets fill it.
 - `dev.sh` backs `make dev`: it checks the pinned Tilt version, cuts your kubeconfig down to the
   `k3d-ace` context in a temporary file, and runs `tilt up` with it. The `Tiltfile` builds the web
   image and deploys `charts/ace` as release `ace` with `helm_resource`. Run `make up` first.
+
+## Dex on the cluster
+
+- `dex/install.sh` (run by `install.sh run`, after agentgateway) installs Dex from plain
+  manifests, not a chart, and `charts/` holds nothing about it. `dex/dex.yaml` is namespace
+  `dex`, the Deployment (the pinned image), and the Service: a NodePort on port 15656
+  (targetPort 5556, nodePort 30656, which `ace-cluster.yaml` maps to host 15656). The config is
+  `dex/config.yaml` with three fields rewritten, like `tests/harness/dex.py`: the issuer, the
+  web client's redirect URI (`http://127.0.0.1:15180/`), and `web.allowedOrigins`. It goes in as
+  the ConfigMap `dex-config`; a changed config restarts the pod.
+- `oidc-issuer.txt` is the one place the issuer is written. The Dex step, `status.sh`, and the
+  `Tiltfile` (`VITE_OIDC_ISSUER`) read it. The browser reaches it through the k3d load balancer
+  (`*.localhost` is 127.0.0.1). Pods reach it through the `coredns-custom` ConfigMap in
+  `kube-system` (`dex/coredns-custom.yaml`), which rewrites the host to the Dex Service. The
+  step restarts CoreDNS and waits on the rollout so the rewrite is live. A second run is safe.
+- `status.sh` adds a Dex line: the discovery document must answer at the issuer and name it.
