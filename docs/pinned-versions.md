@@ -78,3 +78,14 @@ dependencies come from `uv.lock` (`uv sync --frozen`).
 | uv in the Python image build | `ghcr.io/astral-sh/uv:0.12.0` | index `sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105` |
 | Postgres (chart) | `postgres:16-alpine` | index `sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea` |
 | Temporal dev server (chart; CLI 1.9.1, Server 1.32.0) | `temporalio/temporal:1.9.1` | index `sha256:ad4c82c97bd12b417d1ea942610dbcd511afb250c4d5ed26c694009533df447e` |
+
+## Image signing (CI publish)
+
+`.github/workflows/publish-images.yml` installs cosign with the installer action pinned by commit
+SHA and asks it for this cosign release. The checksums are from the release's
+`cosign_checksums.txt` (read 2026-10-10); the local round trip used the darwin-arm64 binary.
+
+| Part | Version | Digest |
+|---|---|---|
+| cosign | `v3.1.3` | linux-amd64 SHA-256 `4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71`, darwin-arm64 SHA-256 `5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76` |
+| cosign installer action (`sigstore/cosign-installer`) | v4.1.2 | commit `6f9f17788090df1f26f669e9d70d6ae9567deba6` |
