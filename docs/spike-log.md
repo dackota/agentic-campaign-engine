@@ -367,8 +367,9 @@ Team token limits: each team has a ModelConfig (`team-a-model`, `team-b-model`) 
 `traffic.rateLimit.local` budget, 10000 tokens a minute (a spike number; S6 sets the real
 ones). The route sets `x-team`, and the access log prints it as `team="team-a"` next to
 `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; the check sums both per
-team. In the check, team-a got 429 (`reason=RateLimit`) on its
-third 8k-token call. team-b's call in the same minute got 200 from `opencode.ai`.
+team. In the check, team-a got 429 (`reason=RateLimit`) once its
+8k-token calls used up the budget (on the second or third call, depending on what an
+earlier run left in the window). team-b's call in the same minute got 200 from `opencode.ai`.
 
 Learned, and fixed: the gateway's own rate-limit 429 counts against the backend's health.
 With `response.code == 429` in the unhealthy rule, team-a going over its budget evicted

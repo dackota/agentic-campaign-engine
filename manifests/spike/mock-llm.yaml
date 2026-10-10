@@ -14,6 +14,10 @@ data:
     import time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+    CHARS_PER_TOKEN = 4
+    ECHO_MAX_CHARS = 200
+
+
     def reply(messages: list[dict]) -> str:
         last, said = "", []
         for m in messages:
@@ -31,31 +35,37 @@ data:
                 if found:
                     return "The code word is " + found.group(1)
             return "I do not know the code word"
-        return "mock: " + last[:200]
+        return "mock: " + last[:ECHO_MAX_CHARS]
 
-    CHARS_PER_TOKEN = 4
 
     def tokens(text: str) -> int:
         return max(1, len(text) // CHARS_PER_TOKEN)
 
+
     def prompt_text(req: dict) -> str:
         return json.dumps(req.get("messages", [])) + json.dumps(req.get("system", ""))
+
 
     def sse(event: str, data: dict) -> bytes:
         return ("event: " + event + "\ndata: " + json.dumps(data) + "\n\n").encode()
 
+
     class H(BaseHTTPRequestHandler):
-        def log_message(self, f, *a): print(f % a, flush=True)
-        def _json(self, code, obj):
+        def log_message(self, f: str, *a: object) -> None:
+            print(f % a, flush=True)
+
+        def _json(self, code: int, obj: object) -> None:
             b = json.dumps(obj).encode()
             self.send_response(code)
             self.send_header("content-type", "application/json")
             self.send_header("content-length", str(len(b)))
             self.end_headers()
             self.wfile.write(b)
-        def do_GET(self):
+
+        def do_GET(self) -> None:
             self._json(200, {"object": "list", "data": [{"id": "mock", "object": "model"}]})
-        def do_POST(self):
+
+        def do_POST(self) -> None:
             req = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
             text = reply(req.get("messages", []))
             in_tok, out_tok = tokens(prompt_text(req)), tokens(text)
@@ -74,11 +84,13 @@ data:
             self._json(200, dict(base, object="chat.completion",
                 choices=[{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
                 usage=usage))
-        def _sse_start(self):
+
+        def _sse_start(self) -> None:
             self.send_response(200)
             self.send_header("content-type", "text/event-stream")
             self.end_headers()
-        def _messages(self, req, text, in_tok, out_tok):
+
+        def _messages(self, req: dict, text: str, in_tok: int, out_tok: int) -> None:
             # Anthropic Messages API shape, streamed or not.
             msg = {"id": "msg_mock", "type": "message", "role": "assistant",
                    "model": req.get("model", "mock-anthropic"), "stop_sequence": None}
@@ -97,6 +109,7 @@ data:
                 ("message_stop", {"type": "message_stop"}),
             ):
                 self.wfile.write(sse(event, data))
+
 
     ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8000"))), H).serve_forever()
 ---

@@ -26,7 +26,7 @@ PF_READY_TRIES=30
 PF_READY_INTERVAL_S=1
 # Time for the access log line to reach the pod log.
 LOG_SETTLE_S=2
-# Fallback wait when a 429 has no retry-after: one token-limit window (Minutes).
+# Fallback wait when a 429 has no retry-after: one token-limit window (minutes).
 DEFAULT_BUDGET_WAIT_S=60
 # Slack past retry-after, so the next call lands in the new window.
 BUDGET_WAIT_MARGIN_S=1
@@ -51,11 +51,14 @@ k wait --for=jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'=True 
   agentgatewaybackend/failover-test -n "$GW_NS" --timeout="$BACKEND_ACCEPT_TIMEOUT" >/dev/null || fail "failover-test backend not accepted"
 sleep "$FAILOVER_SETTLE_S"
 
-k port-forward -n "$GW_NS" svc/agentgateway-proxy "$LOCAL_PORT:80" >/dev/null 2>&1 &
+# kubectl itself, not the k function: $! must be the kubectl process, or cleanup kills
+# only a subshell and leaves the port-forward running.
+kubectl --context "$KCTX" port-forward -n "$GW_NS" svc/agentgateway-proxy "$LOCAL_PORT:80" >/dev/null 2>&1 &
 pf=$!
 url="http://127.0.0.1:$LOCAL_PORT"
 for _ in $(seq "$PF_READY_TRIES"); do curl -s -o /dev/null "$url/" && break; sleep "$PF_READY_INTERVAL_S"; done
 curl -s -o /dev/null "$url/" || fail "port-forward to agentgateway-proxy never answered"
+kill -0 "$pf" 2>/dev/null || fail "port-forward exited; is port $LOCAL_PORT taken? set LOCAL_PORT"
 
 post() { # route body_file -> prints the status code; body goes to $tmp/out
   curl -s -o "$tmp/out" -D "$tmp/headers" -w '%{http_code}' "$url/$1/v1/chat/completions" \
