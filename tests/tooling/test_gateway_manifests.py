@@ -51,8 +51,10 @@ def test_route_sets_user_agent_and_session_header() -> None:
 
 def test_backend_holds_key_by_secret_reference_only() -> None:
     backend = _kind(GATEWAY, "AgentgatewayBackend")
-    assert backend["spec"]["policies"]["auth"]["secretRef"]["name"]
-    assert backend["spec"]["ai"]["provider"]["host"] == "opencode.ai"
+    # Priority group 1 is OpenCode Go (S1 failover, docs/decisions/llm-gateway-failover.md).
+    opencode = backend["spec"]["ai"]["groups"][0]["providers"][0]
+    assert opencode["policies"]["auth"]["secretRef"]["name"]
+    assert opencode["host"] == "opencode.ai"
     assert not any(d["kind"] == "Secret" for d in _docs(GATEWAY))
 
 
