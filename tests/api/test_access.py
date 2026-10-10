@@ -11,7 +11,16 @@ import httpx
 import pytest
 
 from tests.api.conftest import SignIn
-from tests.api.helpers import AWAITING, create, read_events, settle, until_status
+from tests.api.helpers import (
+    AWAITING,
+    DRAFT_APPROVE_PUBLISH,
+    create,
+    read_events,
+    save_workflow,
+    settle,
+    until_status,
+    workflow_name,
+)
 from tests.harness.stack import Stack
 
 LEAD = "dg-lead@demo.example"
@@ -22,47 +31,55 @@ TEAM_OWNER = {
 
 # Every demo user, their team and roles as the token should carry them, and the status
 # each action gets. "approve" is on a campaign their team's owner created and that is
-# waiting for approval.
-# Every role in a team reads every campaign view.
-READS_OK = {"list": 200, "read": 200, "events": 200, "preview": 200, "activity": 200}
+# waiting for approval. "save_workflow" saves a new workflow version; "read_workflow" reads
+# one their team's owner saved.
+# Every role in a team reads every campaign view and every workflow.
+READS_OK = {
+    "list": 200,
+    "read": 200,
+    "events": 200,
+    "preview": 200,
+    "activity": 200,
+    "read_workflow": 200,
+}
 ROLE_TABLE: dict[str, tuple[str, list[str], dict[str, int]]] = {
     "dg-owner@demo.example": (
         "demand-gen",
         ["owner"],
-        {**READS_OK, "create": 201, "approve": 403},
+        {**READS_OK, "create": 201, "save_workflow": 201, "approve": 403},
     ),
     "dg-approver@demo.example": (
         "demand-gen",
         ["approver"],
-        {**READS_OK, "create": 403, "approve": 202},
+        {**READS_OK, "create": 403, "save_workflow": 403, "approve": 202},
     ),
     "dg-viewer@demo.example": (
         "demand-gen",
         ["viewer"],
-        {**READS_OK, "create": 403, "approve": 403},
+        {**READS_OK, "create": 403, "save_workflow": 403, "approve": 403},
     ),
     "dg-lead@demo.example": (
         "demand-gen",
         ["approver", "owner"],
-        {**READS_OK, "create": 201, "approve": 202},
+        {**READS_OK, "create": 201, "save_workflow": 201, "approve": 202},
     ),
     "pm-owner@demo.example": (
         "product-marketing",
         ["owner"],
-        {**READS_OK, "create": 201, "approve": 403},
+        {**READS_OK, "create": 201, "save_workflow": 201, "approve": 403},
     ),
     "pm-approver@demo.example": (
         "product-marketing",
         ["approver"],
-        {**READS_OK, "create": 403, "approve": 202},
+        {**READS_OK, "create": 403, "save_workflow": 403, "approve": 202},
     ),
     "pm-viewer@demo.example": (
         "product-marketing",
         ["viewer"],
-        {**READS_OK, "create": 403, "approve": 403},
+        {**READS_OK, "create": 403, "save_workflow": 403, "approve": 403},
     ),
 }
-ACTIONS = ["list", "read", "events", "preview", "activity", "create", "approve"]
+ACTIONS = [*READS_OK, "create", "save_workflow", "approve"]
 CASES = [(email, action) for email in ROLE_TABLE for action in ACTIONS]
 
 
@@ -73,6 +90,12 @@ def _waiting_campaign(sign_in: SignIn, team: str) -> str:
     return campaign_id
 
 
+def _saved_workflow(sign_in: SignIn, team: str) -> str:
+    name = workflow_name("access")
+    save_workflow(sign_in(TEAM_OWNER[team]), name, DRAFT_APPROVE_PUBLISH)
+    return name
+
+
 def _events_status(client: httpx.Client, campaign_id: str) -> int:
     with client.stream("GET", f"/campaigns/{campaign_id}/events") as response:
         response.read()
@@ -80,6 +103,11 @@ def _events_status(client: httpx.Client, campaign_id: str) -> int:
 
 
 def _act(client: httpx.Client, action: str, campaign_id: str | None) -> int:
+    if action == "save_workflow":
+        url = f"/workflows/{workflow_name('access')}/versions"
+        return client.post(url, json=DRAFT_APPROVE_PUBLISH).status_code
+    if action == "read_workflow":
+        return client.get(f"/workflows/{campaign_id}/versions/1").status_code
     if action == "list":
         return client.get("/campaigns").status_code
     if action == "create":
@@ -109,6 +137,8 @@ def test_role_table(stack: Stack, sign_in: SignIn, email: str, action: str) -> N
     team, _, expected = ROLE_TABLE[email]
     needs_campaign = action in {"read", "events", "preview", "activity", "approve"}
     campaign_id = _waiting_campaign(sign_in, team) if needs_campaign else None
+    if action == "read_workflow":
+        campaign_id = _saved_workflow(sign_in, team)
 
     status = _act(sign_in(email), action, campaign_id)
 
@@ -155,6 +185,8 @@ def test_requests_without_a_valid_token_get_401(
         ("GET", f"/campaigns/{campaign_id}/events"),
         ("GET", f"/campaigns/{campaign_id}/preview"),
         ("GET", f"/campaigns/{campaign_id}/activity"),
+        ("POST", f"/workflows/{workflow_name('anon')}/versions"),
+        ("GET", "/workflows/any-name/versions/1"),
         ("POST", f"/campaigns/{campaign_id}/approve"),
         ("GET", "/me"),
     ]

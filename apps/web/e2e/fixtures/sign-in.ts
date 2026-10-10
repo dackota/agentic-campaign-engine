@@ -14,3 +14,10 @@ export async function signIn(page: Page, email: string = OWNER): Promise<void> {
   await page.getByRole("button", { name: "Login" }).click();
   await expect(page.getByTestId("signed-in-as")).toHaveText(email);
 }
+
+/** The signed-in page's access token, for API calls a spec makes beside the screen. */
+export async function accessTokenOf(page: Page): Promise<string> {
+  const token = await page.evaluate(() => sessionStorage.getItem("ace.access_token"));
+  if (!token) throw new Error("the page is not signed in");
+  return token;
+}

@@ -1,4 +1,5 @@
 import { accessToken } from "./auth";
+import type { WorkflowStep } from "./workflow.gen";
 
 export interface EmailDraft {
   subject: string;
@@ -7,7 +8,14 @@ export interface EmailDraft {
   call_to_action: string;
 }
 
-const STATUSES = ["drafting", "awaiting_approval", "sending", "sent", "failed"] as const;
+const STATUSES = [
+  "drafting",
+  "awaiting_approval",
+  "sending",
+  "sent",
+  "failed",
+  "finished",
+] as const;
 type CampaignStatus = (typeof STATUSES)[number];
 
 export interface Campaign {
@@ -19,6 +27,17 @@ export interface Campaign {
   draft: EmailDraft | null;
   failure_reason: string | null;
   receipt: string | null;
+  /** The saved workflow the run pinned; null for the default workflow. */
+  workflow: string | null;
+  workflow_version: number | null;
+  /** The pinned workflow's steps, in run order. */
+  steps: WorkflowStep[];
+}
+
+function isStep(value: unknown): value is WorkflowStep {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  return typeof s.id === "string" && typeof s.kind === "string";
 }
 
 function isCampaign(value: unknown): value is Campaign {
@@ -33,7 +52,11 @@ function isCampaign(value: unknown): value is Campaign {
     (STATUSES as readonly string[]).includes(c.status) &&
     (c.draft === null || (typeof c.draft === "object" && c.draft !== null)) &&
     (c.failure_reason === null || typeof c.failure_reason === "string") &&
-    (c.receipt === null || typeof c.receipt === "string")
+    (c.receipt === null || typeof c.receipt === "string") &&
+    (c.workflow === null || typeof c.workflow === "string") &&
+    (c.workflow_version === null || typeof c.workflow_version === "number") &&
+    Array.isArray(c.steps) &&
+    c.steps.every(isStep)
   );
 }
 
@@ -89,11 +112,13 @@ export async function getMe(): Promise<Me> {
   return body;
 }
 
-export function createCampaign(report: string): Promise<Campaign> {
+/** Start a campaign; `workflow` names a saved workflow, empty runs the default one. */
+export function createCampaign(report: string, workflow = ""): Promise<Campaign> {
+  const name = workflow.trim();
   return request("/campaigns", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ report }),
+    body: JSON.stringify(name ? { report, workflow: name } : { report }),
   });
 }
 
@@ -124,7 +149,7 @@ export interface RunEvent {
 }
 
 const RUN_STEP = "run";
-const RUN_FINAL_STATUSES = ["awaiting_approval", "failed"];
+const RUN_FINAL_STATUSES = ["awaiting_approval", "failed", "sent", "finished"];
 
 export function isFinalEvent(event: RunEvent): boolean {
   return event.step === RUN_STEP && RUN_FINAL_STATUSES.includes(event.status);
