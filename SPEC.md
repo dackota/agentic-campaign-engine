@@ -1,6 +1,7 @@
 # Agentic Campaign Engine: spec
 
-Status: plan. Date: 2026-10-09.
+Status: plan. Date: 2026-10-09. Product requirements:
+[PRD, issue #16](https://github.com/dackota/agentic-campaign-engine/issues/16).
 
 ## What this is
 
