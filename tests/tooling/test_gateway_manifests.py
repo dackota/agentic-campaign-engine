@@ -8,23 +8,24 @@ import re
 from pathlib import Path
 from typing import Any
 
-import yaml
+from tests.tooling.gateway_files import (
+    AGENT,
+    CHECK,
+    ENV_EXAMPLE,
+    GATEWAY,
+    INSTALL,
+    KEY_SCAN_PATHS,
+    LOG,
+    ROOT,
+    script_code,
+    yaml_docs,
+)
 
-ROOT = Path(__file__).resolve().parents[2]
-GATEWAY = ROOT / "manifests/spike/gateway.yaml"
-AGENT = ROOT / "manifests/spike/agent.yaml"
-CHECK = ROOT / "scripts/spike/gateway-check.sh"
-INSTALL = ROOT / "scripts/spike/gateway-install.sh"
 PINNED = ROOT / "docs/pinned-versions.md"
-LOG = ROOT / "docs/spike-log.md"
-
-
-def _docs(path: Path) -> list[dict[str, Any]]:
-    return [d for d in yaml.safe_load_all(path.read_text()) if d]
 
 
 def _kind(path: Path, kind: str) -> dict[str, Any]:
-    return next(d for d in _docs(path) if d["kind"] == kind)
+    return next(d for d in yaml_docs(path) if d["kind"] == kind)
 
 
 def test_model_config_points_at_gateway_with_v1() -> None:
@@ -51,16 +52,19 @@ def test_route_sets_user_agent_and_session_header() -> None:
 
 def test_backend_holds_key_by_secret_reference_only() -> None:
     backend = _kind(GATEWAY, "AgentgatewayBackend")
-    assert backend["spec"]["policies"]["auth"]["secretRef"]["name"]
-    assert backend["spec"]["ai"]["provider"]["host"] == "opencode.ai"
-    assert not any(d["kind"] == "Secret" for d in _docs(GATEWAY))
+    # Priority group 1 is OpenCode Go (S1 failover, docs/decisions/llm-gateway-failover.md).
+    opencode = backend["spec"]["ai"]["groups"][0]["providers"][0]
+    assert opencode["policies"]["auth"]["secretRef"]["name"]
+    assert opencode["host"] == "opencode.ai"
+    assert not any(d["kind"] == "Secret" for d in yaml_docs(GATEWAY))
 
 
 def test_no_key_in_git() -> None:
-    for path in (GATEWAY, AGENT, CHECK):
+    for path in KEY_SCAN_PATHS:
         assert not re.search(r"sk-[A-Za-z0-9]{16,}", path.read_text()), path
-    example = ROOT / ".env.example"
-    assert re.search(r"^OPENCODE_KEY=$", example.read_text(), re.M)
+    example = ENV_EXAMPLE.read_text()
+    for name in ("OPENCODE_KEY", "ANTHROPIC_API_KEY"):
+        assert re.search(rf"^{name}=$", example, re.M), name
 
 
 def test_check_script_covers_tokens_headers_and_pod_keys() -> None:
@@ -75,13 +79,6 @@ def test_spike_log_records_session_header_note() -> None:
     assert re.search(r"per (agent|conversation)", text)
 
 
-def _code(path: Path) -> str:
-    """The script without its comment lines."""
-    return "\n".join(
-        line for line in path.read_text().splitlines() if not line.lstrip().startswith("#")
-    )
-
-
 def _s1_section(text: str) -> str:
     """Spike-log section 14 for S1 (the log has a second, later section 14)."""
     heading = "\n## 14. S1: agents call models through agentgateway"
@@ -89,7 +86,7 @@ def _s1_section(text: str) -> str:
 
 
 def test_install_passes_key_on_stdin_not_argv() -> None:
-    code = _code(INSTALL)
+    code = script_code(INSTALL)
     assert "--from-literal" not in code
     # Only shell builtins ([ and printf) see the key; kubectl reads it from stdin.
     uses = [line.strip() for line in code.splitlines() if '"$OPENCODE_KEY"' in line]
@@ -102,32 +99,32 @@ def test_install_passes_key_on_stdin_not_argv() -> None:
 
 
 def test_install_creates_secret_without_client_side_apply() -> None:
-    code = _code(INSTALL)
+    code = script_code(INSTALL)
     assert "--dry-run" not in code
     assert re.search(r'delete secret "\$SECRET" [^\n]*--ignore-not-found', code)
     assert re.search(r'k create secret generic "\$SECRET"', code)
 
 
 def test_check_greps_cannot_exit_silently() -> None:
-    for line in _code(CHECK).splitlines():
+    for line in script_code(CHECK).splitlines():
         if "$(" in line and "grep" in line:
             assert "|| true" in line, line
 
 
 def test_check_reads_main_checkout_env_and_fails_without_it() -> None:
-    code = _code(CHECK)
+    code = script_code(CHECK)
     assert "--git-common-dir" in code
     assert re.search(r'\[ -f "\$ENV_FILE" \] \|\| fail', code)
 
 
 def test_check_matches_openai_key_and_exempts_placeholder() -> None:
-    code = _code(CHECK)
+    code = script_code(CHECK)
     assert "OPENAI_API_KEY" in code
     assert "kagent-tools-openai" in code
 
 
 def test_check_reports_agent_workload_and_log_records_limit() -> None:
-    code = _code(CHECK)
+    code = script_code(CHECK)
     for needle in ("workerPoolRef", "WorkerPool", "SandboxTemplate", "agent workload"):
         assert needle in code, needle
     assert "sandbox" in _s1_section(LOG.read_text()).lower()

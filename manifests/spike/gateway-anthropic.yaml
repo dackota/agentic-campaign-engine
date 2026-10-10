@@ -1,0 +1,26 @@
+# S1 priority group 2 with a real pay-as-you-go Anthropic API key. gateway-install.sh
+# applies this after gateway.yaml only when .env has ANTHROPIC_API_KEY; it replaces the
+# opencode-go backend, swapping the mock's Anthropic-style route for api.anthropic.com.
+# The key lives in Secret anthropic-key (made by the install script, never in git).
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata: {name: opencode-go, namespace: agentgateway-system}
+spec:
+  ai:
+    groups:
+    - providers:
+      - name: opencode-go
+        openai: {}
+        host: opencode.ai
+        port: 443
+        path: /zen/go/v1/chat/completions
+        policies:
+          tls: {sni: opencode.ai}
+          auth:
+            secretRef: {name: opencode-go-key}
+    - providers:
+      - name: anthropic
+        anthropic: {model: claude-haiku-4-5}
+        policies:
+          auth:
+            secretRef: {name: anthropic-key}

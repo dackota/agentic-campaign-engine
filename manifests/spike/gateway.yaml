@@ -13,20 +13,47 @@ spec:
     allowedRoutes:
       namespaces: {from: All}
 ---
+# Two priority groups (docs/decisions/llm-gateway-failover.md). Group 1 is OpenCode Go.
+# Group 2 is Anthropic-style: the mock's /v1/messages route until a real key exists;
+# gateway-install.sh applies gateway-anthropic.yaml instead when .env has ANTHROPIC_API_KEY.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
 metadata: {name: opencode-go, namespace: agentgateway-system}
 spec:
   ai:
-    provider:
-      openai: {}
-      host: opencode.ai
-      port: 443
-      path: /zen/go/v1/chat/completions
-  policies:
-    tls: {sni: opencode.ai}
-    auth:
-      secretRef: {name: opencode-go-key}
+    groups:
+    - providers:
+      - name: opencode-go
+        openai: {}
+        host: opencode.ai
+        port: 443
+        path: /zen/go/v1/chat/completions
+        policies:
+          tls: {sni: opencode.ai}
+          auth:
+            secretRef: {name: opencode-go-key}
+    - providers:
+      - name: anthropic-mock
+        anthropic: {model: mock-anthropic}
+        host: mock-llm.kagent.svc.cluster.local
+        port: 8000
+        path: /v1/messages
+---
+# A bad key (401/403) or an outage (5xx) evicts group 1 after one failure, so the next
+# attempt goes to group 2. Not 429: the gateway's own per-team token limit answers 429
+# and agentgateway v1.6.0 counts that against the backend, so one team over its budget
+# would evict OpenCode Go for every team (seen live, docs/spike-log.md section 18).
+# A provider 429 still lowers health, and its Retry-After sets the wait.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: opencode-go-health, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: agentgateway.dev, kind: AgentgatewayBackend, name: opencode-go}
+  backend:
+    health:
+      unhealthyCondition: "response.code >= 500 || response.code == 401 || response.code == 403"
+      eviction: {duration: 30s, consecutiveFailures: 1}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -61,7 +88,116 @@ spec:
   openAI:
     baseUrl: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/v1
 ---
-# Put the two OpenCode headers in the access log next to the token counts.
+# Team team-a: its own route, ModelConfig and token budget, so a busy team cannot starve
+# another. The route sets x-team for the access log; a client cannot pick its budget.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: team-a, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /team-a/v1}
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: team-a}
+        - {name: x-team, value: team-a}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: opencode-go
+---
+# Spike-size budget; S6 sets the real per-team numbers.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: team-a-token-limit, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: team-a}
+  traffic:
+    rateLimit:
+      local:
+      - {tokens: 10000, unit: Minutes}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata: {name: team-a-model, namespace: kagent}
+spec:
+  provider: OpenAI
+  model: glm-5.3-flash
+  apiKeySecret: kagent-openai
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/team-a/v1
+---
+# Team team-b: its own route, ModelConfig and token budget, so a busy team cannot starve
+# another. The route sets x-team for the access log; a client cannot pick its budget.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: team-b, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /team-b/v1}
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: team-b}
+        - {name: x-team, value: team-b}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: opencode-go
+---
+# Spike-size budget; S6 sets the real per-team numbers.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: team-b-token-limit, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: team-b}
+  traffic:
+    rateLimit:
+      local:
+      - {tokens: 10000, unit: Minutes}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata: {name: team-b-model, namespace: kagent}
+spec:
+  provider: OpenAI
+  model: glm-5.3-flash
+  apiKeySecret: kagent-openai
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/team-b/v1
+---
+# Retry once (after the eviction, hence the backoff) on the codes that evict a provider,
+# so the call that hit the failure is answered by the next priority group instead of
+# failing back to the agent.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: llm-failover-retry, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: opencode-go}
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: team-a}
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: team-b}
+  traffic:
+    retry:
+      attempts: 1
+      backoff: 1s
+      codes: [401, 403, 500, 502, 503, 504]
+---
+# Put the two OpenCode headers and the team in the access log next to the token counts.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata: {name: log-opencode-headers, namespace: agentgateway-system}
@@ -74,3 +210,4 @@ spec:
         add:
         - {name: user_agent, expression: 'request.headers["user-agent"]'}
         - {name: opencode_session, expression: 'default(request.headers["x-opencode-session"], "none")'}
+        - {name: team, expression: 'default(request.headers["x-team"], "none")'}

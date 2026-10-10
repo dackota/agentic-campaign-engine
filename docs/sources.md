@@ -60,3 +60,4 @@ page before you rely on a row.
 | [OpenCode Go](https://opencode.ai/docs/go/) | $10 a month. Endpoints under `https://opencode.ai/zen/go/v1/` in three formats: chat completions, responses, and Anthropic messages. Built for coding-agent traffic. Asks for your own user agent and an `x-opencode-session` header. Source of SPEC.md risks 4 and 7 |
 | [OpenCode Go model list](https://opencode.ai/zen/go/v1/models) | The live list of model IDs |
 | [agentgateway model failover](https://agentgateway.dev/docs/kubernetes/latest/llm/failover/) | Priority groups set failover order. Providers in one group are load balanced. A 429 with `Retry-After` sets the eviction time |
+| [agentgateway rate limiting](https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/) | `traffic.rateLimit.local` with `tokens` and `unit` on an HTTPRoute sets a token budget. Over budget the gateway answers 429 with `retry-after` and `x-ratelimit-*` headers. Checked 2026-10-10 |
