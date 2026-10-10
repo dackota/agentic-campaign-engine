@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from tests.api.test_campaign_draft import GOOD_DRAFT, create
+from tests.api.helpers import GOOD_DRAFT, create
 from tests.harness.stack import Stack
 
 STREAM_TIMEOUT_SECONDS = 30

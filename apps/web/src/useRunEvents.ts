@@ -1,9 +1,6 @@
 import { useEffect, useState } from "react";
 import { getCampaign, isFinalEvent, watchRun, type Campaign, type RunEvent } from "./api";
-
-function messageOf(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
+import { messageOf } from "./messages";
 
 /** Follow a campaign's run: per-step events while it runs, the refetched campaign at the end. */
 export function useRunEvents(

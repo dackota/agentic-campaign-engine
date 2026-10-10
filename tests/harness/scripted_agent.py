@@ -14,10 +14,10 @@ import threading
 import uuid
 from typing import Any
 
+from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-REPORT_MARKER = "THREAT REPORT:"
 JSONRPC_METHOD_NOT_FOUND = -32601
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300

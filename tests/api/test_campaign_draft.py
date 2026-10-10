@@ -2,45 +2,16 @@
 time-skipping test server, and the scripted A2A agent behind it."""
 
 import json
-import time
 import uuid
 from pathlib import Path
-from typing import Any
 
 import httpx
 import jsonschema
 
+from tests.api.helpers import GOOD_DRAFT, REPORT, create, settle
 from tests.harness.stack import Stack
 
-REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances."
 SCHEMA_PATH = Path(__file__).resolve().parents[2] / "apps/engine/ace_engine/email_draft.schema.json"
-GOOD_DRAFT = {
-    "subject": "Patch your VPN today",
-    "preheader": "Attackers are scanning for it",
-    "body": "Hello, apply the fix now.",
-    "call_to_action": "Patch now",
-}
-POLL_SECONDS = 30
-POLL_INTERVAL_SECONDS = 0.2
-
-
-def create(api: httpx.Client, report: str = REPORT) -> dict[str, Any]:
-    response = api.post("/campaigns", json={"report": report})
-    assert response.status_code == 201, response.text
-    created: dict[str, Any] = response.json()
-    return created
-
-
-def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
-    deadline = time.monotonic() + POLL_SECONDS
-    while time.monotonic() < deadline:
-        response = api.get(f"/campaigns/{campaign_id}")
-        assert response.status_code == 200, response.text
-        campaign: dict[str, Any] = response.json()
-        if campaign["status"] != "drafting":
-            return campaign
-        time.sleep(POLL_INTERVAL_SECONDS)
-    raise AssertionError("campaign never left drafting")
 
 
 def test_created_campaign_is_returned_with_its_draft(api: httpx.Client) -> None:

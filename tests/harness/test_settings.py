@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import pytest
 from ace_engine.settings import Depth, Settings
-from campaign_worker import activities
 from campaign_worker.activities import Activities
 
 AGENT_TIMEOUT = 31.0
@@ -44,7 +43,7 @@ def test_marketo_call_uses_its_own_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     def client(**kwargs: Any) -> httpx.AsyncClient:
         return real_client(transport=httpx.MockTransport(reply), **kwargs)
 
-    monkeypatch.setattr(activities.httpx, "AsyncClient", client)
+    monkeypatch.setattr("campaign_worker.activities.httpx.AsyncClient", client)
     settings = _settings(marketo_timeout_seconds=MARKETO_TIMEOUT)
 
     receipt = asyncio.run(Activities(settings, engine=None).send_email("c-1", {}))  # type: ignore[arg-type]
