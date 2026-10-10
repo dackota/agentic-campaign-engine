@@ -6,6 +6,7 @@ from enum import StrEnum
 
 WORKFLOW_NAME = "CampaignWorkflow"
 TASK_QUEUE = "campaigns"
+APPROVE_SIGNAL = "approve"
 DEPTH_ENV = "ACE_DEPTH"
 
 
@@ -33,3 +34,4 @@ class Settings:
     temporal_namespace: str
     agent_url: str
     agent_timeout_seconds: float = 30.0
+    marketo_url: str = ""

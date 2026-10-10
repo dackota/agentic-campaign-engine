@@ -147,10 +147,9 @@ kagent sandbox exec <id> -- uname -a   -> Linux actor 4.19.0-gvisor ... aarch64,
 model, idle: 2.27 GiB of 23.4 GiB. `kubectl --context k3d-ace-spike top pods -A`: `atelet` 310 Mi, kagent
 controller 70 Mi, rustfs 73 Mi, the two Postgres 57 Mi each, the rest under 50 Mi.
 
-## 11. Not done
+## 11. Python BYO agent
 
-Python BYO agent (`kagent-adk`): not built or run. It needs an image in a registry the
-node can pull from. The decision is in `docs/decisions/k3d-or-kind.md` (S13: no).
+Done in section 15 (ticket S0 Python wake-up test).
 
 ## 12. Final
 
@@ -182,6 +181,72 @@ scripts/spike/a2a-smoke.sh   -> 42, exit 0
 ```
 The smoke script already asserts both the digest pin and Agent Ready; unchanged.
 
+## 14. S1: agents call models through agentgateway
+
+agentgateway v1.6.0 (`agentgateway-crds` and `agentgateway` charts, `cr.agentgateway.dev`)
+in `agentgateway-system`. `scripts/spike/gateway-install.sh` installs it, makes Secret
+`opencode-go-key` (key `Authorization`) from `OPENCODE_KEY` in `.env`, and applies
+`manifests/spike/gateway.yaml`: a Gateway, an `AgentgatewayBackend` (host `opencode.ai`,
+path `/zen/go/v1/chat/completions`, TLS, auth from the Secret), an HTTPRoute on `/v1`, and
+ModelConfig `gateway-model` with `baseUrl` `http://agentgateway-proxy.agentgateway-system.svc.cluster.local/v1`.
+`spike-template` now uses `gateway-model` (model `glm-5.3-flash`). The ModelConfig still
+names the placeholder `kagent-openai` Secret, which holds `spike-not-a-real-key`.
+
+`scripts/spike/gateway-check.sh` (live, `make gateway-check`) saw: spike agent answers
+`42`; gateway log shows `http.status=200 gen_ai.usage.input_tokens=301
+gen_ai.usage.output_tokens=29` for the call; OpenCode headers `user-agent:
+agentic-campaign-engine/0.1` and `x-opencode-session`; no pod outside `agentgateway-system`
+has a provider key in env or mounted Secrets, and the key value is in no other Secret.
+Output saved in `.scratch/ace/proof/23-gateway-check.txt`.
+
+Learned: the HTTPRoute `RequestHeaderModifier` runs before the access log, so an
+`AgentgatewayPolicy` (`frontend.accessLog.attributes`) can print the headers OpenCode gets.
+
+### x-opencode-session: per agent, not per conversation
+
+The header is set per agent today. The route filter sets a fixed value. kagent
+ModelConfig has `spec.defaultHeaders`, also a fixed map per ModelConfig, and the golang
+ADK harness offers no per-request header hook. So one value per ModelConfig (one per agent
+if each agent gets its own) is what we can do. A per-conversation value would need the
+runtime to add the Session id to each model call; nothing in kagent 1.0.0-alpha9 does that.
+Open risk: OpenCode may read a constant session as one very long conversation.
+Revisit if OpenCode throttles or caches by session.
+
+## 15. Python BYO wake-up test (#22)
+
+Result: crashed (stock image), survived (with a fast readiness endpoint).
+
+Agent: `kagent-adk` pinned by digest `sha256:f60b442f...` (`manifests/spike/python-byo.yaml`).
+The agent code is inline in `spec.workload.command` (a `BaseAgent` that answers `42 boot=<id>
+pid=<pid> n=<count>`), so no registry is needed. `byo: {}`, `KAGENT_PORT=80`, `/readyz` on 8081.
+Driver: `scripts/spike/python-wakeup.sh` (live; `AGENT=` picks the manifest's Agent).
+
+Run 1, `s22-py-agent` (stock):
+- Phase 1: answered `42 boot=... n=1`. The golden snapshot restored in about 0.1 s.
+- Suspend: actor reached `ACTOR_STATE_SUSPENDED`.
+- Phase 2: the wake never completed. The actor stayed `ACTOR_STATE_RESUMING`; the controller
+  answered `KAGENT_SEND_NOT_ACCEPTED` for 40 retries. Atelet log, each attempt:
+  `Restore timing breakdown ... snapshot.scope=data snapshot.kind=latest error.type=Canceled
+  ateom_restore=4.98s`. Ateom logs `Actor restoring`, then runsc create and start, and no
+  `Wakeup probe reached 200`. It retries every 6 s, forever (39 attempts in 5 minutes).
+- No `Illegal instruction` or `Fatal Python error` anywhere. The failure is not kagent's
+  CPU crash; on this arm64 stack it is a timeout.
+
+What the logs show: a wake restores the `latest` snapshot with scope `data`. That keeps the
+filesystem and starts the process cold (the golden snapshot is `full`). The process boots
+again and Substrate waits about 5 s for `/readyz`. The Go harness answers in 0.1 s. The
+Python image needs more than 5 s for its imports, so the probe is cancelled and retried.
+
+Run 2, `s22-pyfast-agent` (`manifests/spike/python-byo-early-readyz.yaml`): same agent, plus a
+stdlib thread that answers `/readyz` on 8081 before the heavy imports start (the port is
+shared with `SO_REUSEPORT` so kagent-adk still binds it). Two runs, both:
+- Phase 1: `42 boot=6d9f3a99 pid=1 n=1`, then phase 2 `42 boot=337975ae pid=1 n=1`.
+- The boot id and counter changed: the wake is a fresh process, not a memory restore. Keep
+  nothing in process memory that must survive a wake (true for Go too, by the scope above).
+- `Wakeup probe reached 200` after 0.36 s; atelet `ateom_restore` 0.42 s.
+
+Upstream bug: draft 6, `docs/upstream-bugs/6-python-byo-wake-never-completes.md`.
+Decision: `docs/decisions/python-byo-wakeup.md`.
 ## 14. Suspend and wake with context (S21)
 
 `scripts/spike/suspend-wake.sh` (live depth, exits 0 only on success). The mock model

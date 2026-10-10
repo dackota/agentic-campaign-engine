@@ -26,7 +26,7 @@ kind: AgentTemplate
 metadata: {name: spike-template, namespace: kagent}
 spec:
   description: Spike agent
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: You are a concise, helpful assistant.
 ---
 apiVersion: api.kagent.dev/v1alpha3

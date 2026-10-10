@@ -1,0 +1,76 @@
+# S1: agentgateway in front of OpenCode Go. The gateway holds the key
+# (Secret opencode-go-key, made by scripts/spike/gateway-install.sh from .env).
+# Agents hold only a ModelConfig that points at the gateway.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata: {name: agentgateway-proxy, namespace: agentgateway-system}
+spec:
+  gatewayClassName: agentgateway
+  listeners:
+  - name: http
+    protocol: HTTP
+    port: 80
+    allowedRoutes:
+      namespaces: {from: All}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata: {name: opencode-go, namespace: agentgateway-system}
+spec:
+  ai:
+    provider:
+      openai: {}
+      host: opencode.ai
+      port: 443
+      path: /zen/go/v1/chat/completions
+  policies:
+    tls: {sni: opencode.ai}
+    auth:
+      secretRef: {name: opencode-go-key}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: opencode-go, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /v1}
+    filters:
+    # Static per route, so per agent at best, not per conversation (docs/spike-log.md S1).
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: spike-agent}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: opencode-go
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: ModelConfig
+metadata: {name: gateway-model, namespace: kagent}
+spec:
+  provider: OpenAI
+  model: glm-5.3-flash
+  # kagent requires a key field for OpenAI; this one is a placeholder the gateway ignores.
+  apiKeySecret: kagent-openai
+  apiKeySecretKey: OPENAI_API_KEY
+  openAI:
+    baseUrl: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/v1
+---
+# Put the two OpenCode headers in the access log next to the token counts.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: log-opencode-headers, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: agentgateway-proxy}
+  frontend:
+    accessLog:
+      attributes:
+        add:
+        - {name: user_agent, expression: 'request.headers["user-agent"]'}
+        - {name: opencode_session, expression: 'default(request.headers["x-opencode-session"], "none")'}

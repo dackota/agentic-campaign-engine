@@ -31,9 +31,9 @@ select = ["E", "F", "I", "B", "UP"]
 
 [tool.mypy]
 strict = true
-files = ["tests", "apps/engine", "apps/api", "apps/worker"]
-mypy_path = ["apps/engine", "apps/api", "apps/worker"]
+files = ["tests", "apps/engine", "apps/api", "apps/worker", "services/fakes"]
+mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "apps/engine", "apps/api", "apps/worker"]
+pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes"]
