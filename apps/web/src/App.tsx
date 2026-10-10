@@ -1,12 +1,6 @@
-import { useEffect, useState, type FormEvent } from "react";
-import {
-  createCampaign,
-  getCampaign,
-  isFinalEvent,
-  watchRun,
-  type Campaign,
-  type RunEvent,
-} from "./api";
+import { useState, type FormEvent } from "react";
+import { createCampaign, type Campaign } from "./api";
+import { useRunEvents } from "./useRunEvents";
 
 const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
@@ -14,31 +8,13 @@ export function App() {
   const [report, setReport] = useState("");
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [steps, setSteps] = useState<Record<string, RunEvent>>({});
-  const campaignId = campaign?.id;
-
-  useEffect(() => {
-    if (!campaignId) return;
-    return watchRun(
-      campaignId,
-      (event) => {
-        if (isFinalEvent(event)) {
-          getCampaign(campaignId).then(setCampaign, (e: unknown) =>
-            setError(e instanceof Error ? e.message : String(e)),
-          );
-        } else {
-          setSteps((current) => ({ ...current, [event.step]: event }));
-        }
-      },
-      setError,
-    );
-  }, [campaignId]);
+  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setError(null);
     setCampaign(null);
-    setSteps({});
+    reset();
     try {
       setCampaign(await createCampaign(report));
     } catch (e) {

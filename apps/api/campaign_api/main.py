@@ -80,6 +80,23 @@ async def _event_stream(
         await asyncio.sleep(EVENT_POLL_SECONDS)
 
 
+def _add_event_routes(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/events")
+    def campaign_events(
+        campaign_id: uuid.UUID,
+        request: Request,
+        last_event_id: Annotated[int, Header(ge=0)] = 0,
+    ) -> StreamingResponse:
+        with Session(request.app.state.engine) as session:
+            if session.get(db.Campaign, campaign_id) is None:
+                raise HTTPException(status_code=404, detail="campaign not found")
+        return StreamingResponse(
+            _event_stream(request.app.state.engine, campaign_id, last_event_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
+
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -122,19 +139,6 @@ def create_app(settings: Settings) -> FastAPI:
                 raise HTTPException(status_code=404, detail="campaign not found")
             return CampaignOut.of(campaign)
 
-    @app.get("/campaigns/{campaign_id}/events")
-    def campaign_events(
-        campaign_id: uuid.UUID,
-        request: Request,
-        last_event_id: Annotated[int, Header(ge=0)] = 0,
-    ) -> StreamingResponse:
-        with Session(request.app.state.engine) as session:
-            if session.get(db.Campaign, campaign_id) is None:
-                raise HTTPException(status_code=404, detail="campaign not found")
-        return StreamingResponse(
-            _event_stream(request.app.state.engine, campaign_id, last_event_id),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+    _add_event_routes(app)
 
     return app

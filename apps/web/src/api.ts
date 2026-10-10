@@ -55,7 +55,7 @@ export interface RunEvent {
   reason: string | null;
 }
 
-export const RUN_STEP = "run";
+const RUN_STEP = "run";
 const RUN_FINAL_STATUSES = ["drafted", "failed"];
 
 export function isFinalEvent(event: RunEvent): boolean {
@@ -81,7 +81,13 @@ export function watchRun(
 ): () => void {
   const source = new EventSource(`/api/campaigns/${id}/events`);
   source.addEventListener("step", (message) => {
-    const parsed: unknown = JSON.parse((message as MessageEvent<string>).data);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse((message as MessageEvent<string>).data);
+    } catch (e) {
+      console.error("run event was not JSON", e);
+      parsed = null;
+    }
     if (!isRunEvent(parsed)) {
       source.close();
       onError("the API sent an unexpected run event");
@@ -90,6 +96,11 @@ export function watchRun(
     onEvent(parsed);
     if (isFinalEvent(parsed)) source.close();
   });
+  source.onerror = () => {
+    // CONNECTING means the browser is retrying from the last event id; CLOSED means it gave up.
+    if (source.readyState !== EventSource.CLOSED) return;
+    onError("lost the live run status; reload to see the latest");
+  };
   // A dropped connection is retried by the browser, resuming from the last event id.
   return () => source.close();
 }
