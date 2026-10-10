@@ -1,0 +1,27 @@
+{{- $labels := include "ace.labels" (list . "worker") -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      initContainers:
+        {{- include "ace.waitForDeps" . | nindent 8 }}
+      containers:
+        - name: worker
+          {{- include "ace.pythonImage" . | nindent 10 }}
+          command:
+            {{- include "ace.pythonCommand" (list . "campaign_worker") | trim | nindent 12 }}
+          # The worker checks no tokens: no OIDC settings.
+          env:
+            {{- include "ace.engineEnv" . | nindent 12 }}

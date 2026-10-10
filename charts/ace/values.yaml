@@ -13,3 +13,48 @@ web:
 api:
   serviceName: api
   port: 8000
+  # The issuer the API trusts: the constant in platform/oidc-issuer.txt (decisions A20). Helm
+  # reads no file outside the chart, so it is repeated here; tests/tooling/
+  # test_platform_install.py checks the two match. Dex itself is installed by `make up`.
+  oidcIssuer: http://dex.ace.localhost:15656/dex
+  oidcClientId: ace-web
+
+# fast: the worker calls the agent at worker.agentUrl. The run modes are in SPEC.md.
+depth: fast
+
+# One image for the API, the worker, and the fake Marketo (apps/python.Dockerfile).
+python:
+  image:
+    repository: ace-python
+    tag: dev
+    pullPolicy: IfNotPresent
+  # make dev sets this: a file watcher restarts each Python process when Tilt syncs a save.
+  reload: false
+
+worker:
+  # Placeholder: no agent answers here, so a run fails with a named agent reason.
+  # #29 replaces this default with a real kagent agent's A2A URL.
+  agentUrl: http://agent-not-wired.invalid
+
+marketo:
+  serviceName: fake-marketo
+  port: 8000
+  # Not a secret: Marketo's OAuth2 client id. Its secret is in the app Secret.
+  clientId: ace-demo
+
+postgres:
+  # Third-party images are pinned by digest (docs/pinned-versions.md).
+  image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  serviceName: postgres
+  port: 5432
+  user: ace
+  database: ace
+  storage: 1Gi
+
+temporal:
+  # The Temporal CLI's dev server, with its SQLite file on a volume.
+  image: temporalio/temporal:1.9.1@sha256:ad4c82c97bd12b417d1ea942610dbcd511afb250c4d5ed26c694009533df447e
+  serviceName: temporal
+  port: 7233
+  namespace: default
+  storage: 1Gi

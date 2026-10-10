@@ -487,6 +487,22 @@ def test_issuer_is_one_constant_read_by_step_status_and_tiltfile() -> None:
         assert "oidc-issuer.txt" in code or path.name == "install.sh", path
     tilt = _code(ROOT / "Tiltfile")
     assert re.search(r"read_file\(\s*['\"]platform/oidc-issuer\.txt['\"]", tilt)
+    # The chart's API trusts the same issuer (helm can only read files inside the chart).
+    rendered = subprocess.run(
+        ["helm", "template", "ace", str(ROOT / "charts/ace"), "--namespace", "ace"],
+        capture_output=True,
+        text=True,
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    (api,) = [
+        d
+        for d in yaml.safe_load_all(rendered.stdout)
+        if d and d["kind"] == "Deployment" and d["metadata"]["name"] == "api"
+    ]
+    env = {
+        e["name"]: e.get("value") for e in api["spec"]["template"]["spec"]["containers"][0]["env"]
+    }
+    assert env["ACE_OIDC_ISSUER"] == ISSUER_FILE.read_text().strip()
     assert re.search(r"build_args\s*=\s*\{\s*['\"]VITE_OIDC_ISSUER['\"]\s*:\s*OIDC_ISSUER", tilt)
 
 

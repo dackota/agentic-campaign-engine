@@ -30,7 +30,8 @@ class Depth(StrEnum):
 @dataclass(frozen=True)
 class Settings:
     depth: Depth
-    database_url: str
+    # Holds the Postgres password on the cluster, so it stays out of the repr too.
+    database_url: str = field(repr=False)
     temporal_address: str
     temporal_namespace: str
     agent_url: str

@@ -53,3 +53,17 @@ def test_extension_repo_is_pinned_by_commit() -> None:
     ref = re.search(r"ref\s*=\s*['\"]([0-9a-f]{40})['\"]", code)
     assert ref, "tilt-extensions must be pinned by commit sha"
     assert ref.group(1) in PINS.read_text()
+
+
+def test_tiltfile_live_updates_python_image() -> None:
+    code = _code()
+    assert re.search(r"docker_build\(\s*['\"]ace-python['\"]", code)
+    assert "apps/python.Dockerfile" in code
+    # A Python save syncs into the running pod; the chart's file watcher restarts the process.
+    assert re.search(r"live_update\s*=", code)
+    assert re.search(r"sync\(\s*['\"]apps['\"]\s*,\s*['\"]/app/apps['\"]\s*\)", code)
+    assert re.search(r"sync\(\s*['\"]services['\"]\s*,\s*['\"]/app/services['\"]\s*\)", code)
+    assert re.search(r"fall_back_on\(", code) and "uv.lock" in code
+    assert "python.reload=true" in code
+    assert "python.image.repository" in code and "python.image.tag" in code
+    assert re.search(r"image_deps\s*=\s*\[[^\]]*['\"]ace-python['\"]", code)

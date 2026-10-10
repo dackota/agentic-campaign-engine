@@ -18,6 +18,8 @@ server {
     proxy_buffering off;
     proxy_cache off;
     proxy_read_timeout 1h;
+    # The event stream sends the bearer token in its query string: never log these requests.
+    access_log off;
   }
 
   location / {
