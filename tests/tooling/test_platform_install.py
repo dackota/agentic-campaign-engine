@@ -614,3 +614,48 @@ def test_status_fails_when_discovery_issuer_differs(tmp_path: Path) -> None:
     assert any(
         line.startswith("FAIL") and "dex" in line.lower() for line in result.stdout.splitlines()
     )
+
+
+def test_dex_probe_uses_the_path_dex_serves_on_the_web_port() -> None:
+    # Dex v2.46 answers /dex/healthz on the web port; /dex/healthz/ready is 404 there
+    # (it exists only on the telemetry listener), so such a probe never passes.
+    docs = [d for d in yaml.safe_load_all(MANIFEST.read_text()) if d]
+    deploy = next(d for d in docs if d["kind"] == "Deployment")
+    (container,) = deploy["spec"]["template"]["spec"]["containers"]
+    probes = [
+        container[k] for k in ("readinessProbe", "livenessProbe", "startupProbe") if k in container
+    ]
+    assert probes
+    for probe in probes:
+        assert probe["httpGet"]["path"] == "/dex/healthz"
+
+
+def _dex_step_env(tmp_path: Path, **extra: str) -> tuple[dict[str, str], Path]:
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    log = tmp_path / "calls.log"
+    log.touch()
+    kubectl = tmp_path / "bin/kubectl"
+    kubectl.write_text(f'#!/bin/sh\necho "kubectl $*" >> {log}\n')
+    kubectl.chmod(0o755)
+    return {"PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin", **extra}, log
+
+
+def test_bad_issuer_file_stops_the_dex_step_before_any_apply(tmp_path: Path) -> None:
+    for bad in ("not a url\n", "\n", "https://dex.example/dex\n", "http://a|b/dex\n"):
+        bad_file = tmp_path / "issuer.txt"
+        bad_file.write_text(bad)
+        env, log = _dex_step_env(tmp_path, ACE_ISSUER_FILE=str(bad_file))
+        result = subprocess.run([STEP, "run"], env=env, capture_output=True, text=True)
+        assert result.returncode != 0, bad
+        assert log.read_text() == "", bad
+        assert "dex is up" not in result.stdout, bad
+
+
+def test_config_missing_a_rewrite_target_stops_the_dex_step(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG.read_text().replace("issuer: ", "# issuer: ", 1))
+    env, log = _dex_step_env(tmp_path, ACE_DEX_CONFIG=str(config))
+    result = subprocess.run([STEP, "run"], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert log.read_text() == ""
+    assert "dex is up" not in result.stdout

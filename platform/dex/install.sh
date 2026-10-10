@@ -8,7 +8,8 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
 CTX="k3d-ace"
-ISSUER_FILE="$ROOT/platform/oidc-issuer.txt"
+ISSUER_FILE="${ACE_ISSUER_FILE:-$ROOT/platform/oidc-issuer.txt}" # overridable for tests
+CONFIG_FILE="${ACE_DEX_CONFIG:-$HERE/config.yaml}"
 WEB_ORIGIN="http://127.0.0.1:15180"
 WORK="" # the temp dir `run` makes; the EXIT trap removes it
 ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-180s}"
@@ -35,17 +36,18 @@ rewrite_line() {
 
 render_config() {
   local issuer config
-  issuer="$(read_issuer)"
-  config="$(cat "$HERE/config.yaml")" || fail "cannot read $HERE/config.yaml"
-  config="$(rewrite_line '^issuer:' "issuer: $issuer" "$config")"
-  config="$(rewrite_line '^  allowedOrigins:' "  allowedOrigins: [\"$WEB_ORIGIN\"]" "$config")"
-  config="$(rewrite_line '^    redirectURIs:' "    redirectURIs: [\"$WEB_ORIGIN/\"]" "$config")"
+  issuer="$(read_issuer)" || exit 1
+  config="$(cat "$CONFIG_FILE")" || fail "cannot read $CONFIG_FILE"
+  config="$(rewrite_line '^issuer:' "issuer: $issuer" "$config")" || exit 1
+  config="$(rewrite_line '^  allowedOrigins:' "  allowedOrigins: [\"$WEB_ORIGIN\"]" "$config")" || exit 1
+  config="$(rewrite_line '^    redirectURIs:' "    redirectURIs: [\"$WEB_ORIGIN/\"]" "$config")" || exit 1
   printf '%s\n' "$config"
 }
 
 run() {
-  local config sha
-  config="$(render_config)"
+  local config sha issuer
+  issuer="$(read_issuer)" || exit 1
+  config="$(render_config)" || exit 1
   sha="$(printf '%s\n' "$config" | shasum -a 256 | awk '{print $1}')"
   [ -n "$sha" ] || fail "could not checksum the rendered config"
   WORK="$(mktemp -d "${TMPDIR:-/tmp}/ace-dex.XXXXXX")"
@@ -61,7 +63,7 @@ run() {
   # CoreDNS reads the override at start, so restart it and wait before anything resolves the name.
   k -n kube-system rollout restart deployment/coredns
   k -n kube-system rollout status deployment/coredns --timeout="$ROLLOUT_TIMEOUT"
-  echo "dex is up at $(read_issuer)"
+  echo "dex is up at $issuer"
 }
 
 case "${1:-run}" in

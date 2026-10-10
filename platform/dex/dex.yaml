@@ -32,7 +32,7 @@ spec:
               containerPort: 5556
           readinessProbe:
             httpGet:
-              path: /dex/healthz/ready
+              path: /dex/healthz
               port: http
             periodSeconds: 3
           volumeMounts:
