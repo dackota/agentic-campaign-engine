@@ -9,10 +9,14 @@ import threading
 import uuid
 from typing import Any
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from pydantic import BaseModel
 
 RECEIPT_HEX_LENGTH = 12
+
+
+class Fault(BaseModel):
+    malformed_reply: bool
 
 
 class SendRequest(BaseModel):
@@ -26,14 +30,24 @@ class SendRequest(BaseModel):
 def create_app() -> FastAPI:
     lock = threading.Lock()
     sends: dict[str, dict[str, Any]] = {}
+    fault = Fault(malformed_reply=False)
     app = FastAPI()
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.put("/_fault", status_code=204)
+    def set_fault(body: Fault) -> Response:
+        """Test hook: make sends answer with a reply that has no receipt id."""
+        nonlocal fault
+        fault = body
+        return Response(status_code=204)
+
     @app.post("/rest/v1/emails/send")
     def send(body: SendRequest) -> dict[str, Any]:
+        if fault.malformed_reply:
+            return {"success": True, "result": []}
         with lock:
             record = sends.get(body.campaign_id)
             if record is None:

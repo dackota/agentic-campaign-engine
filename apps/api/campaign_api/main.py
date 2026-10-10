@@ -75,6 +75,29 @@ def _read(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
         return CampaignOut.of(session.get_one(db.Campaign, campaign_id))
 
 
+def _register_approval_route(app: FastAPI) -> None:
+    @app.post("/campaigns/{campaign_id}/approve", status_code=202)
+    async def approve_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
+        engine = request.app.state.engine
+        is_claimed = await run_in_threadpool(
+            _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
+        )
+        if not is_claimed:
+            exists = await run_in_threadpool(_exists, engine, campaign_id)
+            if not exists:
+                raise HTTPException(status_code=404, detail="campaign not found")
+            raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
+        try:
+            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
+            await handle.signal(APPROVE_SIGNAL)
+        except Exception:
+            await run_in_threadpool(
+                _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
+            )
+            raise
+        return await run_in_threadpool(_read, engine, campaign_id)
+
+
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -118,25 +141,6 @@ def create_app(settings: Settings) -> FastAPI:
                 raise HTTPException(status_code=404, detail="campaign not found")
             return CampaignOut.of(campaign)
 
-    @app.post("/campaigns/{campaign_id}/approve", status_code=202)
-    async def approve_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
-        engine = request.app.state.engine
-        is_claimed = await run_in_threadpool(
-            _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
-        )
-        if not is_claimed:
-            exists = await run_in_threadpool(_exists, engine, campaign_id)
-            if not exists:
-                raise HTTPException(status_code=404, detail="campaign not found")
-            raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
-        try:
-            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
-            await handle.signal(APPROVE_SIGNAL)
-        except Exception:
-            await run_in_threadpool(
-                _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
-            )
-            raise
-        return await run_in_threadpool(_read, engine, campaign_id)
+    _register_approval_route(app)
 
     return app

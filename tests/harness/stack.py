@@ -10,12 +10,17 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
+from typing import TYPE_CHECKING
 
+import httpx
 import uvicorn
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
 from tests.harness.scripted_agent import ScriptedAgent
+
+if TYPE_CHECKING:
+    from ace_engine.settings import Settings
 
 POSTGRES_IMAGE = "postgres:16-alpine"
 START_TIMEOUT_SECONDS = 180
@@ -58,6 +63,13 @@ class Stack:
     @property
     def marketo_url(self) -> str:
         return f"http://127.0.0.1:{self.marketo_port}"
+
+    def marketo_malformed_reply(self, is_malformed: bool) -> None:
+        """Make the fake Marketo answer sends with a reply that has no receipt id."""
+        response = httpx.put(
+            f"{self.marketo_url}/_fault", json={"malformed_reply": is_malformed}, timeout=10
+        )
+        assert response.status_code == 204, response.text
 
     def restart_worker(self) -> None:
         """Stop the worker and start a fresh one; the workflow resumes by replay."""
@@ -110,9 +122,6 @@ class Stack:
 
     async def _main(self) -> None:
         from ace_engine.settings import Settings
-        from campaign_api.main import create_app
-        from campaign_worker.worker import build_worker
-        from fake_marketo.app import create_app as create_marketo
 
         assert self._postgres is not None
         self._loop = asyncio.get_running_loop()
@@ -129,49 +138,49 @@ class Stack:
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
             )
-            servers = [
-                uvicorn.Server(
-                    uvicorn.Config(
-                        self.agent.app, port=agent_port, host="127.0.0.1", log_level="warning"
-                    )
-                ),
-                uvicorn.Server(
-                    uvicorn.Config(
-                        create_marketo(),
-                        port=self.marketo_port,
-                        host="127.0.0.1",
-                        log_level="warning",
-                    )
-                ),
-                uvicorn.Server(
-                    uvicorn.Config(
-                        create_app(settings),
-                        port=self.api_port,
-                        host="127.0.0.1",
-                        log_level="warning",
-                    )
-                ),
-            ]
+            servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
             with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
                 await self._wait_started(servers)
-                first = True
-                while not self._stop.is_set():
-                    worker = build_worker(
-                        env.client, settings, executor, max_cached_workflows=NO_WORKFLOW_CACHE
-                    )
-                    async with worker:
-                        if first:
-                            self._ready.set()
-                            first = False
-                        else:
-                            self._restarted.set()
-                        await self._until_stop_or_restart()
+                await self._run_workers(env, settings, executor)
             for s in servers:
                 s.should_exit = True
             await asyncio.gather(*tasks)
         finally:
             await env.shutdown()
+
+    def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
+        from campaign_api.main import create_app
+        from fake_marketo.app import create_app as create_marketo
+
+        apps = [
+            (self.agent.app, agent_port),
+            (create_marketo(), self.marketo_port),
+            (create_app(settings), self.api_port),
+        ]
+        return [
+            uvicorn.Server(uvicorn.Config(app, port=port, host="127.0.0.1", log_level="warning"))
+            for app, port in apps
+        ]
+
+    async def _run_workers(
+        self, env: WorkflowEnvironment, settings: "Settings", executor: ThreadPoolExecutor
+    ) -> None:
+        from campaign_worker.worker import build_worker
+
+        assert self._stop is not None
+        is_first = True
+        while not self._stop.is_set():
+            worker = build_worker(
+                env.client, settings, executor, max_cached_workflows=NO_WORKFLOW_CACHE
+            )
+            async with worker:
+                if is_first:
+                    self._ready.set()
+                    is_first = False
+                else:
+                    self._restarted.set()
+                await self._until_stop_or_restart()
 
     async def _until_stop_or_restart(self) -> None:
         assert self._stop is not None and self._restart_requested is not None

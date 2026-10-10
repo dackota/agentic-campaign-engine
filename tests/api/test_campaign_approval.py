@@ -101,3 +101,21 @@ def test_worker_restart_during_the_wait_does_not_lose_the_run(
     sent = until_status(api, campaign_id, "sent")
     assert sent["receipt"]
     assert len(sends(stack, campaign_id)) == 1
+
+
+def test_invalid_marketo_reply_fails_the_campaign_naming_the_reply(
+    stack: Stack, api: httpx.Client
+) -> None:
+    campaign_id = create(api)["id"]
+    assert settle(api, campaign_id)["status"] == AWAITING
+
+    stack.marketo_malformed_reply(True)
+    try:
+        assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+        failed = until_status(api, campaign_id, "failed")
+    finally:
+        stack.marketo_malformed_reply(False)
+
+    assert "Marketo" in failed["failure_reason"]
+    assert "receiptId" in failed["failure_reason"]
+    assert failed["receipt"] is None
