@@ -1,11 +1,14 @@
-# Scripted OpenAI-compatible model for the spike: no API key needed.
+# Scripted model for the spike: no API key needed. OpenAI-style chat completions on any
+# POST path, and Anthropic-style messages on /v1/messages (priority group 2 of the gateway
+# until a real Anthropic key exists, docs/decisions/llm-gateway-failover.md).
 # Answers "42" to the smoke prompt, recalls an earlier "code word is X", otherwise echoes.
+# Usage counts grow with the prompt (about 4 characters a token), so token limits bite.
 apiVersion: v1
 kind: ConfigMap
 metadata: {name: mock-llm, namespace: kagent}
 data:
   server.py: |
-    import json, time
+    import json, os, time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
     import re
@@ -29,6 +32,17 @@ data:
             return "I do not know the code word"
         return "mock: " + last[:200]
 
+    CHARS_PER_TOKEN = 4
+
+    def tokens(text: str) -> int:
+        return max(1, len(text) // CHARS_PER_TOKEN)
+
+    def prompt_text(req: dict) -> str:
+        return json.dumps(req.get("messages", [])) + json.dumps(req.get("system", ""))
+
+    def sse(event: str, data: dict) -> bytes:
+        return ("event: " + event + "\ndata: " + json.dumps(data) + "\n\n").encode()
+
     class H(BaseHTTPRequestHandler):
         def log_message(self, f, *a): print(f % a, flush=True)
         def _json(self, code, obj):
@@ -40,20 +54,43 @@ data:
         def do_POST(self):
             req = json.loads(self.rfile.read(int(self.headers.get("content-length", 0))) or b"{}")
             text = reply(req.get("messages", []))
+            in_tok, out_tok = tokens(prompt_text(req)), tokens(text)
+            if self.path.split("?")[0].endswith("/v1/messages"):
+                return self._messages(req, text, in_tok, out_tok)
+            usage = {"prompt_tokens": in_tok, "completion_tokens": out_tok, "total_tokens": in_tok + out_tok}
             base = {"id": "chatcmpl-mock", "created": int(time.time()), "model": req.get("model", "mock")}
             if req.get("stream"):
                 self.send_response(200); self.send_header("content-type", "text/event-stream"); self.end_headers()
                 for delta, fin in (({"role": "assistant", "content": text}, None), ({}, "stop")):
                     c = dict(base, object="chat.completion.chunk", choices=[{"index": 0, "delta": delta, "finish_reason": fin}])
                     self.wfile.write(("data: " + json.dumps(c) + "\n\n").encode())
-                u = dict(base, object="chat.completion.chunk", choices=[], usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2})
+                u = dict(base, object="chat.completion.chunk", choices=[], usage=usage)
                 self.wfile.write(("data: " + json.dumps(u) + "\n\ndata: [DONE]\n\n").encode())
                 return
             self._json(200, dict(base, object="chat.completion",
                 choices=[{"index": 0, "message": {"role": "assistant", "content": text}, "finish_reason": "stop"}],
-                usage={"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}))
+                usage=usage))
+        def _messages(self, req, text, in_tok, out_tok):
+            # Anthropic Messages API shape, streamed or not.
+            msg = {"id": "msg_mock", "type": "message", "role": "assistant",
+                   "model": req.get("model", "mock-anthropic"), "stop_sequence": None}
+            if not req.get("stream"):
+                return self._json(200, dict(msg, content=[{"type": "text", "text": text}],
+                    stop_reason="end_turn", usage={"input_tokens": in_tok, "output_tokens": out_tok}))
+            self.send_response(200); self.send_header("content-type", "text/event-stream"); self.end_headers()
+            for event, data in (
+                ("message_start", {"type": "message_start", "message": dict(msg, content=[], stop_reason=None,
+                    usage={"input_tokens": in_tok, "output_tokens": 0})}),
+                ("content_block_start", {"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}}),
+                ("content_block_delta", {"type": "content_block_delta", "index": 0, "delta": {"type": "text_delta", "text": text}}),
+                ("content_block_stop", {"type": "content_block_stop", "index": 0}),
+                ("message_delta", {"type": "message_delta", "delta": {"stop_reason": "end_turn", "stop_sequence": None},
+                    "usage": {"output_tokens": out_tok}}),
+                ("message_stop", {"type": "message_stop"}),
+            ):
+                self.wfile.write(sse(event, data))
 
-    ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()
+    ThreadingHTTPServer(("0.0.0.0", int(os.environ.get("PORT", "8000"))), H).serve_forever()
 ---
 apiVersion: apps/v1
 kind: Deployment

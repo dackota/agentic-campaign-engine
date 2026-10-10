@@ -80,8 +80,11 @@ def test_main_backend_fails_over_on_key_errors_and_outages() -> None:
     ]
     assert health, "no health policy on the opencode-go backend"
     cond = health[0]["unhealthyCondition"]
-    for code in ("401", "403", "429", "500"):
+    for code in ("401", "403", "500"):
         assert code in cond, code
+    # The gateway's own token-limit 429 counts against the backend, so a 429 rule would
+    # let one team over budget evict OpenCode Go for every team (seen live).
+    assert "429" not in cond
     assert health[0]["eviction"]["consecutiveFailures"] == 1
 
 
@@ -93,7 +96,8 @@ def test_routes_retry_so_the_same_call_succeeds() -> None:
             if "retry" in p["spec"].get("traffic", {})
         ]
         assert retries, route
-        assert {401, 403, 429, 500} <= set(retries[0]["codes"])
+        assert {401, 403, 500} <= set(retries[0]["codes"])
+        assert 429 not in retries[0]["codes"]
 
 
 def test_real_anthropic_backend_reads_key_from_secret() -> None:

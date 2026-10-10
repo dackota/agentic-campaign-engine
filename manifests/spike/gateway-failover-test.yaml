@@ -1,0 +1,69 @@
+# S1 failover test (scripts/spike/gateway-failover-check.sh applies it). The same two
+# priority groups as the opencode-go backend in gateway.yaml, but group 1 carries a fixed
+# fake key, so OpenCode Go answers 401 and the call must fail over to group 2: the mock's
+# Anthropic-style /v1/messages route. The real OpenCode Secret is never touched.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata: {name: failover-test, namespace: agentgateway-system}
+spec:
+  ai:
+    groups:
+    - providers:
+      - name: opencode-go-fake-key
+        openai: {}
+        host: opencode.ai
+        port: 443
+        path: /zen/go/v1/chat/completions
+        policies:
+          tls: {sni: opencode.ai}
+          # A fixed fake value, not a key: the point is that it is rejected.
+          auth: {key: failover-test-not-a-real-key}
+    - providers:
+      - name: anthropic-mock
+        anthropic: {model: mock-anthropic}
+        host: mock-llm.kagent.svc.cluster.local
+        port: 8000
+        path: /v1/messages
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: failover-test-health, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: agentgateway.dev, kind: AgentgatewayBackend, name: failover-test}
+  backend:
+    health:
+      unhealthyCondition: "response.code >= 500 || response.code == 401 || response.code == 403"
+      eviction: {duration: 30s, consecutiveFailures: 1}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: failover-test, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /failover-test/v1}
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: failover-test}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: failover-test
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: failover-test-retry, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: failover-test}
+  traffic:
+    retry:
+      attempts: 1
+      backoff: 1s
+      codes: [401, 403, 500, 502, 503, 504]
