@@ -7,6 +7,9 @@ from typing import Any
 import jsonschema
 
 _DIR = Path(__file__).parent
+# The worker's email prompt puts the threat report after this marker; the scripted agent
+# reads it back out from there.
+REPORT_MARKER = "THREAT REPORT:"
 
 
 def _load(name: str) -> dict[str, Any]:

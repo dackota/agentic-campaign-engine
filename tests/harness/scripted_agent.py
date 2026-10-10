@@ -8,24 +8,31 @@ message and replies with a draft that fits the email contract. A test can queue
 exact replies with `script()` to play a misbehaving agent.
 """
 
+import asyncio
 import json
 import threading
 import uuid
 from typing import Any
 
+from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-REPORT_MARKER = "THREAT REPORT:"
 JSONRPC_METHOD_NOT_FOUND = -32601
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
+# Markers in a threat report steer the default writer, so a browser test can pick a
+# behaviour without access to the agent: hold the reply, or reply with broken JSON.
+SLOW_MARKER = "[agent:slow]"
+BAD_JSON_MARKER = "[agent:bad-json]"
+SLOW_REPLY_SECONDS = 1.5
 
 
 class ScriptedAgent:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._replies: list[str] = []
+        self._modes: dict[str, str] = {}
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
@@ -33,11 +40,18 @@ class ScriptedAgent:
         with self._lock:
             self._replies = list(replies)
 
-    def _next_reply(self, text: str) -> str:
+    def _next_reply(self, text: str, context_id: str) -> tuple[str, bool]:
+        """The reply text and whether to hold it back a moment."""
         with self._lock:
             if self._replies:
-                return self._replies.pop(0)
-        return json.dumps(default_draft(text))
+                return self._replies.pop(0), False
+            for marker in (SLOW_MARKER, BAD_JSON_MARKER):
+                if marker in text:
+                    self._modes[context_id] = marker
+            mode = self._modes.get(context_id)
+        if mode == BAD_JSON_MARKER:
+            return "this is not json", False
+        return json.dumps(default_draft(text)), mode == SLOW_MARKER
 
     def _build_app(self) -> FastAPI:
         app = FastAPI()
@@ -60,7 +74,9 @@ class ScriptedAgent:
             message = body["params"]["message"]
             text = "".join(p.get("text", "") for p in message["parts"] if p.get("kind") == "text")
             context_id = message.get("contextId") or str(uuid.uuid4())
-            reply = self._next_reply(text)
+            reply, is_slow = self._next_reply(text, context_id)
+            if is_slow:
+                await asyncio.sleep(SLOW_REPLY_SECONDS)
             task: dict[str, Any] = {
                 "kind": "task",
                 "id": str(uuid.uuid4()),

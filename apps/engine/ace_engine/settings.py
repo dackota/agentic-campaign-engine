@@ -6,6 +6,7 @@ from enum import StrEnum
 
 WORKFLOW_NAME = "CampaignWorkflow"
 TASK_QUEUE = "campaigns"
+APPROVE_SIGNAL = "approve"
 DEPTH_ENV = "ACE_DEPTH"
 
 
@@ -32,4 +33,11 @@ class Settings:
     temporal_address: str
     temporal_namespace: str
     agent_url: str
+    marketo_url: str
     agent_timeout_seconds: float = 30.0
+    marketo_timeout_seconds: float = 30.0
+
+    def __post_init__(self) -> None:
+        # Fail when the worker starts, not on the first send after an approval.
+        if not self.marketo_url.strip():
+            raise ValueError("marketo_url is required: set it to the Marketo base URL")
