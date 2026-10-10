@@ -202,9 +202,7 @@ def test_down_deletes_cluster_registry_and_volume(tmp_path: Path) -> None:
 
 
 def test_down_fails_when_registry_survives(tmp_path: Path) -> None:
-    result, _ = _run(
-        tmp_path, "down", STUB_REGISTRY="1", STUB_REGISTRY_SURVIVES="1"
-    )
+    result, _ = _run(tmp_path, "down", STUB_REGISTRY="1", STUB_REGISTRY_SURVIVES="1")
     assert result.returncode != 0
     assert "gone" not in result.stdout
 
