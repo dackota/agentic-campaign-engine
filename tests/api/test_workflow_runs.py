@@ -1,6 +1,7 @@
 """Seam 1 at fast depth: a campaign runs the saved workflow (a DAG of steps) it started
 with. The engine follows the DAG, and a newer workflow version never changes a run."""
 
+import json
 from typing import Any
 
 import httpx
@@ -8,6 +9,7 @@ import httpx
 from tests.api.helpers import (
     AWAITING,
     DRAFT_APPROVE_PUBLISH,
+    FAILED,
     SENT,
     create,
     create_on,
@@ -18,6 +20,7 @@ from tests.api.helpers import (
     until_status,
     workflow_name,
 )
+from tests.harness.stack import Stack
 
 FINISHED = "finished"
 
@@ -148,3 +151,21 @@ def test_campaign_on_unknown_workflow_is_rejected(api: httpx.Client) -> None:
 
     assert response.status_code == 422
     assert "workflow" in response.text
+
+
+def test_failed_agent_step_stops_run_while_approval_waits_in_same_wave(
+    stack: Stack, api: httpx.Client
+) -> None:
+    name = workflow_name()
+    save_workflow(
+        api,
+        name,
+        {"steps": [step("writer", "agent"), step("ok", "approval")], "edges": []},
+    )
+    stack.agent.script(["not json at all", json.dumps({"subject": "only a subject"})])
+
+    campaign_id = create_on(api, name)["id"]
+    failed = until_status(api, campaign_id, FAILED, AWAITING)
+
+    assert failed["status"] == FAILED
+    assert failed["failure_reason"]
