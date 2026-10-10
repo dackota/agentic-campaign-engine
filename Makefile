@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform status-cluster status-platform
+.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-app status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -25,7 +25,7 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py
 
-up: env-check up-cluster up-platform ## Create the ace cluster and install Substrate, kagent, and agentgateway on it
+up: env-check up-cluster up-platform up-app ## Create the ace cluster, install the platform, then build, push, and install our app
 
 env-check:
 	platform/install.sh check-env
@@ -36,10 +36,13 @@ up-cluster:
 up-platform:
 	platform/install.sh run
 
+up-app:
+	platform/app.sh run
+
 down: ## Delete the ace cluster, its registry, and its volume
 	platform/cluster.sh down
 
-status: status-cluster status-platform ## Report the ace cluster and platform: ok or FAIL per check
+status: status-cluster status-platform ## Report the ace cluster, platform, and app: ok or FAIL per check
 
 status-cluster:
 	platform/cluster.sh status
