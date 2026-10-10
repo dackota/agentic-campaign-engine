@@ -226,6 +226,11 @@ Not built. Written down so the design holds up.
 | Anthropic as failover | Amazon Bedrock as a third priority group |
 | grafana/otel-lgtm | The company observability stack |
 
+## Sources
+
+Every page read during planning, and what each one told us, is in
+[docs/sources.md](docs/sources.md).
+
 ## Out of scope
 
 - Real Marketo and Workfront. They have no free accounts. The fakes copy
