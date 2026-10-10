@@ -35,6 +35,16 @@ OS_ARCHES = ("darwin-amd64", "darwin-arm64", "linux-amd64", "linux-arm64")
 KUBECTL_STUB = """#!/bin/sh
 echo "kubectl $*" >> "$STUB_LOG"
 case "$*" in
+  *apply*"-f "*)
+    if [ -n "$STUB_APPLY_FAIL" ]; then
+      case "$*" in *"$STUB_APPLY_FAIL"*) echo "apply refused" >&2; exit 1 ;; esac
+    fi
+    # Keep every applied manifest file, so tests can read what a step sent to the cluster.
+    f=""; prev=""
+    for a in "$@"; do [ "$prev" = -f ] && f="$a"; prev="$a"; done
+    if [ -f "$f" ]; then { echo "---"; cat "$f"; } >> "$STUB_LOG.applied"; fi ;;
+esac
+case "$*" in
   *"get secret"*"-o name"*)
     if [ -n "$STUB_SECRET_FAIL" ]; then echo "kubectl: forbidden" >&2; exit 1; fi
     if [ -n "$STUB_INSTALLED" ]; then
@@ -68,6 +78,12 @@ exit 0
 """
 CURL_STUB = """#!/bin/sh
 echo "curl $*" >> "$STUB_LOG"
+case "$*" in
+  *openid-configuration*)
+    if [ -n "$STUB_DEX_FAIL" ]; then echo "curl: (7) connection refused" >&2; exit 7; fi
+    printf '{\n  "issuer": "%s"\n}\n' "${STUB_DEX_ISSUER:-http://dex.ace.localhost:15656/dex}"
+    exit 0 ;;
+esac
 out=""
 while [ $# -gt 0 ]; do [ "$1" = -o ] && out="$2"; shift; done
 echo "not the real binary" > "$out"
@@ -378,3 +394,268 @@ def test_smoke_does_not_retry_other_failures(tmp_path: Path) -> None:
     result, calls = _run(tmp_path, "up", STUB_SMOKE_OTHER_FAIL="1", SMOKE_RETRY_DELAY="0")
     assert result.returncode != 0
     assert len([c for c in calls if "a2a-smoke.sh" in c]) == 1
+
+
+# --- the Dex step (platform/dex/) ---
+
+DEX_DIR = ROOT / "platform/dex"
+STEP = DEX_DIR / "install.sh"
+MANIFEST = DEX_DIR / "dex.yaml"
+COREDNS = DEX_DIR / "coredns-custom.yaml"
+CONFIG = DEX_DIR / "config.yaml"
+ISSUER_FILE = ROOT / "platform/oidc-issuer.txt"
+ISSUER = "http://dex.ace.localhost:15656/dex"
+WEB_ORIGIN = "http://127.0.0.1:15180"
+DEX_IMAGE = (
+    "ghcr.io/dexidp/dex:v2.46.0"
+    "@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777"
+)
+CURL_IMAGE = (
+    "curlimages/curl:8.16.0@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"
+)
+
+
+def _applied(tmp_path: Path) -> list[dict[str, Any]]:
+    text = (tmp_path / "calls.log.applied").read_text()
+    return [d for d in yaml.safe_load_all(text) if d]
+
+
+def test_issuer_file_holds_the_issuer() -> None:
+    assert ISSUER_FILE.read_text().strip() == ISSUER
+
+
+def test_rendered_config_equals_checked_in_config_except_three_fields() -> None:
+    result = subprocess.run([STEP, "render"], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    rendered = yaml.safe_load(result.stdout)
+    expected = yaml.safe_load(CONFIG.read_text())
+    expected["issuer"] = ISSUER
+    expected["web"]["allowedOrigins"] = [WEB_ORIGIN]
+    for client in expected["staticClients"]:
+        client["redirectURIs"] = [f"{WEB_ORIGIN}/"]
+    assert rendered == expected
+    original = yaml.safe_load(CONFIG.read_text())
+    assert rendered["staticPasswords"] == original["staticPasswords"]
+    assert rendered["web"]["http"] == original["web"]["http"]
+
+
+def test_dex_manifest_pins_image_in_namespace_dex() -> None:
+    docs = [d for d in yaml.safe_load_all(MANIFEST.read_text()) if d]
+    assert {d["kind"] for d in docs} == {"Namespace", "Deployment", "Service"}
+    assert next(d for d in docs if d["kind"] == "Namespace")["metadata"]["name"] == "dex"
+    for doc in docs:
+        if doc["kind"] != "Namespace":
+            assert doc["metadata"]["namespace"] == "dex"
+    deploy = next(d for d in docs if d["kind"] == "Deployment")
+    images = [c["image"] for c in deploy["spec"]["template"]["spec"]["containers"]]
+    assert images == [DEX_IMAGE]
+
+
+def test_dex_service_is_nodeport_15656_to_5556_mapped_by_cluster_config() -> None:
+    docs = [d for d in yaml.safe_load_all(MANIFEST.read_text()) if d]
+    service = next(d for d in docs if d["kind"] == "Service")
+    assert service["metadata"]["name"] == "dex"
+    assert service["spec"]["type"] == "NodePort"
+    (port,) = service["spec"]["ports"]
+    assert port["port"] == 15656 and port["targetPort"] == 5556
+    cluster = yaml.safe_load((ROOT / "platform/ace-cluster.yaml").read_text())
+    mapped = {m["port"] for m in cluster["ports"]}
+    assert f"15656:{port['nodePort']}" in mapped
+    config = yaml.safe_load(CONFIG.read_text())
+    assert config["web"]["http"].endswith(f":{port['targetPort']}")
+
+
+def test_coredns_override_rewrites_issuer_host_to_service_fqdn() -> None:
+    cm = yaml.safe_load(COREDNS.read_text())
+    assert cm["kind"] == "ConfigMap"
+    assert cm["metadata"] == {"name": "coredns-custom", "namespace": "kube-system"}
+    ((key, body),) = cm["data"].items()
+    assert key.endswith(".override")
+    assert body.split() == ["rewrite", "name", "dex.ace.localhost", "dex.dex.svc.cluster.local"]
+
+
+def test_issuer_is_one_constant_read_by_step_status_and_tiltfile() -> None:
+    host = "dex.ace.localhost"
+    for path in (
+        STEP,
+        ROOT / "platform/status.sh",
+        ROOT / "Tiltfile",
+        ROOT / "platform/install.sh",
+    ):
+        code = _code(path)
+        assert host not in code and "15656" not in code, path
+        assert "oidc-issuer.txt" in code or path.name == "install.sh", path
+    tilt = _code(ROOT / "Tiltfile")
+    assert re.search(r"read_file\(\s*['\"]platform/oidc-issuer\.txt['\"]", tilt)
+    assert re.search(r"build_args\s*=\s*\{\s*['\"]VITE_OIDC_ISSUER['\"]\s*:\s*OIDC_ISSUER", tilt)
+
+
+def test_dex_step_names_only_k3d_ace() -> None:
+    code = _code(STEP)
+    assert set(re.findall(r"k3d-[\w-]+", code)) == {"k3d-ace"}
+    assert "ace-spike" not in code
+    for line in code.splitlines():
+        if re.search(r"\bkubectl\b", line) and not line.lstrip().startswith("#"):
+            assert '--context "$CTX"' in line, line
+
+
+def test_no_chart_file_names_dex() -> None:
+    for path in (ROOT / "charts").rglob("*"):
+        if path.is_file():
+            text = path.read_text().lower()
+            assert "dexidp" not in text and "ghcr.io/dexidp/dex" not in text, path
+            assert "coredns-custom" not in text, path
+
+
+def test_readme_describes_dex_step() -> None:
+    text = (ROOT / "platform/README.md").read_text()
+    assert "dex/install.sh" in text and "coredns-custom" in text and "oidc-issuer.txt" in text
+
+
+def test_pinned_versions_lists_check_image() -> None:
+    assert CURL_IMAGE.split("@")[0] in (ROOT / "docs/pinned-versions.md").read_text()
+    assert CURL_IMAGE.split("@")[1] in (ROOT / "docs/pinned-versions.md").read_text()
+
+
+def test_up_runs_dex_step_after_gateway_with_ace_context(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up")
+    assert result.returncode == 0, result.stderr
+    gateway = next(i for i, c in enumerate(calls) if "gateway-install.sh" in c)
+    dex_apply = next(i for i, c in enumerate(calls) if "apply" in c and "-f " in c and "dex" in c)
+    mock = next(i for i, c in enumerate(calls) if "apply" in c and "mock-llm.yaml" in c)
+    assert gateway < dex_apply < mock
+    assert all(f"--context {CTX}" in c for c in calls if c.startswith("kubectl"))
+
+
+def test_up_applies_rendered_config_as_configmap(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "up")
+    assert result.returncode == 0, result.stderr
+    docs = _applied(tmp_path)
+    cm = next(d for d in docs if d["kind"] == "ConfigMap" and d["metadata"]["namespace"] == "dex")
+    config = yaml.safe_load(cm["data"]["config.yaml"])
+    assert config["issuer"] == ISSUER
+    assert config["web"]["allowedOrigins"] == [WEB_ORIGIN]
+    assert config["staticClients"][0]["redirectURIs"] == [f"{WEB_ORIGIN}/"]
+    deploy = next(
+        d for d in docs if d["kind"] == "Deployment" and d["metadata"].get("namespace") == "dex"
+    )
+    digest = deploy["spec"]["template"]["metadata"]["annotations"]
+    assert all(re.fullmatch(r"[0-9a-f]{64}", v) for v in digest.values())
+
+
+def test_up_restarts_coredns_and_waits_after_applying_override(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up")
+    assert result.returncode == 0, result.stderr
+    docs = _applied(tmp_path)
+    assert any(d["metadata"].get("name") == "coredns-custom" for d in docs)
+    override = next(
+        i for i, c in enumerate(calls) if "coredns-custom" in c or "coredns-custom.yaml" in c
+    )
+    restart = next(i for i, c in enumerate(calls) if "rollout restart" in c)
+    status = next(
+        i for i, c in enumerate(calls) if "rollout status" in c and "deployment/coredns" in c
+    )
+    assert override < restart < status
+    assert f"--context {CTX} -n kube-system rollout restart deployment/coredns" in calls[restart]
+    assert "--timeout" in calls[status]
+
+
+def test_dex_rollout_is_awaited_with_a_timeout(tmp_path: Path) -> None:
+    _, calls = _run(tmp_path, "up")
+    waits = [c for c in calls if "rollout status" in c and "deployment/dex" in c]
+    assert waits and all("--timeout" in c and "-n dex" in c for c in waits)
+
+
+def test_rollout_failure_stops_up(tmp_path: Path) -> None:
+    for stuck in ("deployment/coredns", "deployment/dex"):
+        result, calls = _run(tmp_path, "up", STUB_ROLLOUT_FAIL=stuck)
+        assert result.returncode != 0, stuck
+        assert not [c for c in calls if "a2a-smoke.sh" in c], stuck
+
+
+def test_apply_failure_stops_up(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "up", STUB_APPLY_FAIL="dex")
+    assert result.returncode != 0
+    assert not [c for c in calls if "rollout restart" in c or "a2a-smoke.sh" in c]
+
+
+def test_second_up_exits_zero(tmp_path: Path) -> None:
+    first, _ = _run(tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1")
+    second, _ = _run(tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1")
+    assert first.returncode == 0 and second.returncode == 0, second.stderr
+
+
+def test_status_reports_dex(tmp_path: Path) -> None:
+    result, calls = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_INSTALLED="1")
+    assert result.returncode == 0, result.stderr
+    assert any(
+        line.startswith("ok") and "dex" in line.lower() for line in result.stdout.splitlines()
+    )
+    assert any(c.startswith("curl") and ISSUER in c for c in calls)
+
+
+def test_status_fails_when_dex_discovery_unreachable(tmp_path: Path) -> None:
+    result, _ = _run(tmp_path, "status", STUB_CLUSTER="1", STUB_INSTALLED="1", STUB_DEX_FAIL="1")
+    assert result.returncode != 0
+    assert any(
+        line.startswith("FAIL") and "dex" in line.lower() for line in result.stdout.splitlines()
+    )
+
+
+def test_status_fails_when_discovery_issuer_differs(tmp_path: Path) -> None:
+    result, _ = _run(
+        tmp_path,
+        "status",
+        STUB_CLUSTER="1",
+        STUB_INSTALLED="1",
+        STUB_DEX_ISSUER="http://127.0.0.1:5556/dex",
+    )
+    assert result.returncode != 0
+    assert any(
+        line.startswith("FAIL") and "dex" in line.lower() for line in result.stdout.splitlines()
+    )
+
+
+def test_dex_probe_uses_the_path_dex_serves_on_the_web_port() -> None:
+    # Dex v2.46 answers /dex/healthz on the web port; /dex/healthz/ready is 404 there
+    # (it exists only on the telemetry listener), so such a probe never passes.
+    docs = [d for d in yaml.safe_load_all(MANIFEST.read_text()) if d]
+    deploy = next(d for d in docs if d["kind"] == "Deployment")
+    (container,) = deploy["spec"]["template"]["spec"]["containers"]
+    probes = [
+        container[k] for k in ("readinessProbe", "livenessProbe", "startupProbe") if k in container
+    ]
+    assert probes
+    for probe in probes:
+        assert probe["httpGet"]["path"] == "/dex/healthz"
+
+
+def _dex_step_env(tmp_path: Path, **extra: str) -> tuple[dict[str, str], Path]:
+    (tmp_path / "bin").mkdir(exist_ok=True)
+    log = tmp_path / "calls.log"
+    log.touch()
+    kubectl = tmp_path / "bin/kubectl"
+    kubectl.write_text(f'#!/bin/sh\necho "kubectl $*" >> {log}\n')
+    kubectl.chmod(0o755)
+    return {"PATH": f"{tmp_path / 'bin'}:/usr/bin:/bin", **extra}, log
+
+
+def test_bad_issuer_file_stops_the_dex_step_before_any_apply(tmp_path: Path) -> None:
+    for bad in ("not a url\n", "\n", "https://dex.example/dex\n", "http://a|b/dex\n"):
+        bad_file = tmp_path / "issuer.txt"
+        bad_file.write_text(bad)
+        env, log = _dex_step_env(tmp_path, ACE_ISSUER_FILE=str(bad_file))
+        result = subprocess.run([STEP, "run"], env=env, capture_output=True, text=True)
+        assert result.returncode != 0, bad
+        assert log.read_text() == "", bad
+        assert "dex is up" not in result.stdout, bad
+
+
+def test_config_missing_a_rewrite_target_stops_the_dex_step(tmp_path: Path) -> None:
+    config = tmp_path / "config.yaml"
+    config.write_text(CONFIG.read_text().replace("issuer: ", "# issuer: ", 1))
+    env, log = _dex_step_env(tmp_path, ACE_DEX_CONFIG=str(config))
+    result = subprocess.run([STEP, "run"], env=env, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert log.read_text() == ""
+    assert "dex is up" not in result.stdout

@@ -19,6 +19,7 @@ These are the versions that answered over A2A on k3d.
 | Standalone sandbox test image (alpine) | 3.20 | `sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc` |
 | Mock model server (python alpine) | 3.12-alpine, tag only, spike use | `sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4` |
 | Dex (OIDC login, test harness and local stack) | `ghcr.io/dexidp/dex:v2.46.0` | `sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777` |
+| In-cluster check image (`curl`, proof of the Dex issuer from a pod) | `curlimages/curl:8.16.0` | index `sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6` |
 | Substrate control images | v0.4.0-alpha1 | ateapi `sha256:0758fdb0...`, atecontroller `sha256:0a5345fa...`, atelet `sha256:386704f0...`, atenet `sha256:01d3b919...`, podcertcontroller `sha256:f8bc68d8...` |
 | kagent controller image | 1.0.0-alpha9 | `sha256:3cb8aae886570898c2e70a5e15d67d2498556d3132df3750df39223b206390be` |
 

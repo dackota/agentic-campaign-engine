@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Install the platform on the `ace` cluster: Substrate, kagent, agentgateway, the mock model,
+# Install the platform on the `ace` cluster: Substrate, kagent, agentgateway, Dex, the mock model,
 # the S0 agent, and a mock-backed twin of it. Usage: install.sh check-env|run
 # The spike scripts do the installing; this script only calls them (always with KCTX set,
 # because they default to the other cluster). It never reads .env values: check-env only
@@ -130,6 +130,7 @@ run() {
     KCTX="$CTX" WORKER_IMAGE="$WORKER_IMAGE" "$SPIKE_DIR/install.sh"
   fi
   KCTX="$CTX" "$SPIKE_DIR/gateway-install.sh"
+  "$ROOT/platform/dex/install.sh" run
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
   k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" -n kagent --timeout="$READY_TIMEOUT"
