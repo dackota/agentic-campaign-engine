@@ -196,9 +196,17 @@ def test_down_deletes_cluster_registry_and_volume(tmp_path: Path) -> None:
     result, calls = _run(tmp_path, "down", STUB_CLUSTER="1", STUB_REGISTRY="1", STUB_VOLUME="1")
     assert result.returncode == 0, result.stderr
     assert "k3d cluster delete ace" in calls
-    assert "k3d registry delete k3d-ace-registry" in calls
+    assert "k3d registry delete ace-registry" in calls
     assert "docker volume rm ace-ate" in calls
     assert not any("spike" in c for c in calls)
+
+
+def test_down_fails_when_registry_survives(tmp_path: Path) -> None:
+    result, _ = _run(
+        tmp_path, "down", STUB_REGISTRY="1", STUB_REGISTRY_SURVIVES="1"
+    )
+    assert result.returncode != 0
+    assert "gone" not in result.stdout
 
 
 def test_down_exits_zero_when_already_gone(tmp_path: Path) -> None:
@@ -214,13 +222,13 @@ def test_down_fails_when_k3d_errors(tmp_path: Path) -> None:
 
 
 def test_down_ignores_look_alike_names(tmp_path: Path) -> None:
-    # The stubs list ace-old, k3d-ace-registry-old, and ace-ate-old on every run.
+    # The stubs list ace-old, ace-registry-old, and ace-ate-old on every run.
     # Only the exact names may be deleted.
     result, calls = _run(tmp_path, "down", STUB_CLUSTER="1", STUB_REGISTRY="1", STUB_VOLUME="1")
     deleted = [c for c in calls if " delete" in c or "volume rm" in c]
     assert deleted == [
         "k3d cluster delete ace",
-        "k3d registry delete k3d-ace-registry",
+        "k3d registry delete ace-registry",
         "docker volume rm ace-ate",
     ]
 

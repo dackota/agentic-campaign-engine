@@ -66,3 +66,7 @@ def test_every_make_target_in_readme_is_listed_by_make_help() -> None:
     named = set(re.findall(r"`make ([a-z_-]+)`", README))
     assert DOCUMENTED_TARGETS <= named
     assert named <= listed, named - listed
+
+
+def test_readme_down_names_registry() -> None:
+    assert re.search(r"`make down`: delete[^\n]*registry", README)

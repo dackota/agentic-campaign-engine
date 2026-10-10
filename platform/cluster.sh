@@ -4,7 +4,7 @@ set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 CLUSTER="ace"
 CTX="k3d-$CLUSTER"
-REGISTRY="k3d-$CLUSTER-registry"
+REGISTRY="$CLUSTER-registry"  # the name in ace-cluster.yaml and app.sh
 VOLUME="$CLUSTER-ate"
 
 # True when NAME is the first column of the listing passed as $2. Listings are captured by
@@ -34,6 +34,11 @@ down() {
   if has_name "$CLUSTER" "$clusters"; then k3d cluster delete "$CLUSTER"; fi
   registries="$(k3d registry list --no-headers)"
   if has_name "$REGISTRY" "$registries"; then k3d registry delete "$REGISTRY"; fi
+  registries="$(k3d registry list --no-headers)"
+  if has_name "$REGISTRY" "$registries"; then
+    echo "FAIL registry $REGISTRY is still listed after delete" >&2
+    exit 1
+  fi
   volumes="$(docker volume ls -q)"
   if has_name "$VOLUME" "$volumes"; then docker volume rm "$VOLUME"; fi
   echo "cluster $CLUSTER, its registry, and its volume are gone"
