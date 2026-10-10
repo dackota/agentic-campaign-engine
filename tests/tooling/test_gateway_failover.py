@@ -31,6 +31,9 @@ LOG = ROOT / "docs/spike-log.md"
 ADR = ROOT / "docs/decisions/llm-gateway-failover.md"
 TEAMS = ("team-a", "team-b")
 MOCK_START_TIMEOUT_S = 10
+MOCK_PROBE_TIMEOUT_S = 1
+MOCK_PROBE_INTERVAL_S = 0.1
+POST_TIMEOUT_S = 5
 
 
 def _docs(path: Path) -> list[dict[str, Any]]:
@@ -215,10 +218,10 @@ def mock_url(tmp_path_factory: pytest.TempPathFactory) -> Iterator[str]:
     deadline = time.monotonic() + MOCK_START_TIMEOUT_S
     while time.monotonic() < deadline:
         try:
-            urllib.request.urlopen(url + "/v1/models", timeout=1)
+            urllib.request.urlopen(url + "/v1/models", timeout=MOCK_PROBE_TIMEOUT_S)
             break
         except OSError:
-            time.sleep(0.1)
+            time.sleep(MOCK_PROBE_INTERVAL_S)
     try:
         yield url
     finally:
@@ -230,7 +233,7 @@ def _post(url: str, body: dict[str, Any]) -> bytes:
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(), headers={"content-type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=5) as resp:
+    with urllib.request.urlopen(req, timeout=POST_TIMEOUT_S) as resp:
         return bytes(resp.read())
 
 

@@ -49,3 +49,8 @@ billed per token.
 - An OpenCode Go quota 429 fails over more slowly than a bad key, since it only lowers
   health. Revisit if OpenCode starts throttling.
 - Team budgets are spike numbers (10000 tokens a minute). S6 sets the real ones.
+- The two-group backend is written three times: `manifests/spike/gateway.yaml` (group 2
+  is the mock), `gateway-anthropic.yaml` (group 2 is the real API) and
+  `gateway-failover-test.yaml` (group 1 has a fake key). A change to group 1 must go into
+  all three. The team blocks in `gateway.yaml` differ only by name. For a spike with two
+  teams, plain copies read more easily than a generator. S6 adds teams and should template them.

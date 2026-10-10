@@ -12,7 +12,7 @@ AGW_VERSION="${AGW_VERSION:-v1.6.0}"
 MAIN="$(dirname "$(git -C "$ROOT" rev-parse --path-format=absolute --git-common-dir)")"
 ENV_FILE="${ENV_FILE:-$MAIN/.env}"
 SECRET="${SECRET:-opencode-go-key}"
-ANTHROPIC_SECRET="anthropic-key"
+ANTHROPIC_SECRET="${ANTHROPIC_SECRET:-anthropic-key}"
 k() { kubectl --context "$KCTX" "$@"; }
 
 [ -f "$ENV_FILE" ] || { echo "FAIL: $ENV_FILE not found; set ENV_FILE" >&2; exit 1; }

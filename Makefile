@@ -15,7 +15,7 @@ fmt: ## Format Python and fix lint
 	uv run ruff check --fix .
 	uv run ruff format .
 
-test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
+test: ## Run both seams at fast depth (needs only Docker) and the web unit tests; live spike tests also run when k3d-ace-spike is up (they spend OpenCode Go tokens)
 	uv run pytest
 	pnpm install --frozen-lockfile
 	pnpm --filter web test

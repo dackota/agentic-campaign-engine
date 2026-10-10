@@ -366,7 +366,8 @@ Team token limits: each team has a ModelConfig (`team-a-model`, `team-b-model`) 
 `baseUrl` is its own route (`/team-a/v1`, `/team-b/v1`). Each route has its own
 `traffic.rateLimit.local` budget, 10000 tokens a minute (a spike number; S6 sets the real
 ones). The route sets `x-team`, and the access log prints it as `team="team-a"` next to
-`gen_ai.usage.input_tokens`. In the check, team-a got 429 (`reason=RateLimit`) on its
+`gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`; the check sums both per
+team. In the check, team-a got 429 (`reason=RateLimit`) on its
 third 8k-token call. team-b's call in the same minute got 200 from `opencode.ai`.
 
 Learned, and fixed: the gateway's own rate-limit 429 counts against the backend's health.
@@ -375,6 +376,14 @@ OpenCode Go, and team-b's next call went to group 2. The rule now leaves out 429
 does the retry list. A provider 429 still lowers health, and its `Retry-After` sets the
 wait (agentgateway failover docs). Open: OpenCode Go quota exhaustion now fails over more
 slowly than a bad key does.
+
+Sources, checked 2026-10-10: `docs/sources.md` rows "agentgateway model failover" and
+"agentgateway rate limiting". Live pages read the same day:
+https://agentgateway.dev/docs/kubernetes/latest/llm/failover/ (priority groups,
+`backend.health` eviction, retry needs eviction first, mixed provider types) and
+https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/ (`traffic.rateLimit.local`
+with `tokens` and `unit`, 429 with `retry-after` and `x-ratelimit-*` headers). Both match
+the manifests and what the check saw.
 
 Owed after the merge: the real Anthropic run. When the user adds `ANTHROPIC_API_KEY` to
 `.env`, `scripts/spike/gateway-install.sh` makes Secret `anthropic-key` and applies

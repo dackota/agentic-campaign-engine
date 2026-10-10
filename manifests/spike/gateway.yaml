@@ -180,8 +180,9 @@ spec:
   openAI:
     baseUrl: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/team-b/v1
 ---
-# Retry once (after the eviction, hence the backoff) on the codes that evict a provider, so the call that hit the failure is
-# answered by the next priority group instead of failing back to the agent.
+# Retry once (after the eviction, hence the backoff) on the codes that evict a provider,
+# so the call that hit the failure is answered by the next priority group instead of
+# failing back to the agent.
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayPolicy
 metadata: {name: llm-failover-retry, namespace: agentgateway-system}
