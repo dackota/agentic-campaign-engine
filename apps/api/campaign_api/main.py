@@ -209,23 +209,7 @@ def _add_preview_route(app: FastAPI) -> None:
         return HTMLResponse(html)
 
 
-def create_app(settings: Settings) -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.engine = db.make_engine(settings.database_url)
-        app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
-        app.state.temporal = await Client.connect(
-            settings.temporal_address, namespace=settings.temporal_namespace
-        )
-        yield
-        app.state.engine.dispose()
-
-    app = FastAPI(lifespan=lifespan)
-
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
-
+def _add_campaign_routes(app: FastAPI) -> None:
     @app.get("/me")
     def me(user: CurrentUser) -> Me:
         return Me(subject=user.subject, email=user.email, team=user.team, roles=sorted(user.roles))
@@ -259,6 +243,25 @@ def create_app(settings: Settings) -> FastAPI:
         authorize(user, Action.READ)
         return await _found(request.app.state.engine, campaign_id)
 
+
+def create_app(settings: Settings) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.engine = db.make_engine(settings.database_url)
+        app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
+        app.state.temporal = await Client.connect(
+            settings.temporal_address, namespace=settings.temporal_namespace
+        )
+        yield
+        app.state.engine.dispose()
+
+    app = FastAPI(lifespan=lifespan)
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    _add_campaign_routes(app)
     _register_approval_route(app)
     _add_event_routes(app)
     _add_activity_routes(app, settings)
