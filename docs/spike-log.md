@@ -156,3 +156,27 @@ node can pull from. The decision is in `docs/decisions/k3d-or-kind.md` (S13: no)
 Smoke script, after docs written: prints `42`, exit 0. `kubectl --context k3d-ace-spike
 get harness,agenttemplate,agent -A` shows the three; Agent `Ready=True`. Harness image
 is `ghcr.io/kagent-dev/kagent/golang-adk@sha256:26ae5c77...`. The cluster is left running.
+
+## 13. Readiness of Harness and AgentTemplate (review round 1)
+
+`kubectl --context k3d-ace-spike get harness,agenttemplate,agent -A` shows READY only
+for the Agent. Checked against the CRDs and the live objects:
+
+- `agenttemplates.api.kagent.dev` v1alpha3 has no `status` in its schema, no status
+  subresource, and its only printer column is Age. Template readiness is by design:
+  a template is ready when the Agent that uses it is. `.status` on `spike-template` is null.
+- `harnesses.api.kagent.dev` v1alpha3 defines `status` (`capabilities`, `conditions`,
+  `observedGeneration`), a status subresource and a Ready printer column. On
+  1.0.0-alpha9 the controller never writes it: `kubectl get harness spike-harness -o json | jq .status`
+  is `null` even while the Agent is Ready and answering. Upstream bug, draft 5.
+
+Replacement proof (the Agent's Ready condition covers the Harness, since the Agent
+compiles from the template and Harness and its golden actor must snapshot first):
+```
+kubectl --context k3d-ace-spike get harness spike-harness -n kagent -o jsonpath='{.spec.workload.image}'
+   -> ghcr.io/kagent-dev/kagent/golang-adk@sha256:26ae5c77...   (digest pin)
+kubectl --context k3d-ace-spike get agent spike-agent -n kagent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}'
+   -> True
+scripts/spike/a2a-smoke.sh   -> 42, exit 0
+```
+The smoke script already asserts both the digest pin and Agent Ready; unchanged.
