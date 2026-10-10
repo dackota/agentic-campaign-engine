@@ -1,5 +1,5 @@
 # Scripted OpenAI-compatible model for the spike: no API key needed.
-# Answers "42" to the smoke prompt, otherwise echoes the last user message.
+# Answers "42" to the smoke prompt, recalls an earlier "code word is X", otherwise echoes.
 apiVersion: v1
 kind: ConfigMap
 metadata: {name: mock-llm, namespace: kagent}
@@ -8,13 +8,26 @@ data:
     import json, time
     from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+    import re
+
     def reply(messages):
-        last = ""
+        last, said = "", []
         for m in messages:
             if m.get("role") == "user":
                 c = m.get("content")
                 last = c if isinstance(c, str) else " ".join(p.get("text", "") for p in c)
-        return "42" if "7 times 6" in last else "mock: " + last[:200]
+                said.append(last)
+        if "7 times 6" in last:
+            return "42"
+        # Context check: "What is the code word?" is answered from an earlier
+        # "The code word is X" in the conversation history the harness sends.
+        if "what is the code word" in last.lower():
+            for earlier in reversed(said[:-1]):
+                found = re.search(r"code word is ([\w-]+)", earlier, re.I)
+                if found:
+                    return "The code word is " + found.group(1)
+            return "I do not know the code word"
+        return "mock: " + last[:200]
 
     class H(BaseHTTPRequestHandler):
         def log_message(self, f, *a): print(f % a, flush=True)
