@@ -24,7 +24,8 @@ def _named(docs: list[dict[str, Any]], kind: str, name: str) -> dict[str, Any]:
 
 def _container(deploy: dict[str, Any]) -> dict[str, Any]:
     (container,) = deploy["spec"]["template"]["spec"]["containers"]
-    return container
+    found: dict[str, Any] = container
+    return found
 
 
 def _env(deploy: dict[str, Any]) -> dict[str, dict[str, Any]]:
@@ -190,3 +191,15 @@ def test_render_and_values_hold_no_secret_literal() -> None:
 
     for key in keys(values):
         assert not re.search(r"password|secret|token|apikey", key, re.I), key
+
+
+def test_api_and_worker_wait_for_postgres_and_temporal_before_starting() -> None:
+    # Under make dev the file watcher does not restart a process that exits, so a start
+    # before Postgres or Temporal listens would leave a dead process in a Running pod.
+    docs = render()
+    for name in ("api", "worker"):
+        spec = _named(docs, "Deployment", name)["spec"]["template"]["spec"]
+        (init,) = spec["initContainers"]
+        assert init["image"] == _container(_named(docs, "Deployment", name))["image"]
+        assert "postgres.ace.svc.cluster.local:5432" in init["command"], name
+        assert "temporal.ace.svc.cluster.local:7233" in init["command"], name

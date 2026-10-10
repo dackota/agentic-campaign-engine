@@ -31,13 +31,33 @@ docker_build(
     ignore=['apps/web/node_modules', 'apps/web/dist', 'apps/web/e2e', 'apps/web/test-results'],
 )
 
+# One image for the API, the worker, and the fake Marketo. Saving a Python file is a live
+# update: Tilt syncs it into the running pods, and the chart's file watcher (python.reload)
+# restarts the process. No image rebuild and no `helm upgrade`. A dependency change
+# (pyproject.toml, uv.lock) or a Dockerfile change rebuilds the image.
+docker_build(
+    'ace-python',
+    '.',
+    dockerfile='apps/python.Dockerfile',
+    only=['pyproject.toml', 'uv.lock', 'apps/engine', 'apps/api', 'apps/worker', 'services'],
+    ignore=['**/__pycache__', '**/*.pyc'],
+    live_update=[
+        fall_back_on(['pyproject.toml', 'uv.lock']),
+        sync('apps', '/app/apps'),
+        sync('services', '/app/services'),
+    ],
+)
+
 helm_resource(
     RELEASE,
     'charts/ace',
     namespace=NAMESPACE,
-    flags=['--create-namespace'],
+    flags=['--create-namespace', '--set', 'python.reload=true'],
     deps=['charts/ace'],
-    image_deps=['ace-web'],
-    image_keys=[('web.image.repository', 'web.image.tag')],
+    image_deps=['ace-web', 'ace-python'],
+    image_keys=[
+        ('web.image.repository', 'web.image.tag'),
+        ('python.image.repository', 'python.image.tag'),
+    ],
     labels=['ace'],
 )

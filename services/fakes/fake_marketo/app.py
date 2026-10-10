@@ -21,11 +21,13 @@ import secrets
 import threading
 import time
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs
 
 import httpx
+from ace_engine.env import from_env
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -39,6 +41,7 @@ SIGNATURE_HEADER = "X-Marketo-Signature"
 TIMESTAMP_HEADER = "X-Marketo-Timestamp"
 MIN_AB_VARIANTS = 2
 MAX_AB_VARIANTS = 2
+CONFIG_ENV_PREFIX = "ACE_MARKETO_"
 INVALID_TOKEN = {"success": False, "errors": [{"code": "601", "message": "Access token invalid"}]}
 
 
@@ -276,3 +279,8 @@ def _add_send_route(
             "success": True,
             "result": [{"id": send["id"], "receiptId": send["receiptId"], "status": "sent"}],
         }
+
+
+def config_from_env(environ: Mapping[str, str]) -> MarketoConfig:
+    """The fake's client and webhook settings, from `ACE_MARKETO_*` like the API's."""
+    return from_env(MarketoConfig, environ, prefix=CONFIG_ENV_PREFIX)
