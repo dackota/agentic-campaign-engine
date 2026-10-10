@@ -1,6 +1,7 @@
 """Helpers the Campaign API tests share: make a campaign, wait for it to reach a status."""
 
 import time
+import uuid
 from typing import Any
 
 import httpx
@@ -43,3 +44,37 @@ def until_status(api: httpx.Client, campaign_id: str, *wanted: str) -> dict[str,
 def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
     """Wait until drafting ends: the run waits for approval or has failed."""
     return until_status(api, campaign_id, AWAITING, FAILED)
+
+
+def workflow_name(prefix: str = "wf") -> str:
+    """A fresh workflow name: the stack is shared by tests, so names must not collide."""
+    return f"{prefix}-{uuid.uuid4().hex[:12]}"
+
+
+def save_workflow(api: httpx.Client, name: str, dag: dict[str, Any]) -> dict[str, Any]:
+    response = api.post(f"/workflows/{name}/versions", json=dag)
+    assert response.status_code == 201, response.text
+    saved: dict[str, Any] = response.json()
+    return saved
+
+
+def create_on(api: httpx.Client, workflow: str, report: str = REPORT) -> dict[str, Any]:
+    response = api.post("/campaigns", json={"report": report, "workflow": workflow})
+    assert response.status_code == 201, response.text
+    created: dict[str, Any] = response.json()
+    return created
+
+
+def step(step_id: str, kind: str, **extra: Any) -> dict[str, Any]:
+    return {"id": step_id, "kind": kind, **extra}
+
+
+def edge(source: str, target: str) -> dict[str, str]:
+    return {"from": source, "to": target}
+
+
+# The smallest workflow that drafts, waits for a human, then publishes.
+DRAFT_APPROVE_PUBLISH = {
+    "steps": [step("draft", "agent"), step("approve", "approval"), step("publish", "publish")],
+    "edges": [edge("draft", "approve"), edge("approve", "publish")],
+}
