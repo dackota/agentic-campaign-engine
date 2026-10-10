@@ -1,8 +1,31 @@
 import { useState, type FormEvent } from "react";
-import { createCampaign, type Campaign } from "./api";
+import { createCampaign, type Campaign, type EmailDraft, type RunEvent } from "./api";
 import { useRunEvents } from "./useRunEvents";
 
 const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
+
+function RunSteps({ steps }: { steps: Record<string, RunEvent> }) {
+  return (
+    <ul aria-label="Run steps">
+      {Object.values(steps).map((event) => (
+        <li key={event.step} data-testid={`step-${event.step}`}>
+          {STEP_LABELS[event.step] ?? event.step}: {event.status}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function DraftView({ draft }: { draft: EmailDraft }) {
+  return (
+    <section aria-label="Email draft">
+      <h2 data-testid="draft-subject">{draft.subject}</h2>
+      <p>{draft.preheader}</p>
+      <pre data-testid="draft-body">{draft.body}</pre>
+      <p>{draft.call_to_action}</p>
+    </section>
+  );
+}
 
 export function App() {
   const [report, setReport] = useState("");
@@ -35,24 +58,9 @@ export function App() {
         </button>
       </form>
       {error && <p role="alert">{error}</p>}
-      {campaign && (
-        <ul aria-label="Run steps">
-          {Object.values(steps).map((event) => (
-            <li key={event.step} data-testid={`step-${event.step}`}>
-              {STEP_LABELS[event.step] ?? event.step}: {event.status}
-            </li>
-          ))}
-        </ul>
-      )}
+      {campaign && <RunSteps steps={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
-      {campaign?.draft && (
-        <section aria-label="Email draft">
-          <h2 data-testid="draft-subject">{campaign.draft.subject}</h2>
-          <p>{campaign.draft.preheader}</p>
-          <pre data-testid="draft-body">{campaign.draft.body}</pre>
-          <p>{campaign.draft.call_to_action}</p>
-        </section>
-      )}
+      {campaign?.draft && <DraftView draft={campaign.draft} />}
     </main>
   );
 }
