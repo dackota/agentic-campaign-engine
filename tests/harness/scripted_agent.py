@@ -1,4 +1,7 @@
-"""A scripted agent that speaks kagent's A2A contract (JSON-RPC `message/send`).
+"""A scripted agent for fast depth: an A2A JSON-RPC (`message/send`) stand-in.
+
+kagent 1.x itself serves gRPC A2A (see docs/sources.md); live depth will need a gRPC
+client. Fast depth only needs the message shape, so this speaks JSON-RPC over HTTP.
 
 By default it answers like an email writer: it reads the threat report out of the
 message and replies with a draft that fits the email contract. A test can queue
@@ -14,6 +17,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 REPORT_MARKER = "THREAT REPORT:"
+JSONRPC_METHOD_NOT_FOUND = -32601
+SUBJECT_HEADLINE_CHARS = 80
+BODY_REPORT_CHARS = 300
 
 
 class ScriptedAgent:
@@ -48,7 +54,7 @@ class ScriptedAgent:
                     {
                         "jsonrpc": "2.0",
                         "id": body.get("id"),
-                        "error": {"code": -32601, "message": "method not found"},
+                        "error": {"code": JSONRPC_METHOD_NOT_FOUND, "message": "method not found"},
                     }
                 )
             message = body["params"]["message"]
@@ -76,8 +82,8 @@ def default_draft(message_text: str) -> dict[str, str]:
     report = message_text.split(REPORT_MARKER, 1)[-1].strip()
     headline = report.splitlines()[0] if report else "threat"
     return {
-        "subject": f"Act now: {headline[:80]}",
+        "subject": f"Act now: {headline[:SUBJECT_HEADLINE_CHARS]}",
         "preheader": "What the new threat means for you",
-        "body": f"Hello,\n\nOur analysts found this: {report[:300]}\n\nStay safe.",
+        "body": f"Hello,\n\nOur analysts found this: {report[:BODY_REPORT_CHARS]}\n\nStay safe.",
         "call_to_action": "Read the full advisory",
     }

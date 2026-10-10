@@ -8,7 +8,9 @@ from typing import Annotated, Any
 from ace_engine import db
 from ace_engine.settings import TASK_QUEUE, WORKFLOW_NAME, Settings
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, StringConstraints
+from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
@@ -44,6 +46,11 @@ class CampaignOut(BaseModel):
         )
 
 
+def _insert(engine: Engine, campaign_id: uuid.UUID, report: str) -> None:
+    with Session(engine) as session, session.begin():
+        session.add(db.Campaign(id=campaign_id, report=report))
+
+
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -63,8 +70,7 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/campaigns", status_code=201)
     async def create_campaign(body: NewCampaign, request: Request) -> CampaignOut:
         campaign_id = uuid.uuid4()
-        with Session(request.app.state.engine) as session, session.begin():
-            session.add(db.Campaign(id=campaign_id, report=body.report))
+        await run_in_threadpool(_insert, request.app.state.engine, campaign_id, body.report)
         await request.app.state.temporal.start_workflow(
             WORKFLOW_NAME,
             args=[str(campaign_id), body.report],

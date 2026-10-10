@@ -13,7 +13,5 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter web exec playwright install --with-deps chromium
       # Both seams at fast depth: Docker (Postgres) is the only service needed.
       - run: make test

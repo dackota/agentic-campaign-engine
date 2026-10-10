@@ -1,4 +1,6 @@
-"""Agent invoker: ask an agent over A2A and return output that fits a schema.
+"""Agent invoker: ask an agent over A2A (JSON-RPC `message/send`, the fast-depth wire;
+kagent 1.x serves gRPC, so live depth swaps the transport, see docs/sources.md)
+and return output that fits a schema.
 
 Hides the A2A `message/send` call, session reuse (the A2A contextId), an idempotency
 key per message, a timeout, and one repair attempt when the reply breaks the schema.

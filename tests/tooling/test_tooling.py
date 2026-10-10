@@ -76,7 +76,6 @@ def test_ci_runs_make_test_on_pull_request() -> None:
     text = (ROOT / ".github/workflows/test.yml").read_text()
     assert "pull_request" in text
     assert "make test" in text
-    assert "playwright install" in text
 
 
 def test_make_test_runs_both_seams() -> None:

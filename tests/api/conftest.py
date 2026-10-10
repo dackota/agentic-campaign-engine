@@ -5,6 +5,8 @@ import pytest
 
 from tests.harness.stack import Stack
 
+HTTP_TIMEOUT_SECONDS = 30
+
 
 @pytest.fixture(scope="session")
 def stack() -> Iterator[Stack]:
@@ -15,5 +17,5 @@ def stack() -> Iterator[Stack]:
 @pytest.fixture
 def api(stack: Stack) -> Iterator[httpx.Client]:
     stack.agent.script([])
-    with httpx.Client(base_url=stack.api_url, timeout=30) as client:
+    with httpx.Client(base_url=stack.api_url, timeout=HTTP_TIMEOUT_SECONDS) as client:
         yield client

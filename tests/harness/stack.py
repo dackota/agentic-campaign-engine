@@ -19,6 +19,10 @@ from tests.harness.scripted_agent import ScriptedAgent
 
 POSTGRES_IMAGE = "postgres:16-alpine"
 START_TIMEOUT_SECONDS = 180
+STOP_TIMEOUT_SECONDS = 60
+WORKER_THREADS = 8
+STARTUP_POLLS = 600
+STARTUP_POLL_SECONDS = 0.1
 
 
 def free_port() -> int:
@@ -63,7 +67,7 @@ class Stack:
         if self._loop is not None and self._stop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)
         if self._thread is not None:
-            self._thread.join(timeout=60)
+            self._thread.join(timeout=STOP_TIMEOUT_SECONDS)
         if self._postgres is not None:
             self._postgres.stop()
             self._postgres = None
@@ -120,7 +124,7 @@ class Stack:
                 ),
             ]
             tasks = [asyncio.create_task(s.serve()) for s in servers]
-            with ThreadPoolExecutor(max_workers=8) as executor:
+            with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
                 worker = build_worker(env.client, settings, executor)
                 async with worker:
                     await self._wait_started(servers)
@@ -133,8 +137,8 @@ class Stack:
             await env.shutdown()
 
     async def _wait_started(self, servers: list[uvicorn.Server]) -> None:
-        for _ in range(600):
+        for _ in range(STARTUP_POLLS):
             if all(s.started for s in servers):
                 return
-            await asyncio.sleep(0.1)
+            await asyncio.sleep(STARTUP_POLL_SECONDS)
         raise RuntimeError("servers did not start")

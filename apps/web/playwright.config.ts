@@ -13,6 +13,8 @@ const env = { ...process.env, ACE_API_PORT: apiPort, PYTHONPATH: pythonPath } as
   string
 >;
 
+const STACK_START_TIMEOUT_MS = 240_000;
+
 export default defineConfig({
   testDir: "./e2e",
   use: { baseURL: `http://127.0.0.1:${webPort}` },
@@ -23,7 +25,7 @@ export default defineConfig({
       cwd: "../..",
       env,
       url: `http://127.0.0.1:${apiPort}/healthz`,
-      timeout: 240_000,
+      timeout: STACK_START_TIMEOUT_MS,
       reuseExistingServer: false,
     },
     {

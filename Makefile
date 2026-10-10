@@ -19,7 +19,7 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 	uv run pytest
 	pnpm install --frozen-lockfile
 	pnpm --filter web test
-	pnpm --filter web exec playwright install chromium
+	pnpm --filter web exec playwright install --with-deps chromium
 	pnpm --filter web e2e
 
 up: ## Stub: start the local cluster (a later ticket fills it)

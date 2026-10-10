@@ -21,6 +21,7 @@ GOOD_DRAFT = {
     "call_to_action": "Patch now",
 }
 POLL_SECONDS = 30
+POLL_INTERVAL_SECONDS = 0.2
 
 
 def create(api: httpx.Client, report: str = REPORT) -> dict[str, Any]:
@@ -38,7 +39,7 @@ def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
         campaign: dict[str, Any] = response.json()
         if campaign["status"] != "drafting":
             return campaign
-        time.sleep(0.2)
+        time.sleep(POLL_INTERVAL_SECONDS)
     raise AssertionError("campaign never left drafting")
 
 
