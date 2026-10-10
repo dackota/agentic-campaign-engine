@@ -39,6 +39,27 @@ def test_escapes_draft_text() -> None:
     assert "&lt;script&gt;" in html
 
 
+ADVERSARIAL_BODIES = [
+    "",
+    "\n\n\n",
+    "<img src=x onerror=alert(1)>",
+    '"><script>alert(1)</script>',
+    "a & b < c > d",
+    "x\ny\n\nz" * 50,
+    "]]></mj-text><mj-raw><script>1</script></mj-raw>",
+]
+
+
+@pytest.mark.parametrize("body", ADVERSARIAL_BODIES)
+def test_no_raw_markup_reaches_output_and_cap_holds(body: str) -> None:
+    html = render_email({**DRAFT, "body": body})
+
+    assert "<script" not in html
+    assert "<img src=x" not in html
+    assert "<mj-" not in html
+    assert len(html.encode()) <= MAX_EMAIL_BYTES
+
+
 def test_oversized_email_is_refused() -> None:
     with pytest.raises(EmailTooLarge):
         render_email({**DRAFT, "body": "x" * (MAX_EMAIL_BYTES + 1)})

@@ -5,12 +5,12 @@ import uuid
 from pathlib import Path
 
 import httpx
+from render_service.email import MAX_EMAIL_BYTES
 
 from tests.api.helpers import AWAITING, create, settle
 from tests.harness.stack import Stack
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "email_preview.html"
-MAX_BYTES = 100_000
 
 
 def _preview(api: httpx.Client, campaign_id: str) -> httpx.Response:
@@ -30,7 +30,7 @@ def test_preview_returns_rendered_email(api: httpx.Client) -> None:
     images = re.findall(r"<img\b[^>]*>", response.text)
     assert images
     assert all(re.search(r'alt="[^"]+"', tag) for tag in images)
-    assert len(response.content) < MAX_BYTES
+    assert len(response.content) < MAX_EMAIL_BYTES
 
 
 def test_second_get_returns_same_bytes(api: httpx.Client) -> None:

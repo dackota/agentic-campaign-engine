@@ -55,7 +55,11 @@ function DraftView({ draft }: { draft: EmailDraft }) {
   );
 }
 
-function EmailPreview({ id }: { id: string }) {
+interface EmailPreviewProps {
+  id: string;
+}
+
+function EmailPreview({ id }: EmailPreviewProps) {
   return (
     <iframe
       title="Email preview"
