@@ -61,3 +61,12 @@ def test_ci_runs_make_lint_on_pull_request() -> None:
     text = (ROOT / ".github/workflows/lint.yml").read_text()
     assert "pull_request" in text
     assert "make lint" in text
+
+
+def test_pre_commit_hooks_match_ci_and_install_web_deps() -> None:
+    text = (ROOT / ".pre-commit-config.yaml").read_text()
+    assert "ruff format --check" in text
+    assert "--fix" not in text
+    assert "pnpm install --frozen-lockfile" in text
+    dev = tomllib.loads((ROOT / "pyproject.toml").read_text())["dependency-groups"]["dev"]
+    assert any(d.startswith("pre-commit") for d in dev)

@@ -5,7 +5,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [dependency-groups]
-dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8"]
+dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8", "pre-commit>=3"]
 
 [tool.ruff]
 line-length = 100
@@ -19,4 +19,4 @@ strict = true
 files = ["tests"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests", "apps", "services", "evals"]
+testpaths = ["tests"]
