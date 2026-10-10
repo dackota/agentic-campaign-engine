@@ -30,8 +30,10 @@ fi
 case "$1 $2" in
   "cluster list") [ -n "$STUB_CLUSTER" ] && echo "ace 1/1 0/0 true"; echo "ace-old 1/1 0/0 true" ;;
   "registry list")
-    [ -n "$STUB_REGISTRY" ] && echo "k3d-ace-registry"
-    echo "k3d-ace-registry-old" ;;
+    # The registry vanishes once deleted, unless STUB_REGISTRY_SURVIVES says delete does nothing.
+    if [ -n "$STUB_REGISTRY" ] && { [ -n "$STUB_REGISTRY_SURVIVES" ] \\
+      || ! grep -qx "k3d registry delete ace-registry" "$STUB_LOG"; }; then echo "ace-registry"; fi
+    echo "ace-registry-old" ;;
 esac
 exit 0
 """

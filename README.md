@@ -37,7 +37,7 @@ A key you add later reaches the cluster on the next `make up`.
 - `make status`: report the cluster, the platform, and the app: ok or FAIL per check.
 - `make dev`: run Tilt on the `ace` cluster, so saving a web file rebuilds and replaces
   the web pod. Run `make up` first.
-- `make down`: delete the `ace` cluster and its volume.
+- `make down`: delete the `ace` cluster, its registry, and its volume.
   `make down` removes only the `ace` cluster; any other cluster stays.
 
 Run `make help` for every target.
