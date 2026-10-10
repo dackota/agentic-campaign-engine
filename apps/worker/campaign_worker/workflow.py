@@ -18,11 +18,11 @@ SEND_RETRY = RetryPolicy(maximum_attempts=5)
 @workflow.defn(name=WORKFLOW_NAME)
 class CampaignWorkflow:
     def __init__(self) -> None:
-        self._approved = False
+        self._is_approved = False
 
     @workflow.signal(name=APPROVE_SIGNAL)
     def approve(self) -> None:
-        self._approved = True
+        self._is_approved = True
 
     @workflow.run
     async def run(self, campaign_id: str, report: str) -> None:
@@ -41,7 +41,7 @@ class CampaignWorkflow:
             args=[campaign_id, draft],
             start_to_close_timeout=DB_STEP_TIMEOUT,
         )
-        await workflow.wait_condition(lambda: self._approved)
+        await workflow.wait_condition(lambda: self._is_approved)
         try:
             receipt = await workflow.execute_activity(
                 "send_email",

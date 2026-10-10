@@ -12,6 +12,8 @@ from typing import Any
 from fastapi import FastAPI
 from pydantic import BaseModel
 
+RECEIPT_HEX_LENGTH = 12
+
 
 class SendRequest(BaseModel):
     campaign_id: str
@@ -35,7 +37,8 @@ def create_app() -> FastAPI:
         with lock:
             record = sends.get(body.campaign_id)
             if record is None:
-                record = {**body.model_dump(), "receipt": f"fake-marketo-{uuid.uuid4().hex[:12]}"}
+                receipt = f"fake-marketo-{uuid.uuid4().hex[:RECEIPT_HEX_LENGTH]}"
+                record = {**body.model_dump(), "receipt": receipt}
                 sends[body.campaign_id] = record
         return {"success": True, "result": [{"receiptId": record["receipt"], "status": "sent"}]}
 

@@ -121,10 +121,10 @@ def create_app(settings: Settings) -> FastAPI:
     @app.post("/campaigns/{campaign_id}/approve", status_code=202)
     async def approve_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
         engine = request.app.state.engine
-        claimed = await run_in_threadpool(
+        is_claimed = await run_in_threadpool(
             _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
         )
-        if not claimed:
+        if not is_claimed:
             exists = await run_in_threadpool(_exists, engine, campaign_id)
             if not exists:
                 raise HTTPException(status_code=404, detail="campaign not found")

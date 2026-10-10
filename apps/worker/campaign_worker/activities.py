@@ -21,6 +21,9 @@ EMAIL_PROMPT = (
 )
 
 
+MARKETO_REPLY_INVALID = "MarketoReplyInvalid"
+
+
 class Activities:
     def __init__(self, settings: Settings, engine: Engine) -> None:
         self._settings = settings
@@ -65,8 +68,7 @@ class Activities:
                 json={"campaign_id": campaign_id, **draft},
             )
             response.raise_for_status()
-        receipt: str = response.json()["result"][0]["receiptId"]
-        return receipt
+        return _receipt_from(response)
 
     @activity.defn
     def mark_sent(self, campaign_id: str, receipt: str) -> None:
@@ -74,3 +76,22 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.SENT
             campaign.receipt = receipt
+
+
+def _receipt_from(response: httpx.Response) -> str:
+    """The receipt id in a Marketo send reply, or a non-retryable error naming what is wrong."""
+    try:
+        receipt = response.json()["result"][0]["receiptId"]
+    except (ValueError, KeyError, IndexError, TypeError) as exc:
+        raise ApplicationError(
+            f"Marketo send reply has no receiptId: {response.text[:200]!r}",
+            type=MARKETO_REPLY_INVALID,
+            non_retryable=True,
+        ) from exc
+    if not isinstance(receipt, str) or not receipt:
+        raise ApplicationError(
+            f"Marketo send reply has an invalid receiptId: {receipt!r}",
+            type=MARKETO_REPLY_INVALID,
+            non_retryable=True,
+        )
+    return receipt
