@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test up down
+.PHONY: help lint fmt test up down gateway-check
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -27,3 +27,6 @@ up: ## Stub: start the local cluster (a later ticket fills it)
 
 down: ## Stub: stop the local cluster (a later ticket fills it)
 	@echo "down: not implemented yet"
+
+gateway-check: ## Live: check agents reach OpenCode Go only through agentgateway (needs the cluster)
+	scripts/spike/gateway-check.sh

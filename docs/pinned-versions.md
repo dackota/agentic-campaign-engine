@@ -29,3 +29,9 @@ PostgreSQL out of the main chart, which the guide does not cover. Installing it
 with the guide left every Substrate pod stuck in `ContainerCreating` (see
 `docs/spike-log.md`). The guide-matching pair works, so it is pinned. Moving to
 alpha11 is a separate, deliberate step.
+
+## S1 additions
+
+| Part | Version | Digest |
+|---|---|---|
+| agentgateway charts | `agentgateway-crds` and `agentgateway` v1.6.0 (`cr.agentgateway.dev/charts`) | n/a |
