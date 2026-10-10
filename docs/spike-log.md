@@ -45,7 +45,7 @@ Error 1:
 ```
 Error: while uploading pool state to secret: namespaces "podcertificate-controller-system" not found
 ```
-Fix tried: create that namespace (`kubectl create namespace ...`). Pools then
+Fix tried: create that namespace (`kubectl --context k3d-ace-spike create namespace ...`). Pools then
 created.
 
 Error 2: after `helm upgrade ... --wait` every pod in `ate-system` stuck in
@@ -53,7 +53,7 @@ Error 2: after `helm upgrade ... --wait` every pod in `ate-system` stuck in
 ```
 MountVolume.SetUp failed for volume "podidentity": credential bundle is not issued yet ...
 ```
-`kubectl get podcertificaterequests -A` showed all requests `Pending`. Cause:
+`kubectl --context k3d-ace-spike get podcertificaterequests -A` showed all requests `Pending`. Cause:
 0.5.0-alpha2 does not deploy the certificate controller; it ships in a separate
 `substrate-podcert` chart, and PostgreSQL moved out too
 (`hack/install-postgres.sh`, `postgres.clientCertificates.enabled`). The guide covers
@@ -87,7 +87,7 @@ kubectl --context k3d-ace-spike apply -f manifests/spike/mock-llm.yaml -f manife
 Harness (`golang-adk` by digest), AgentTemplate, Agent, ModelConfig.
 
 Error 4: Agent `Ready=False`, `GoldenActorCrashed: golden actor crashed before its snapshot was taken`.
-The status gives no cause. Worker pod log (`kubectl logs -n kagent kagent-default-...`),
+The status gives no cause. Worker pod log (`kubectl --context k3d-ace-spike logs -n kagent kagent-default-...`),
 `RunWorkload` response:
 ```
 while composing pause rootfs: while mounting overlay rootfs at ".../bundles/_pause/rootfs":
@@ -117,7 +117,7 @@ Answer: artifact text `42`, state `TASK_STATE_COMPLETED`.
 
 ## 8. Idle suspend and wake
 
-`kubectl ate get actors -A` showed the session actor `ACTOR_STATE_SUSPENDED` within a
+`kubectl ate --context k3d-ace-spike get actors -A` showed the session actor `ACTOR_STATE_SUSPENDED` within a
 minute of the first answer, with no worker pod. A second `SendMessage` on the same
 `contextId` returned in 0.2 s and the actor was `ACTOR_STATE_RUNNING`. Suspend and wake
 work on the Go harness.
@@ -136,14 +136,15 @@ Draft bug 4.
 
 Also learned: SandboxTemplate `spec.workload` accepts only `image` (no `command`).
 ```
-kagent sandbox create spike-sandbox --request-id s0-2 --name spike   -> RUNTIME_STATE_READY
+# kagent CLI talks to the controller through the port-forward, not a kube context
+kagent --api-url http://localhost:18083 --gateway-url http://localhost:18083 sandbox create spike-sandbox --request-id s0-2 --name spike   -> RUNTIME_STATE_READY
 kagent sandbox exec <id> -- uname -a   -> Linux actor 4.19.0-gvisor ... aarch64, exit 0
 ```
 
 ## 10. RAM
 
 `docker stats` on the k3d node, platform plus one suspended session and the mock
-model, idle: 2.27 GiB of 23.4 GiB. `kubectl top pods`: `atelet` 310 Mi, kagent
+model, idle: 2.27 GiB of 23.4 GiB. `kubectl --context k3d-ace-spike top pods -A`: `atelet` 310 Mi, kagent
 controller 70 Mi, rustfs 73 Mi, the two Postgres 57 Mi each, the rest under 50 Mi.
 
 ## 11. Not done
@@ -167,7 +168,7 @@ for the Agent. Checked against the CRDs and the live objects:
   a template is ready when the Agent that uses it is. `.status` on `spike-template` is null.
 - `harnesses.api.kagent.dev` v1alpha3 defines `status` (`capabilities`, `conditions`,
   `observedGeneration`), a status subresource and a Ready printer column. On
-  1.0.0-alpha9 the controller never writes it: `kubectl get harness spike-harness -o json | jq .status`
+  1.0.0-alpha9 the controller never writes it: `kubectl --context k3d-ace-spike get harness spike-harness -n kagent -o json | jq .status`
   is `null` even while the Agent is Ready and answering. Upstream bug, draft 5.
 
 Replacement proof (the Agent's Ready condition covers the Harness, since the Agent

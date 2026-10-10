@@ -5,10 +5,10 @@
 **Repro:** apply a Harness (`runtime kagent`, golang-adk by digest) and an Agent that uses
 it (manifests/spike/agent.yaml). Wait until the Agent is `Ready=True` and answers over A2A.
 ```
-kubectl get harness spike-harness -n kagent
+kubectl --context <ctx> get harness spike-harness -n kagent
 NAME            READY   AGE
 spike-harness           7m
-kubectl get harness spike-harness -n kagent -o json | jq .status
+kubectl --context <ctx> get harness spike-harness -n kagent -o json | jq .status
 null
 ```
 **Expected:** the CRD defines `status.conditions`, `status.capabilities`, `observedGeneration`

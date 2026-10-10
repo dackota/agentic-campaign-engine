@@ -33,7 +33,7 @@ ready="$(k get agent "$AGENT" -n "$NS" -o jsonpath='{.status.conditions[?(@.type
 [ "$ready" = "True" ] || fail "agent $AGENT is not Ready"
 
 # 3. Send one A2A message and read the answer.
-k port-forward -n "$NS" svc/kagent-controller "$LOCAL_PORT:8083" >/dev/null 2>&1 &
+kubectl --context "$KCTX" port-forward -n "$NS" svc/kagent-controller "$LOCAL_PORT:8083" >/dev/null 2>&1 &
 PF=$!
 trap 'kill $PF 2>/dev/null || true' EXIT
 for _ in $(seq 1 30); do
