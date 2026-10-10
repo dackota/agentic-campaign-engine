@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
+import { signIn } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
 test("step status changes on the page without a reload", async ({ page }) => {
-  await page.goto("/");
+  await signIn(page);
   // [agent:slow] makes the scripted agent hold its reply, so "started" is on screen first.
   await page.getByLabel("Threat report").fill(`[agent:slow]\n${REPORT}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
@@ -15,7 +16,7 @@ test("step status changes on the page without a reload", async ({ page }) => {
 });
 
 test("bad agent output shows failed and the reason", async ({ page }) => {
-  await page.goto("/");
+  await signIn(page);
   await page.getByLabel("Threat report").fill(`[agent:bad-json]\n${REPORT}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
 

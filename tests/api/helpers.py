@@ -21,6 +21,9 @@ GOOD_DRAFT = {
 AWAITING = "awaiting_approval"
 FAILED = "failed"
 SENT = "sent"
+# Demo users from platform/dex/config.yaml.
+OWNER = "dg-owner@demo.example"
+APPROVER = "dg-approver@demo.example"
 POLL_SECONDS = 30
 POLL_INTERVAL_SECONDS = 0.2
 STREAM_TIMEOUT_SECONDS = 30

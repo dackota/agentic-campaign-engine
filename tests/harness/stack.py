@@ -1,5 +1,6 @@
-"""Seam 1 harness: real Postgres, Temporal's time-skipping test server, the scripted
-A2A agent, the worker, and the Campaign API, started together on free local ports.
+"""Seam 1 harness: real Postgres, Dex with the demo users, Temporal's time-skipping test
+server, the scripted A2A agent, the worker, and the Campaign API, started together on
+free local ports.
 
 One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. Live depth
 is wired in a later ticket, so starting a live stack raises.
@@ -18,6 +19,7 @@ import uvicorn
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
+from tests.harness.dex import CLIENT_ID, Dex
 from tests.harness.scripted_agent import ScriptedAgent
 
 if TYPE_CHECKING:
@@ -41,13 +43,20 @@ def free_port() -> int:
 
 
 class Stack:
-    def __init__(self, depth: str | None = None, api_port: int | None = None) -> None:
+    def __init__(
+        self,
+        depth: str | None = None,
+        api_port: int | None = None,
+        dex_port: int | None = None,
+        web_origin: str = "http://127.0.0.1:5173",
+    ) -> None:
         from ace_engine.settings import Depth
 
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        self.dex = Dex(dex_port or free_port(), web_origin)
         # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
         self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
         self.marketo_client_secret = secrets.token_urlsafe(24)
@@ -105,6 +114,7 @@ class Stack:
             raise NotImplementedError("live depth is wired in a later ticket")
         self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg")
         self._postgres.start()
+        self.dex.start()
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
         if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
@@ -120,6 +130,7 @@ class Stack:
         if self._postgres is not None:
             self._postgres.stop()
             self._postgres = None
+        self.dex.stop()
 
     def __enter__(self) -> "Stack":
         return self.start()
@@ -156,6 +167,8 @@ class Stack:
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
+                oidc_issuer=self.dex.issuer,
+                oidc_client_id=CLIENT_ID,
                 marketo_client_id=self.marketo_client_id,
                 marketo_client_secret=self.marketo_client_secret,
                 marketo_webhook_secret=self.marketo_webhook_secret,

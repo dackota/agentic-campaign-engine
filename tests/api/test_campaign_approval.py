@@ -1,5 +1,6 @@
 """Seam 1 at fast depth: nothing sends until a human approves; approval sends once through
-the fake Marketo and the campaign shows a receipt."""
+the fake Marketo and the campaign shows a receipt. A Demand Gen owner creates each
+campaign and a Demand Gen approver approves it."""
 
 import time
 import uuid
@@ -14,7 +15,7 @@ QUIET_SECONDS = 1.5
 
 
 def test_run_waits_for_approval_after_draft_and_api_can_approve(
-    stack: Stack, api: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     campaign_id = create(api)["id"]
 
@@ -23,7 +24,7 @@ def test_run_waits_for_approval_after_draft_and_api_can_approve(
     assert waiting["receipt"] is None
     assert sends(stack, campaign_id) == []
 
-    response = api.post(f"/campaigns/{campaign_id}/approve")
+    response = approver.post(f"/campaigns/{campaign_id}/approve")
     assert response.status_code == 202, response.text
 
     sent = until_status(api, campaign_id, SENT)
@@ -45,29 +46,31 @@ def test_no_send_happens_without_approval(stack: Stack, api: httpx.Client) -> No
 
 
 def test_approving_twice_or_a_campaign_not_waiting_never_sends_again(
-    stack: Stack, api: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     campaign_id = create(api)["id"]
     settle(api, campaign_id)
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
 
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 409
-    assert api.post(f"/campaigns/{uuid.uuid4()}/approve").status_code == 404
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 409
+    assert approver.post(f"/campaigns/{uuid.uuid4()}/approve").status_code == 404
     assert len(sends(stack, campaign_id)) == 1
 
 
-def test_failed_campaign_cannot_be_approved(stack: Stack, api: httpx.Client) -> None:
+def test_failed_campaign_cannot_be_approved(
+    stack: Stack, api: httpx.Client, approver: httpx.Client
+) -> None:
     stack.agent.script(["not json", "still not json"])
     campaign_id = create(api)["id"]
     assert settle(api, campaign_id)["status"] == FAILED
 
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 409
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 409
     assert sends(stack, campaign_id) == []
 
 
 def test_worker_restart_during_the_wait_does_not_lose_the_run(
-    stack: Stack, api: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     campaign_id = create(api)["id"]
     assert settle(api, campaign_id)["status"] == AWAITING
@@ -75,21 +78,21 @@ def test_worker_restart_during_the_wait_does_not_lose_the_run(
     stack.restart_worker()
 
     assert api.get(f"/campaigns/{campaign_id}").json()["status"] == AWAITING
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     sent = until_status(api, campaign_id, SENT)
     assert sent["receipt"]
     assert len(sends(stack, campaign_id)) == 1
 
 
 def test_invalid_marketo_reply_fails_the_campaign_naming_the_reply(
-    stack: Stack, api: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     campaign_id = create(api)["id"]
     assert settle(api, campaign_id)["status"] == AWAITING
 
     stack.marketo_malformed_reply(True)
     try:
-        assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+        assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
         failed = until_status(api, campaign_id, FAILED)
     finally:
         stack.marketo_malformed_reply(False)

@@ -1,0 +1,59 @@
+# Dex, the stand-in for the company login (Okta, Entra). Demo only.
+#
+# Every demo user signs in with the password "demo-password". The groups claim carries
+# the team ("team:<id>") and the roles ("role:owner", "role:approver", "role:viewer");
+# the Campaign API reads both from the token. The test harness rewrites `issuer`, the
+# web client's redirect URIs, and `web.allowedOrigins` to the ports it picked.
+issuer: http://127.0.0.1:5556/dex
+storage:
+  type: memory
+web:
+  http: 0.0.0.0:5556
+  allowedOrigins: ["http://127.0.0.1:5173"]
+oauth2:
+  passwordConnector: local
+  skipApprovalScreen: true
+enablePasswordDB: true
+staticClients:
+  # The web app: a public client, so it signs in with the authorization code flow and PKCE.
+  - id: ace-web
+    name: Agentic Campaign Engine
+    public: true
+    redirectURIs: ["http://127.0.0.1:5173/"]
+staticPasswords:
+  - email: dg-owner@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Dana Owner
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0001
+    groups: ["team:demand-gen", "role:owner"]
+  - email: dg-approver@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Dev Approver
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0002
+    groups: ["team:demand-gen", "role:approver"]
+  - email: dg-viewer@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Dee Viewer
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0003
+    groups: ["team:demand-gen", "role:viewer"]
+  # A team lead holds both owner and approver: the user the self-approval rule is for.
+  - email: dg-lead@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Lee Lead
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0004
+    groups: ["team:demand-gen", "role:owner", "role:approver"]
+  - email: pm-owner@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Pat Owner
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0005
+    groups: ["team:product-marketing", "role:owner"]
+  - email: pm-approver@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Pia Approver
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0006
+    groups: ["team:product-marketing", "role:approver"]
+  - email: pm-viewer@demo.example
+    hash: "$2a$10$ft7xtZzGzddXA9tgDQ/ifO2E5xgipOE0xGAdXCttINHHOKGzXFueW"
+    username: Pax Viewer
+    userID: 6b0c1a52-0d1e-4f43-9c11-1d0a3c2e0007
+    groups: ["team:product-marketing", "role:viewer"]

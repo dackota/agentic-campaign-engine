@@ -1,12 +1,18 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   approveCampaign,
   createCampaign,
   getCampaign,
+  getMe,
+  listCampaigns,
+  previewUrl,
+  SignedOutError,
   type Campaign,
   type EmailDraft,
+  type Me,
   type RunEvent,
 } from "./api";
+import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
 import type { WorkflowStep } from "./workflow.gen";
@@ -60,6 +66,46 @@ function DraftView({ draft }: { draft: EmailDraft }) {
   );
 }
 
+/** The list label for a campaign: the first line of its report. */
+function titleOf(campaign: Campaign): string {
+  return campaign.report.split("\n", 1)[0] ?? campaign.id;
+}
+
+interface CampaignListProps {
+  campaigns: Campaign[];
+  onOpen: (id: string) => void;
+}
+
+function CampaignList({ campaigns, onOpen }: CampaignListProps) {
+  return (
+    <section>
+      <h2>Campaigns</h2>
+      <ul aria-label="Campaigns">
+        {campaigns.length === 0 && <li>No campaigns yet.</li>}
+        {campaigns.map((c) => (
+          <li key={c.id}>
+            <button type="button" onClick={() => onOpen(c.id)}>
+              {titleOf(c)}
+            </button>{" "}
+            {STATUS_LABELS[c.status]}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Approvers approve; nobody approves a campaign they created. The API enforces the same. */
+function canApprove(me: Me, campaign: Campaign): boolean {
+  return (
+    campaign.status === "awaiting_approval" &&
+    me.roles.includes("approver") &&
+    campaign.created_by !== me.subject
+  );
+}
+
+type Session = { state: "loading" } | { state: "signed-out" } | { state: "signed-in"; me: Me };
+
 interface EmailPreviewProps {
   id: string;
 }
@@ -68,7 +114,7 @@ function EmailPreview({ id }: EmailPreviewProps) {
   return (
     <iframe
       title="Email preview"
-      src={`/api/campaigns/${id}/preview`}
+      src={previewUrl(id)}
       sandbox=""
       style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
     />
@@ -76,35 +122,139 @@ function EmailPreview({ id }: EmailPreviewProps) {
 }
 
 export function App() {
-  const [report, setReport] = useState("");
-  const [workflow, setWorkflow] = useState("");
-  const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const [session, setSession] = useState<Session>({ state: "loading" });
   const [error, setError] = useState<string | null>(null);
-  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
+  const showError = (e: unknown) => setError(messageOf(e));
 
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    setError(null);
-    setCampaign(null);
-    reset();
+  useEffect(() => {
+    (async () => {
+      await finishSignIn();
+      if (!accessToken()) return setSession({ state: "signed-out" });
+      setSession({ state: "signed-in", me: await getMe() });
+    })().catch((e: unknown) => {
+      signOut();
+      if (!(e instanceof SignedOutError)) showError(e);
+      setSession({ state: "signed-out" });
+    });
+  }, []);
+
+  if (session.state === "loading") return <main aria-busy="true" />;
+  if (session.state === "signed-out") {
+    return (
+      <main>
+        <h1>Agentic Campaign Engine</h1>
+        {error && <p role="alert">{error}</p>}
+        <button type="button" onClick={() => void signIn().catch(showError)}>
+          Sign in
+        </button>
+      </main>
+    );
+  }
+  return (
+    <Workspace
+      me={session.me}
+      onSignOut={() => {
+        signOut();
+        setSession({ state: "signed-out" });
+      }}
+    />
+  );
+}
+
+type Fail = (e: unknown) => void;
+
+/** The campaigns the user can see, loaded on sign-in; `refresh` reloads them. */
+function useCampaignList(fail: Fail): { campaigns: Campaign[]; refresh: () => Promise<void> } {
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+
+  async function refresh() {
     try {
-      setCampaign(await createCampaign(report, workflow));
+      setCampaigns(await listCampaigns());
     } catch (e) {
-      setError(messageOf(e));
+      fail(e);
     }
   }
 
-  async function approve(id: string) {
+  useEffect(() => {
+    void refresh();
+    // Load the list once on sign-in; the actions refresh it.
+  }, []);
+
+  return { campaigns, refresh };
+}
+
+/** The campaign on screen and its run: open one, create one, approve it. */
+function useCampaignRun(
+  fail: Fail,
+  setError: (message: string | null) => void,
+  refresh: () => Promise<void>,
+) {
+  const [campaign, setCampaign] = useState<Campaign | null>(null);
+  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
+
+  async function attempt(task: () => Promise<void>) {
     setError(null);
     try {
-      await pollWhileSending(await approveCampaign(id), setCampaign);
+      await task();
     } catch (e) {
-      setError(messageOf(e));
+      fail(e);
     }
+  }
+
+  async function show(next: Promise<Campaign>) {
+    setCampaign(null);
+    reset();
+    setCampaign(await next);
+  }
+
+  return {
+    campaign,
+    steps,
+    open: (id: string) => attempt(() => show(getCampaign(id))),
+    create: (report: string, workflow: string) =>
+      attempt(async () => {
+        await show(createCampaign(report, workflow));
+        await refresh();
+      }),
+    approve: (id: string) =>
+      attempt(async () => {
+        await pollWhileSending(await approveCampaign(id), setCampaign);
+        await refresh();
+      }),
+  };
+}
+
+interface SignedInBarProps {
+  email: string;
+  onSignOut: () => void;
+}
+
+function SignedInBar({ email, onSignOut }: SignedInBarProps) {
+  return (
+    <p>
+      Signed in as <span data-testid="signed-in-as">{email}</span>{" "}
+      <button type="button" onClick={onSignOut}>
+        Sign out
+      </button>
+    </p>
+  );
+}
+
+interface NewCampaignFormProps {
+  onCreate: (report: string, workflow: string) => void;
+}
+
+function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
+  const [report, setReport] = useState("");
+  const [workflow, setWorkflow] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    onCreate(report, workflow);
   }
 
   return (
-    <main>
+    <>
       <h1>New campaign</h1>
       <form onSubmit={submit}>
         <label>
@@ -123,25 +273,68 @@ export function App() {
           Create campaign
         </button>
       </form>
-      {error && <p role="alert">{error}</p>}
-      {campaign && <RunSteps dag={campaign.steps} events={steps} />}
-      {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
-      {campaign?.draft && <DraftView draft={campaign.draft} />}
-      {campaign?.draft && <EmailPreview id={campaign.id} />}
-      {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
+    </>
+  );
+}
+
+interface RunViewProps {
+  me: Me;
+  campaign: Campaign;
+  steps: Record<string, RunEvent>;
+  onApprove: (id: string) => void;
+}
+
+function RunView({ me, campaign, steps, onApprove }: RunViewProps) {
+  const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
+  return (
+    <>
+      <RunSteps dag={campaign.steps} events={steps} />
+      {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
+      {campaign.draft && <DraftView draft={campaign.draft} />}
+      {campaign.draft && <EmailPreview id={campaign.id} />}
+      {hasStatus && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
         </p>
       )}
-      {campaign?.status === "awaiting_approval" && (
-        <button type="button" onClick={() => void approve(campaign.id)}>
+      {canApprove(me, campaign) && (
+        <button type="button" onClick={() => onApprove(campaign.id)}>
           Approve
         </button>
       )}
-      {campaign?.receipt && (
+      {campaign.receipt && (
         <p>
           Receipt: <code data-testid="receipt">{campaign.receipt}</code>
         </p>
+      )}
+    </>
+  );
+}
+
+interface WorkspaceProps {
+  me: Me;
+  onSignOut: () => void;
+}
+
+function Workspace({ me, onSignOut }: WorkspaceProps) {
+  const [error, setError] = useState<string | null>(null);
+  const fail: Fail = (e) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e)));
+  const { campaigns, refresh } = useCampaignList(fail);
+  const run = useCampaignRun(fail, setError, refresh);
+
+  return (
+    <main>
+      <SignedInBar email={me.email} onSignOut={onSignOut} />
+      <CampaignList campaigns={campaigns} onOpen={(id) => void run.open(id)} />
+      <NewCampaignForm onCreate={(report, workflow) => void run.create(report, workflow)} />
+      {error && <p role="alert">{error}</p>}
+      {run.campaign && (
+        <RunView
+          me={me}
+          campaign={run.campaign}
+          steps={run.steps}
+          onApprove={(id) => void run.approve(id)}
+        />
       )}
     </main>
   );
