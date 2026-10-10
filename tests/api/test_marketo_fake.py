@@ -59,13 +59,15 @@ def test_rest_calls_without_a_token_are_401(stack: Stack) -> None:
     assert no_token_send.status_code == 401
 
 
-def test_approval_sends_both_variants_in_one_program(stack: Stack, api: httpx.Client) -> None:
+def test_approval_sends_both_variants_in_one_program(
+    stack: Stack, api: httpx.Client, approver: httpx.Client
+) -> None:
     campaign_id = create(api)["id"]
     waiting = settle(api, campaign_id)
     assert waiting["draft"] and waiting["variant_b"]
     assert waiting["variant_b"] != waiting["draft"]
 
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     sent = until_status(api, campaign_id, SENT)
 
     programs = marketo_programs(stack, campaign_id)
@@ -77,13 +79,15 @@ def test_approval_sends_both_variants_in_one_program(stack: Stack, api: httpx.Cl
     assert send["variants"][1]["subject"] == sent["variant_b"]["subject"]
 
 
-def test_a_retried_publish_after_a_lost_reply_sends_once(stack: Stack, api: httpx.Client) -> None:
+def test_a_retried_publish_after_a_lost_reply_sends_once(
+    stack: Stack, api: httpx.Client, approver: httpx.Client
+) -> None:
     campaign_id = create(api)["id"]
     settle(api, campaign_id)
 
     stack.marketo_drop_next_send_reply()
     try:
-        assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+        assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
         sent = until_status(api, campaign_id, SENT)
     finally:
         stack.marketo_fault()

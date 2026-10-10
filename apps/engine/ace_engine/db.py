@@ -44,6 +44,9 @@ class Campaign(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     report: Mapped[str] = mapped_column(Text)
+    # The team and the OIDC subject of the owner who created it (from their token).
+    team: Mapped[str] = mapped_column(String(100))
+    created_by: Mapped[str] = mapped_column(String(255))
     status: Mapped[str] = mapped_column(String(20), default=DRAFTING)
     draft: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     # The A/B test's second email; `draft` is variant A.
@@ -118,6 +121,12 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
                 .order_by(RunEvent.seq)
             )
         )
+
+
+def list_campaigns(engine: Engine) -> list[Campaign]:
+    """Every campaign, newest first."""
+    with Session(engine) as session:
+        return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
 
 
 def make_engine(database_url: str) -> Engine:

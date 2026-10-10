@@ -1,3 +1,4 @@
+import { accessToken } from "./auth";
 import type { WorkflowStep } from "./workflow.gen";
 
 export interface EmailDraft {
@@ -20,6 +21,8 @@ type CampaignStatus = (typeof STATUSES)[number];
 export interface Campaign {
   id: string;
   report: string;
+  team: string;
+  created_by: string;
   status: CampaignStatus;
   draft: EmailDraft | null;
   failure_reason: string | null;
@@ -43,6 +46,8 @@ function isCampaign(value: unknown): value is Campaign {
   return (
     typeof c.id === "string" &&
     typeof c.report === "string" &&
+    typeof c.team === "string" &&
+    typeof c.created_by === "string" &&
     typeof c.status === "string" &&
     (STATUSES as readonly string[]).includes(c.status) &&
     (c.draft === null || (typeof c.draft === "object" && c.draft !== null)) &&
@@ -55,11 +60,55 @@ function isCampaign(value: unknown): value is Campaign {
   );
 }
 
-async function request(path: string, init?: RequestInit): Promise<Campaign> {
-  const response = await fetch(`/api${path}`, init);
+/** Thrown on a 401, so the screen can send the user back to sign in. */
+export class SignedOutError extends Error {}
+
+async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
+  const headers = new Headers(init?.headers);
+  const token = accessToken();
+  if (token) headers.set("authorization", `Bearer ${token}`);
+  const response = await fetch(`/api${path}`, { ...init, headers });
+  if (response.status === 401) throw new SignedOutError("sign in again");
   if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
-  const body: unknown = await response.json();
+  return response.json();
+}
+
+async function request(path: string, init?: RequestInit): Promise<Campaign> {
+  const body = await fetchJson(path, init);
   if (!isCampaign(body)) throw new Error("the API returned an unexpected campaign shape");
+  return body;
+}
+
+export async function listCampaigns(): Promise<Campaign[]> {
+  const body = await fetchJson("/campaigns");
+  if (!Array.isArray(body) || !body.every(isCampaign)) {
+    throw new Error("the API returned an unexpected campaign list");
+  }
+  return body;
+}
+
+export interface Me {
+  subject: string;
+  email: string;
+  team: string | null;
+  roles: string[];
+}
+
+function isMe(value: unknown): value is Me {
+  if (typeof value !== "object" || value === null) return false;
+  const m = value as Record<string, unknown>;
+  return (
+    typeof m.subject === "string" &&
+    typeof m.email === "string" &&
+    (m.team === null || typeof m.team === "string") &&
+    Array.isArray(m.roles) &&
+    m.roles.every((r) => typeof r === "string")
+  );
+}
+
+export async function getMe(): Promise<Me> {
+  const body = await fetchJson("/me");
+  if (!isMe(body)) throw new Error("the API returned an unexpected user shape");
   return body;
 }
 
@@ -79,6 +128,17 @@ export function getCampaign(id: string): Promise<Campaign> {
 
 export function approveCampaign(id: string): Promise<Campaign> {
   return request(`/campaigns/${id}/approve`, { method: "POST" });
+}
+
+/** A URL the browser loads itself (an iframe, an EventSource), so it cannot send the
+ * Authorization header: the API also takes the token as the `access_token` parameter. */
+function withToken(path: string): string {
+  const query = new URLSearchParams({ access_token: accessToken() ?? "" });
+  return `/api${path}?${query}`;
+}
+
+export function previewUrl(id: string): string {
+  return withToken(`/campaigns/${id}/preview`);
 }
 
 export interface RunEvent {
@@ -112,7 +172,7 @@ export function watchRun(
   onEvent: (event: RunEvent) => void,
   onError: (message: string) => void,
 ): () => void {
-  const source = new EventSource(`/api/campaigns/${id}/events`);
+  const source = new EventSource(withToken(`/campaigns/${id}/events`));
   source.addEventListener("step", (message) => {
     let parsed: unknown;
     try {

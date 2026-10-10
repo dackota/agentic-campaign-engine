@@ -1,5 +1,8 @@
 """The Campaign API: create a campaign from a threat report on a saved workflow, read it
-back with its draft and the steps of the workflow it pinned."""
+back with its draft and the steps of the workflow it pinned.
+
+Every route but /healthz and the signed webhooks needs a signed-in user; `auth` holds the
+role rules."""
 
 import asyncio
 import json
@@ -21,6 +24,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
+from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.webhook_routes import ActivityOut, activities, register_webhook_routes
 from campaign_api.workflows import NAME_PATTERN, latest_version, register_workflow_routes
 
@@ -45,6 +49,8 @@ class NewCampaign(BaseModel):
 class CampaignOut(BaseModel):
     id: uuid.UUID
     report: str
+    team: str
+    created_by: str
     status: str
     draft: dict[str, Any] | None
     variant_b: dict[str, Any] | None
@@ -59,6 +65,8 @@ class CampaignOut(BaseModel):
         return cls(
             id=c.id,
             report=c.report,
+            team=c.team,
+            created_by=c.created_by,
             status=c.status,
             draft=c.draft,
             variant_b=c.variant_b,
@@ -70,11 +78,22 @@ class CampaignOut(BaseModel):
         )
 
 
+class Me(BaseModel):
+    subject: str
+    email: str
+    team: str | None
+    roles: list[str]
+
+
 def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.add(campaign)
         session.flush()
         return CampaignOut.of(campaign)
+
+
+def _list(engine: Engine) -> list[CampaignOut]:
+    return [CampaignOut.of(c) for c in db.list_campaigns(engine)]
 
 
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
@@ -114,13 +133,16 @@ async def _found(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
 
 def _register_approval_route(app: FastAPI) -> None:
     @app.post("/campaigns/{campaign_id}/approve", status_code=202)
-    async def approve_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
+    async def approve_campaign(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> CampaignOut:
         engine = request.app.state.engine
+        campaign = await _found(engine, campaign_id)
+        authorize(user, Action.APPROVE, created_by=campaign.created_by)
         is_claimed = await run_in_threadpool(
             _set_status, engine, campaign_id, db.AWAITING_APPROVAL, db.SENDING
         )
         if not is_claimed:
-            await _found(engine, campaign_id)
             raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
@@ -162,8 +184,10 @@ def _add_event_routes(app: FastAPI) -> None:
     async def campaign_events(
         campaign_id: uuid.UUID,
         request: Request,
+        user: BrowserUser,
         last_event_id: Annotated[int, Header(ge=0)] = 0,
     ) -> StreamingResponse:
+        authorize(user, Action.READ)
         await _found(request.app.state.engine, campaign_id)
         return StreamingResponse(
             _event_stream(request.app.state.engine, campaign_id, last_event_id),
@@ -176,14 +200,20 @@ def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
     register_webhook_routes(app, settings.marketo_webhook_secret)
 
     @app.get("/campaigns/{campaign_id}/activity")
-    async def campaign_activity(campaign_id: uuid.UUID, request: Request) -> list[ActivityOut]:
+    async def campaign_activity(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> list[ActivityOut]:
+        authorize(user, Action.READ)
         await _found(request.app.state.engine, campaign_id)
         return await run_in_threadpool(activities, request.app.state.engine, campaign_id)
 
 
 def _add_preview_route(app: FastAPI) -> None:
     @app.get("/campaigns/{campaign_id}/preview", response_class=HTMLResponse)
-    async def preview_email(campaign_id: uuid.UUID, request: Request) -> HTMLResponse:
+    async def preview_email(
+        campaign_id: uuid.UUID, request: Request, user: BrowserUser
+    ) -> HTMLResponse:
+        authorize(user, Action.READ)
         campaign = await _found(request.app.state.engine, campaign_id)
         if campaign.draft is None:
             raise HTTPException(status_code=409, detail="campaign has no draft yet")
@@ -194,29 +224,28 @@ def _add_preview_route(app: FastAPI) -> None:
         return HTMLResponse(html)
 
 
-def create_app(settings: Settings) -> FastAPI:
-    @asynccontextmanager
-    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.engine = db.make_engine(settings.database_url)
-        app.state.temporal = await Client.connect(
-            settings.temporal_address, namespace=settings.temporal_namespace
-        )
-        yield
-        app.state.engine.dispose()
+def _add_campaign_routes(app: FastAPI) -> None:
+    @app.get("/me")
+    def me(user: CurrentUser) -> Me:
+        return Me(subject=user.subject, email=user.email, team=user.team, roles=sorted(user.roles))
 
-    app = FastAPI(lifespan=lifespan)
-
-    @app.get("/healthz")
-    def healthz() -> dict[str, str]:
-        return {"status": "ok"}
+    @app.get("/campaigns")
+    async def list_campaigns(request: Request, user: CurrentUser) -> list[CampaignOut]:
+        authorize(user, Action.READ)
+        return await run_in_threadpool(_list, request.app.state.engine)
 
     @app.post("/campaigns", status_code=201)
-    async def create_campaign(body: NewCampaign, request: Request) -> CampaignOut:
+    async def create_campaign(
+        body: NewCampaign, request: Request, user: CurrentUser
+    ) -> CampaignOut:
+        authorize(user, Action.CREATE)
         engine = request.app.state.engine
         name, version, dag = await _pinned(engine, body.workflow)
         campaign = db.Campaign(
             id=uuid.uuid4(),
             report=body.report,
+            team=user.team,
+            created_by=user.subject,
             status=db.DRAFTING,
             workflow_name=name,
             workflow_version=version,
@@ -232,9 +261,31 @@ def create_app(settings: Settings) -> FastAPI:
         return created
 
     @app.get("/campaigns/{campaign_id}")
-    async def get_campaign(campaign_id: uuid.UUID, request: Request) -> CampaignOut:
+    async def get_campaign(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> CampaignOut:
+        authorize(user, Action.READ)
         return await _found(request.app.state.engine, campaign_id)
 
+
+def create_app(settings: Settings) -> FastAPI:
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        app.state.engine = db.make_engine(settings.database_url)
+        app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
+        app.state.temporal = await Client.connect(
+            settings.temporal_address, namespace=settings.temporal_namespace
+        )
+        yield
+        app.state.engine.dispose()
+
+    app = FastAPI(lifespan=lifespan)
+
+    @app.get("/healthz")
+    def healthz() -> dict[str, str]:
+        return {"status": "ok"}
+
+    _add_campaign_routes(app)
     _register_approval_route(app)
     _add_event_routes(app)
     _add_activity_routes(app, settings)

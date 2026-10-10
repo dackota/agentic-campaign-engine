@@ -98,11 +98,11 @@ def test_replayed_id_is_409_and_recorded_once(stack: Stack, api: httpx.Client) -
 
 
 def test_fake_marketo_sends_signed_send_activity_after_approval(
-    stack: Stack, api: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     campaign_id = create(api)["id"]
     settle(api, campaign_id)
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
 
     deadline = time.monotonic() + ACTIVITY_POLL_SECONDS

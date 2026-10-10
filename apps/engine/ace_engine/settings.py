@@ -42,6 +42,10 @@ class Settings:
     marketo_webhook_secret: str = field(repr=False)
     agent_timeout_seconds: float = 30.0
     marketo_timeout_seconds: float = 30.0
+    # The OIDC provider (Dex) the Campaign API trusts, and the client id tokens are for.
+    # The worker never checks tokens, so it leaves them unset.
+    oidc_issuer: str = ""
+    oidc_client_id: str = "ace-web"
 
     def __post_init__(self) -> None:
         # Fail when the worker starts, not on the first send after an approval.

@@ -17,6 +17,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from campaign_api.auth import Action, CurrentUser, authorize
+
 NAME_PATTERN = r"^[a-z0-9][a-z0-9-]{0,62}$"
 MAX_WORKFLOW_BYTES = 256_000
 SAVE_ATTEMPTS = 3
@@ -75,7 +77,10 @@ async def latest_version(engine: Engine, name: str) -> db.WorkflowVersion | None
 
 def register_workflow_routes(app: FastAPI) -> None:
     @app.post("/workflows/{name}/versions", status_code=201)
-    async def save_workflow_version(name: WorkflowName, request: Request) -> WorkflowVersionOut:
+    async def save_workflow_version(
+        name: WorkflowName, request: Request, user: CurrentUser
+    ) -> WorkflowVersionOut:
+        authorize(user, Action.CREATE)
         instance = _parse(await request.body())
         rejections = validate(instance)
         if rejections:
@@ -86,8 +91,9 @@ def register_workflow_routes(app: FastAPI) -> None:
 
     @app.get("/workflows/{name}/versions/{version}")
     async def get_workflow_version(
-        name: WorkflowName, version: int, request: Request
+        name: WorkflowName, version: int, request: Request, user: CurrentUser
     ) -> WorkflowVersionOut:
+        authorize(user, Action.READ)
         found = await run_in_threadpool(_find, request.app.state.engine, name, version)
         if found is None:
             raise HTTPException(status_code=404, detail="workflow version not found")

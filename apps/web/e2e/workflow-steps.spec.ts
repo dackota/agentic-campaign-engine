@@ -1,10 +1,13 @@
 import { expect, test } from "@playwright/test";
+import { accessTokenOf, signIn } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
 test("run view lists the DAG steps in order", async ({ page, request }) => {
   const name = `e2e-steps-${Date.now()}`;
+  await signIn(page);
   const saved = await request.post(`/api/workflows/${name}/versions`, {
+    headers: { authorization: `Bearer ${await accessTokenOf(page)}` },
     data: {
       steps: [
         { id: "publish", kind: "publish" },
@@ -21,7 +24,6 @@ test("run view lists the DAG steps in order", async ({ page, request }) => {
   });
   expect(saved.status()).toBe(201);
 
-  await page.goto("/");
   await page.getByLabel("Threat report").fill(REPORT);
   await page.getByLabel("Workflow").fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
@@ -33,7 +35,7 @@ test("run view lists the DAG steps in order", async ({ page, request }) => {
 });
 
 test("the default workflow lists its steps before they run", async ({ page }) => {
-  await page.goto("/");
+  await signIn(page);
   await page.getByLabel("Threat report").fill(REPORT);
   await page.getByRole("button", { name: "Create campaign" }).click();
 

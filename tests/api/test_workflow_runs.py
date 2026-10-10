@@ -38,7 +38,9 @@ def seq_of(events: list[dict[str, Any]], step_id: str, status: str) -> int:
     return matches[0]
 
 
-def test_run_pins_version_1_after_version_2_is_saved(api: httpx.Client) -> None:
+def test_run_pins_version_1_after_version_2_is_saved(
+    api: httpx.Client, approver: httpx.Client
+) -> None:
     name = workflow_name()
     save_workflow(api, name, DRAFT_APPROVE_PUBLISH)
     campaign_id = create_on(api, name)["id"]
@@ -55,7 +57,7 @@ def test_run_pins_version_1_after_version_2_is_saved(api: httpx.Client) -> None:
 
     assert save_workflow(api, name, version_2)["version"] == 2
     first_part = read_events(api, campaign_id)
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     sent = until_status(api, campaign_id, SENT)
     rest = events_after(api, campaign_id, first_part[-1]["seq"])
 
@@ -70,6 +72,7 @@ def test_run_pins_version_1_after_version_2_is_saved(api: httpx.Client) -> None:
 
 def test_engine_runs_parallel_writers_wait_approval_and_publish_in_dag_order(
     api: httpx.Client,
+    approver: httpx.Client,
 ) -> None:
     name = workflow_name()
     dag = {
@@ -98,7 +101,7 @@ def test_engine_runs_parallel_writers_wait_approval_and_publish_in_dag_order(
 
     first_part = read_events(api, campaign_id)
     assert first_part[-1]["status"] == AWAITING
-    assert api.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     sent = until_status(api, campaign_id, SENT)
     events = first_part + events_after(api, campaign_id, first_part[-1]["seq"])
 
