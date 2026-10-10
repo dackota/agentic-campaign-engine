@@ -12,7 +12,7 @@ slices.
 
 ## Prerequisites
 
-- Docker Desktop, with at least 8 CPUs and 16 GiB of memory (see "Docker memory" below).
+- Docker Desktop. We recommend 8 CPUs and 16 GiB of memory (a recommendation, not a measured number; see "Docker memory" below).
 - [k3d](https://k3d.io), kubectl, helm, jq, and openssl on your `PATH`. Versions are
   pinned in [docs/pinned-versions.md](docs/pinned-versions.md).
 - [Tilt](https://tilt.dev), only for `make dev`.
@@ -37,7 +37,7 @@ A key you add later reaches the cluster on the next `make up`.
 - `make status`: report the cluster, the platform, and the app: ok or FAIL per check.
 - `make dev`: run Tilt on the `ace` cluster, so saving a web file rebuilds and replaces
   the web pod. Run `make up` first.
-- `make down`: delete the `ace` cluster, its registry, and its volume.
+- `make down`: delete the `ace` cluster and its volume.
   `make down` removes only the `ace` cluster; any other cluster stays.
 
 Run `make help` for every target.
@@ -65,14 +65,14 @@ user shares the password `demo-password`, and Dex stands in for the company logi
 
 ## Docker memory
 
-Give Docker Desktop 8 CPUs and 16 GiB or more. The numbers come from
+We recommend giving Docker Desktop 8 CPUs and 16 GiB or more (a recommendation, not a measured number). The numbers come from
 [docs/spike-log.md](docs/spike-log.md) section 17 and from a measurement of the cluster:
 
 - Platform pods alone (Substrate, pod certificate controller, kagent): about 900 MiB.
 - Platform plus one warm worker plus the k3s system pods: about 1.5 GiB.
 - Node total in the spike (`ace-spike`, before our app): 3.44 GiB.
 - measured k3d-ace node total: 3.11 GiB. Measured 2026-10-10 on `k3d-ace-server-0`
-  with `docker stats --no-stream`, after `make up` finished, sessions suspended.
+  with `docker stats --no-stream`, after `make up` finished, with no run in flight.
   Docker Desktop VM 23.4 GiB.
 
 Budget for the pod sums; the node total adds page cache, containerd, and kubelet.
