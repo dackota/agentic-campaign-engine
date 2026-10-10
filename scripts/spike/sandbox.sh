@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # S0 live test: create a standalone sandbox, run a command in it, print the output, delete it.
 # Exits 0 only when the command's output comes back and the sandbox reaches RUNTIME_STATE_DELETED.
+# Needs kubectl-ate/kagent/jq; ACE_BIN defaults to .scratch/bin of the main checkout (untracked).
 # Uses the SandboxTemplate spike-sandbox (manifests/spike/sandbox-template.yaml).
 set -euo pipefail
 
@@ -20,7 +21,9 @@ kubectl --context "$KCTX" port-forward -n "$NS" svc/kagent-controller "$LOCAL_PO
 PF=$!
 ID=""
 cleanup() {
-  [ -n "$ID" ] && ks sandbox delete "$ID" >/dev/null 2>&1 || true
+  if [ -n "$ID" ]; then
+    ks sandbox delete "$ID" >/dev/null 2>&1 || echo "WARN: sandbox $ID not deleted" >&2
+  fi
   kill $PF 2>/dev/null || true
 }
 trap cleanup EXIT

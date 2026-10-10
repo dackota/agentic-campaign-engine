@@ -2,6 +2,7 @@
 # S0 live test: an idle agent session suspends, and the next message wakes it with context.
 # Sends a message that sets a fact, waits until the session actor is ACTOR_STATE_SUSPENDED,
 # sends a second message on the same contextId that asks for the fact, and checks the reply.
+# ACE_BIN defaults to .scratch/bin of the main checkout (untracked) and must hold kubectl-ate.
 # Exits 0 only when the reply contains the fact. Needs the S0 cluster, kubectl-ate and jq.
 set -euo pipefail
 
@@ -13,6 +14,7 @@ AGENT="${AGENT:-spike-agent}"
 LOCAL_PORT="${LOCAL_PORT:-18121}"
 FACT="${FACT:-violet-otter-17}"
 WAIT_SECONDS="${WAIT_SECONDS:-180}"
+MAX_REPLY_SECONDS="${MAX_REPLY_SECONDS:-180}"
 RUN="s21-$(date +%s)"
 
 fail() { echo "FAIL: $*" >&2; exit 1; }
@@ -31,7 +33,7 @@ send() { # send TEXT [CONTEXT_ID] -> prints the response JSON
   body="$(jq -n --arg t "$1" --arg id "$RUN-$RANDOM" --arg c "$ctx" \
     '{jsonrpc:"2.0",id:1,method:"SendMessage",params:{message:({messageId:$id,role:"ROLE_USER",parts:[{text:$t}]}
       + (if $c == "" then {} else {contextId:$c} end))}}')"
-  curl -fsS --max-time 180 -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
+  curl -fsS --max-time "$MAX_REPLY_SECONDS" -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
     "http://localhost:$LOCAL_PORT/agents/$NS/$AGENT"
 }
 actor_state() {

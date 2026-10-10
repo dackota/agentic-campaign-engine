@@ -10,7 +10,7 @@ data:
 
     import re
 
-    def reply(messages):
+    def reply(messages: list[dict]) -> str:
         last, said = "", []
         for m in messages:
             if m.get("role") == "user":

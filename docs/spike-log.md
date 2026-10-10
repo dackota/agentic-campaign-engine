@@ -226,7 +226,7 @@ shared 165 GiB disk view). Default template, no network settings. The SandboxTem
 | Proxy environment variables | none set; the redirect is transparent |
 
 Reading: egress is deny-by-default and goes through Substrate's `atenet-egress` proxy (the
-`egress-mitm` CA pool made in the install). Ingress: nothing reaches the sandbox except
+`egress-mitm` CA pool made in the install). Ingress (inferred, not probed): nothing reaches the sandbox except
 `kagent sandbox exec/upload/download` through the controller; the sandbox has no
 inbound route of its own. The design agent ticket must therefore not assume a sandbox can
 fetch a package, call an API, or reach the MCP tools service. Work in a sandbox is limited to
