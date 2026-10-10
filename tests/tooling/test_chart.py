@@ -10,7 +10,7 @@ import yaml
 ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "charts/ace"
 CLUSTER_CONFIG = ROOT / "platform/ace-cluster.yaml"
-OUR_IMAGE_REPOS = ("ace-web",)
+OUR_IMAGE_REPOS = ("ace-web", "ace-python")
 
 
 def render(*sets: str) -> list[dict[str, Any]]:
@@ -25,10 +25,14 @@ def by_kind(docs: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
     return [d for d in docs if d["kind"] == kind]
 
 
+def web_objects(docs: list[dict[str, Any]], kind: str) -> list[dict[str, Any]]:
+    return [d for d in by_kind(docs, kind) if d["metadata"]["name"] == "web"]
+
+
 def test_chart_renders_web_deployment_and_nodeport_service() -> None:
     docs = render()
-    (deploy,) = by_kind(docs, "Deployment")
-    (svc,) = by_kind(docs, "Service")
+    (deploy,) = web_objects(docs, "Deployment")
+    (svc,) = web_objects(docs, "Service")
     assert deploy["metadata"]["name"] == "web"
     assert svc["spec"]["type"] == "NodePort"
     assert svc["spec"]["selector"].items() <= (
@@ -43,18 +47,18 @@ def test_nodeport_matches_cluster_config_mapping() -> None:
     mapped = yaml.safe_load(CLUSTER_CONFIG.read_text())["ports"]
     web = [p["port"] for p in mapped if p["port"].startswith("15180:")]
     assert web == ["15180:30180"]
-    (svc,) = by_kind(render(), "Service")
+    (svc,) = web_objects(render(), "Service")
     assert svc["spec"]["ports"][0]["nodePort"] == 30180
 
 
 def test_web_image_comes_from_values() -> None:
-    (deploy,) = by_kind(render("web.image.repository=reg/x", "web.image.tag=t1"), "Deployment")
+    (deploy,) = web_objects(render("web.image.repository=reg/x", "web.image.tag=t1"), "Deployment")
     image = deploy["spec"]["template"]["spec"]["containers"][0]["image"]
     assert image == "reg/x:t1"
 
 
 def test_api_service_name_comes_from_values() -> None:
-    (deploy,) = by_kind(render("api.serviceName=my-api", "api.port=9000"), "Deployment")
+    (deploy,) = web_objects(render("api.serviceName=my-api", "api.port=9000"), "Deployment")
     env = {
         e["name"]: e.get("value")
         for e in deploy["spec"]["template"]["spec"]["containers"][0]["env"]
