@@ -32,10 +32,9 @@ def from_env[T](
     prefix: str = PREFIX,
     skip: Collection[str] = (),
     require: Collection[str] = (),
-    overrides: Mapping[str, Any] | None = None,
 ) -> T:
     """`cls` built from `environ`. A field with no default, or named in `require`, must be
-    set; a field in `skip` keeps its default; `overrides` replaces a read value."""
+    set; a field in `skip` keeps its default."""
     hints = typing.get_type_hints(cls)
     values: dict[str, Any] = {}
     for field in dataclasses.fields(cls):  # type: ignore[arg-type]
@@ -49,7 +48,6 @@ def from_env[T](
                 raise ValueError(f"{name} is required: set it in the environment")
             continue
         values[field.name] = _parse(name, hints[field.name], raw)
-    values.update(overrides or {})
     return cls(**values)
 
 
@@ -67,19 +65,22 @@ def settings_from_env(environ: Mapping[str, str], *, is_api: bool) -> Settings:
 
     `ACE_DATABASE_PASSWORD`, when set, is put into `ACE_DATABASE_URL`, so the URL can be a
     plain value and the password can come from a Secret."""
-    url_name = env_name("database_url")
-    overrides = {}
-    password = environ.get(DATABASE_PASSWORD_ENV)
-    if password is not None and url_name in environ:
-        try:
-            url = make_url(environ[url_name]).set(password=password)
-        except ArgumentError:
-            raise ValueError(f"{url_name} is not a valid database URL") from None
-        overrides["database_url"] = url.render_as_string(hide_password=False)
     return from_env(
         Settings,
-        environ,
+        _with_database_password(environ),
         skip=() if is_api else OIDC_FIELDS,
         require=("oidc_issuer",) if is_api else (),
-        overrides=overrides,
     )
+
+
+def _with_database_password(environ: Mapping[str, str]) -> Mapping[str, str]:
+    """`environ`, or a new mapping whose database URL carries `ACE_DATABASE_PASSWORD`."""
+    url_name = env_name("database_url")
+    password = environ.get(DATABASE_PASSWORD_ENV)
+    if password is None or url_name not in environ:
+        return environ
+    try:
+        url = make_url(environ[url_name]).set(password=password)
+    except ArgumentError:
+        raise ValueError(f"{url_name} is not a valid database URL") from None
+    return {**environ, url_name: url.render_as_string(hide_password=False)}
