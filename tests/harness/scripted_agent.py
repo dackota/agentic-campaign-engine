@@ -26,6 +26,8 @@ BODY_REPORT_CHARS = 300
 SLOW_MARKER = "[agent:slow]"
 BAD_JSON_MARKER = "[agent:bad-json]"
 SLOW_REPLY_SECONDS = 1.5
+# The worker asks for the A/B test's second email with this phrase in its prompt.
+VARIANT_B_PHRASE = "variant B"
 
 
 class ScriptedAgent:
@@ -95,10 +97,12 @@ class ScriptedAgent:
 
 
 def default_draft(message_text: str) -> dict[str, str]:
+    instructions = message_text.split(REPORT_MARKER, 1)[0]
     report = message_text.split(REPORT_MARKER, 1)[-1].strip()
     headline = report.splitlines()[0] if report else "threat"
+    lead = "Before it hits you" if VARIANT_B_PHRASE in instructions else "Act now"
     return {
-        "subject": f"Act now: {headline[:SUBJECT_HEADLINE_CHARS]}",
+        "subject": f"{lead}: {headline[:SUBJECT_HEADLINE_CHARS]}",
         "preheader": "What the new threat means for you",
         "body": f"Hello,\n\nOur analysts found this: {report[:BODY_REPORT_CHARS]}\n\nStay safe.",
         "call_to_action": "Read the full advisory",

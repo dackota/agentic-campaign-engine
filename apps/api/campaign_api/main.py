@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, User, authorize
+from campaign_api.webhook_routes import ActivityOut, activities, register_webhook_routes
 
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
@@ -46,6 +47,7 @@ class CampaignOut(BaseModel):
     created_by: str
     status: str
     draft: dict[str, Any] | None
+    variant_b: dict[str, Any] | None
     failure_reason: str | None
     receipt: str | None
 
@@ -58,6 +60,7 @@ class CampaignOut(BaseModel):
             created_by=c.created_by,
             status=c.status,
             draft=c.draft,
+            variant_b=c.variant_b,
             failure_reason=c.failure_reason,
             receipt=c.receipt,
         )
@@ -178,6 +181,18 @@ def _add_event_routes(app: FastAPI) -> None:
         )
 
 
+def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
+    register_webhook_routes(app, settings.marketo_webhook_secret)
+
+    @app.get("/campaigns/{campaign_id}/activity")
+    async def campaign_activity(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> list[ActivityOut]:
+        authorize(user, Action.READ)
+        await _found(request.app.state.engine, campaign_id)
+        return await run_in_threadpool(activities, request.app.state.engine, campaign_id)
+
+
 def _add_preview_route(app: FastAPI) -> None:
     @app.get("/campaigns/{campaign_id}/preview", response_class=HTMLResponse)
     async def preview_email(
@@ -246,6 +261,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     _register_approval_route(app)
     _add_event_routes(app)
+    _add_activity_routes(app, settings)
     _add_preview_route(app)
 
     return app

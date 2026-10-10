@@ -1,5 +1,5 @@
-"""The campaign workflow: a thin shell that drafts an email, waits for a human to approve
-it, and only then sends it."""
+"""The campaign workflow: a thin shell that drafts the A/B emails, waits for a human to
+approve them, and only then publishes them."""
 
 from datetime import timedelta
 
@@ -27,7 +27,7 @@ class CampaignWorkflow:
     @workflow.run
     async def run(self, campaign_id: str, report: str) -> None:
         try:
-            draft = await workflow.execute_activity(
+            drafts = await workflow.execute_activity(
                 "write_email_draft",
                 args=[campaign_id, report],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
@@ -38,14 +38,14 @@ class CampaignWorkflow:
             return
         await workflow.execute_activity(
             "save_draft",
-            args=[campaign_id, draft],
+            args=[campaign_id, drafts],
             start_to_close_timeout=DB_STEP_TIMEOUT,
         )
         await workflow.wait_condition(lambda: self._is_approved)
         try:
             receipt = await workflow.execute_activity(
                 "send_email",
-                args=[campaign_id, draft],
+                args=[campaign_id, drafts],
                 start_to_close_timeout=SEND_STEP_TIMEOUT,
                 retry_policy=SEND_RETRY,
             )

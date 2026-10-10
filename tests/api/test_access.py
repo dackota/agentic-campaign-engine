@@ -23,44 +23,46 @@ TEAM_OWNER = {
 # Every demo user, their team and roles as the token should carry them, and the status
 # each action gets. "approve" is on a campaign their team's owner created and that is
 # waiting for approval.
+# Every role in a team reads every campaign view.
+READS_OK = {"list": 200, "read": 200, "events": 200, "preview": 200, "activity": 200}
 ROLE_TABLE: dict[str, tuple[str, list[str], dict[str, int]]] = {
     "dg-owner@demo.example": (
         "demand-gen",
         ["owner"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 403},
+        {**READS_OK, "create": 201, "approve": 403},
     ),
     "dg-approver@demo.example": (
         "demand-gen",
         ["approver"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 202},
+        {**READS_OK, "create": 403, "approve": 202},
     ),
     "dg-viewer@demo.example": (
         "demand-gen",
         ["viewer"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 403},
+        {**READS_OK, "create": 403, "approve": 403},
     ),
     "dg-lead@demo.example": (
         "demand-gen",
         ["approver", "owner"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 202},
+        {**READS_OK, "create": 201, "approve": 202},
     ),
     "pm-owner@demo.example": (
         "product-marketing",
         ["owner"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 201, "approve": 403},
+        {**READS_OK, "create": 201, "approve": 403},
     ),
     "pm-approver@demo.example": (
         "product-marketing",
         ["approver"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 202},
+        {**READS_OK, "create": 403, "approve": 202},
     ),
     "pm-viewer@demo.example": (
         "product-marketing",
         ["viewer"],
-        {"list": 200, "read": 200, "events": 200, "preview": 200, "create": 403, "approve": 403},
+        {**READS_OK, "create": 403, "approve": 403},
     ),
 }
-ACTIONS = ["list", "read", "events", "preview", "create", "approve"]
+ACTIONS = ["list", "read", "events", "preview", "activity", "create", "approve"]
 CASES = [(email, action) for email in ROLE_TABLE for action in ACTIONS]
 
 
@@ -86,8 +88,8 @@ def _act(client: httpx.Client, action: str, campaign_id: str | None) -> int:
         return client.get(f"/campaigns/{campaign_id}").status_code
     if action == "events":
         return _events_status(client, campaign_id or "")
-    if action == "preview":
-        return client.get(f"/campaigns/{campaign_id}/preview").status_code
+    if action in {"preview", "activity"}:
+        return client.get(f"/campaigns/{campaign_id}/{action}").status_code
     return client.post(f"/campaigns/{campaign_id}/approve").status_code
 
 
@@ -105,7 +107,7 @@ def test_every_demo_user_signs_in_with_team_and_roles(sign_in: SignIn) -> None:
 def test_role_table(stack: Stack, sign_in: SignIn, email: str, action: str) -> None:
     stack.agent.script([])
     team, _, expected = ROLE_TABLE[email]
-    needs_campaign = action in {"read", "events", "preview", "approve"}
+    needs_campaign = action in {"read", "events", "preview", "activity", "approve"}
     campaign_id = _waiting_campaign(sign_in, team) if needs_campaign else None
 
     status = _act(sign_in(email), action, campaign_id)
@@ -152,6 +154,7 @@ def test_requests_without_a_valid_token_get_401(
         ("GET", f"/campaigns/{campaign_id}"),
         ("GET", f"/campaigns/{campaign_id}/events"),
         ("GET", f"/campaigns/{campaign_id}/preview"),
+        ("GET", f"/campaigns/{campaign_id}/activity"),
         ("POST", f"/campaigns/{campaign_id}/approve"),
         ("GET", "/me"),
     ]

@@ -4,22 +4,14 @@ campaign and a Demand Gen approver approves it."""
 
 import time
 import uuid
-from typing import Any
 
 import httpx
 
 from tests.api.helpers import AWAITING, FAILED, SENT, create, settle, until_status
+from tests.api.helpers import marketo_sends as sends
 from tests.harness.stack import Stack
 
 QUIET_SECONDS = 1.5
-
-
-def sends(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
-    """What the fake Marketo delivered for this campaign (the stack is shared by tests)."""
-    response = httpx.get(f"{stack.marketo_url}/_sends", timeout=10)
-    assert response.status_code == 200, response.text
-    body: list[dict[str, Any]] = response.json()
-    return [s for s in body if s["campaign_id"] == campaign_id]
 
 
 def test_run_waits_for_approval_after_draft_and_api_can_approve(
@@ -39,8 +31,8 @@ def test_run_waits_for_approval_after_draft_and_api_can_approve(
     assert sent["receipt"]
     delivered = sends(stack, campaign_id)
     assert len(delivered) == 1
-    assert delivered[0]["receipt"] == sent["receipt"]
-    assert delivered[0]["subject"] == sent["draft"]["subject"]
+    assert delivered[0]["receiptId"] == sent["receipt"]
+    assert delivered[0]["variants"][0]["subject"] == sent["draft"]["subject"]
 
 
 def test_no_send_happens_without_approval(stack: Stack, api: httpx.Client) -> None:
