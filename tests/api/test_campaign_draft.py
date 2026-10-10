@@ -49,7 +49,7 @@ def test_created_campaign_is_returned_with_its_draft(api: httpx.Client) -> None:
 
     campaign = settle(api, created["id"])
 
-    assert campaign["status"] == "drafted"
+    assert campaign["status"] == "awaiting_approval"
     assert campaign["draft"]["subject"]
     assert "Volt Typhoon" in campaign["draft"]["body"]
 
@@ -78,7 +78,7 @@ def test_one_repair_attempt_recovers_a_bad_first_reply(stack: Stack, api: httpx.
 
     campaign = settle(api, create(api)["id"])
 
-    assert campaign["status"] == "drafted"
+    assert campaign["status"] == "awaiting_approval"
     assert campaign["draft"] == GOOD_DRAFT
 
 

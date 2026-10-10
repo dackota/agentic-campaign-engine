@@ -1,8 +1,35 @@
 import { useState, type FormEvent } from "react";
-import { createCampaign, type Campaign, type EmailDraft, type RunEvent } from "./api";
+import {
+  approveCampaign,
+  createCampaign,
+  getCampaign,
+  type Campaign,
+  type EmailDraft,
+  type RunEvent,
+} from "./api";
 import { useRunEvents } from "./useRunEvents";
 
+const POLL_MS = 500;
+
 const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
+
+const STATUS_LABELS: Record<Campaign["status"], string> = {
+  drafting: "Drafting",
+  awaiting_approval: "Waiting for approval",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+};
+
+async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
+  let current = first;
+  onUpdate(current);
+  while (current.status === "sending") {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    current = await getCampaign(current.id);
+    onUpdate(current);
+  }
+}
 
 function RunSteps({ steps }: { steps: Record<string, RunEvent> }) {
   return (
@@ -45,6 +72,15 @@ export function App() {
     }
   }
 
+  async function approve(id: string) {
+    setError(null);
+    try {
+      await pollWhileSending(await approveCampaign(id), setCampaign);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   return (
     <main>
       <h1>New campaign</h1>
@@ -61,6 +97,21 @@ export function App() {
       {campaign && <RunSteps steps={steps} />}
       {campaign?.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {campaign?.draft && <DraftView draft={campaign.draft} />}
+      {campaign && campaign.status !== "drafting" && campaign.status !== "failed" && (
+        <p>
+          Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+        </p>
+      )}
+      {campaign?.status === "awaiting_approval" && (
+        <button type="button" onClick={() => void approve(campaign.id)}>
+          Approve
+        </button>
+      )}
+      {campaign?.receipt && (
+        <p>
+          Receipt: <code data-testid="receipt">{campaign.receipt}</code>
+        </p>
+      )}
     </main>
   );
 }
