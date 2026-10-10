@@ -1,0 +1,27 @@
+.DEFAULT_GOAL := help
+.PHONY: help lint fmt test up down
+
+help: ## List the targets
+	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
+
+lint: ## Run ruff, mypy, and eslint (same as CI)
+	uv run ruff check .
+	uv run ruff format --check .
+	uv run mypy
+	pnpm install --frozen-lockfile
+	pnpm --filter web lint
+
+fmt: ## Format Python and fix lint
+	uv run ruff check --fix .
+	uv run ruff format .
+
+test: ## Run pytest and the web unit tests
+	uv run pytest
+	pnpm install --frozen-lockfile
+	pnpm --filter web test
+
+up: ## Stub: start the local cluster (a later ticket fills it)
+	@echo "up: not implemented yet"
+
+down: ## Stub: stop the local cluster (a later ticket fills it)
+	@echo "down: not implemented yet"

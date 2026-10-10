@@ -1,0 +1,22 @@
+[project]
+name = "agentic-campaign-engine"
+version = "0.0.0"
+requires-python = ">=3.12"
+dependencies = []
+
+[dependency-groups]
+dev = ["ruff>=0.6", "mypy>=1.11", "pytest>=8"]
+
+[tool.ruff]
+line-length = 100
+extend-exclude = ["node_modules"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+
+[tool.mypy]
+strict = true
+files = ["tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "apps", "services", "evals"]
