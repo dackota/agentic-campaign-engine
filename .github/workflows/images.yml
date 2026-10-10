@@ -1,0 +1,44 @@
+name: images
+# Builds the Python and web images to prove the Dockerfiles work. Nothing is pushed and
+# nothing logs in to a registry; the built image IDs go to the job summary.
+on:
+  pull_request:
+    paths:
+      - apps/engine/**
+      - apps/api/**
+      - apps/worker/**
+      - apps/web/**
+      - services/**
+      - pyproject.toml
+      - uv.lock
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - apps/python.Dockerfile
+      - .dockerignore
+      - platform/oidc-issuer.txt
+      - .github/workflows/images.yml
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the Python image
+        run: docker build -f apps/python.Dockerfile -t ace-python:ci .
+      - name: Build the web image
+        # Same build argument as `make up` and the Tiltfile: one constant for the issuer.
+        run: |
+          docker build -f apps/web/Dockerfile \
+            --build-arg "VITE_OIDC_ISSUER=$(tr -d '[:space:]' < platform/oidc-issuer.txt)" \
+            -t ace-web:ci .
+      - name: List the built images in the job summary
+        run: |
+          {
+            echo "| Image | ID |"
+            echo "| --- | --- |"
+            for image in ace-python ace-web; do
+              echo "| $image | $(docker image inspect --format '{{.Id}}' "$image:ci") |"
+            done
+          } >> "$GITHUB_STEP_SUMMARY"
