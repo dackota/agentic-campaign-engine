@@ -2,6 +2,8 @@
 assets to the S3 bucket, each with a receipt and a link, and a retried publish writes
 nothing twice."""
 
+from typing import Any
+
 import httpx
 
 from tests.api.helpers import (
@@ -26,6 +28,15 @@ def publish(api: httpx.Client, approver: httpx.Client) -> str:
     assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
     return str(campaign_id)
+
+
+def content_receipts(api: httpx.Client, campaign_id: str) -> list[dict[str, Any]]:
+    """The CMS and asset receipts; the run's other targets (Marketo) have their own."""
+    return [
+        r
+        for r in receipts(api, campaign_id)
+        if r["target"] == "cms" or r["target"].startswith("s3/")
+    ]
 
 
 def test_landing_page_is_on_the_cms_after_approval(
@@ -56,7 +67,7 @@ def test_each_item_has_a_receipt_with_a_link(
 ) -> None:
     campaign_id = publish(api, approver)
 
-    items = receipts(api, campaign_id)
+    items = content_receipts(api, campaign_id)
 
     assert sorted(i["target"] for i in items) == sorted(
         ["cms", *(f"s3/{name}" for name in ASSET_NAMES)]
@@ -78,4 +89,4 @@ def test_retried_publish_creates_no_duplicates(
     assert [p["slug"] for p in cms_pages(stack) if p["slug"] == campaign_id] == [campaign_id]
     assert cms_page(stack, campaign_id)["writes"] > 1  # the retry reached the CMS
     assert len(bucket_keys(stack, f"{campaign_id}/")) == len(ASSET_NAMES)
-    assert len(receipts(api, campaign_id)) == 1 + len(ASSET_NAMES)
+    assert len(content_receipts(api, campaign_id)) == 1 + len(ASSET_NAMES)

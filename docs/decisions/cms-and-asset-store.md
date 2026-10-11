@@ -25,4 +25,4 @@ keys are `<campaign id>/<asset name>`.
 **Idempotency.** A page is written by its slug (the campaign id) and an object by its key, so
 a retried publish replaces an item with itself. The receipt id is the page id or the object's
 ETag, the same on every retry. The API keeps one receipt per (campaign, target) and shows
-them at `GET /campaigns/{id}/receipts`.
+them in the `receipts` list of `GET /campaigns/{id}`.
