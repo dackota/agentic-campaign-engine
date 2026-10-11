@@ -41,6 +41,8 @@ VARIANT_B_PHRASE = "variant B"
 WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
+# What every scripted reply reports it used, as kagent reports usage in task metadata.
+SCRIPTED_USAGE = {"input_tokens": 120, "output_tokens": 45}
 
 
 class ScriptedAgent:
@@ -126,6 +128,7 @@ class ScriptedAgent:
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
                 "status": {"state": "completed"},
+                "metadata": {"usage": SCRIPTED_USAGE},
                 "artifacts": [
                     {
                         "artifactId": str(uuid.uuid4()),
