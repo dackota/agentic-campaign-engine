@@ -38,6 +38,19 @@ FULL_ENV = {
     "ACE_MARKETO_TIMEOUT_SECONDS": "7",
     "ACE_OIDC_ISSUER": "http://dex.example/dex",
     "ACE_OIDC_CLIENT_ID": "other-client",
+    "ACE_NOTIFY_TIMEOUT_SECONDS": "3",
+    "ACE_SLACK_TOKEN": "sentinel-slack-token-31d2",
+    "ACE_SLACK_CHANNEL": "#ace",
+    "ACE_SLACK_URL": "http://fake-slack:8000",
+    "ACE_GOOGLE_CLIENT_ID": "gid",
+    "ACE_GOOGLE_CLIENT_SECRET": "sentinel-google-secret-8e07",
+    "ACE_GOOGLE_REFRESH_TOKEN": "sentinel-google-refresh-52aa",
+    "ACE_GOOGLE_TOKEN_URL": "http://fake-google:8000/token",
+    "ACE_GOOGLE_DOCS_URL": "http://fake-google:8000",
+    "ACE_CMS_URL": "http://fake-cms:8000",
+    "ACE_S3_URL": "http://fake-s3:8000",
+    "ACE_S3_BUCKET": "other-bucket",
+    "ACE_CONTENT_TIMEOUT_SECONDS": "9",
 }
 
 
@@ -79,6 +92,19 @@ def test_api_loader_reads_every_settings_field() -> None:
         marketo_timeout_seconds=7.0,
         oidc_issuer="http://dex.example/dex",
         oidc_client_id="other-client",
+        notify_timeout_seconds=3.0,
+        slack_token="sentinel-slack-token-31d2",
+        slack_channel="#ace",
+        slack_url="http://fake-slack:8000",
+        google_client_id="gid",
+        google_client_secret="sentinel-google-secret-8e07",
+        google_refresh_token="sentinel-google-refresh-52aa",
+        google_token_url="http://fake-google:8000/token",
+        google_docs_url="http://fake-google:8000",
+        cms_url="http://fake-cms:8000",
+        s3_url="http://fake-s3:8000",
+        s3_bucket="other-bucket",
+        content_timeout_seconds=9.0,
     )
     # Every field differs from its default above, so a field the loader skipped would show.
     for f in dataclasses.fields(Settings):

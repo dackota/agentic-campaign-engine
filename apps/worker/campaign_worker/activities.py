@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import publisher
+from campaign_worker import notify, publisher
+from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
@@ -148,8 +149,60 @@ class Activities:
             db.save_receipt(self._engine, uuid.UUID(campaign_id), r.target, r.receipt_id, r.url)
 
     @activity.defn
+    async def announce_approval(self, campaign_id: str) -> None:
+        """Ask for approval in Slack. Does nothing when Slack is not set up, and never
+        fails the run."""
+        if not self._settings.slack_enabled:
+            return
+        report, _ = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
+        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+            await notify.post_to_slack(
+                client,
+                self._settings,
+                f"Campaign {campaign_id} needs approval: {notify.first_line(report)}",
+            )
+
+    @activity.defn
+    async def announce_published(self, campaign_id: str, receipt: str) -> None:
+        """After the send: export the brief and drafts to a Google Doc, then tell Slack. A
+        write to an outside account waits for the approval. Each does nothing when its
+        credentials are not set, and neither fails the run."""
+        if not (self._settings.slack_enabled or self._settings.google_enabled):
+            return
+        report, drafts = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
+        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+            await notify.export_to_google_doc(
+                client,
+                self._settings,
+                f"Campaign {campaign_id}",
+                notify.doc_text(report, drafts),
+            )
+            await notify.post_to_slack(
+                client,
+                self._settings,
+                f"Campaign {campaign_id} sent. Marketo receipt: {receipt}",
+            )
+
+    def _brief_and_drafts(self, campaign_id: str) -> tuple[str, list[dict[str, Any]]]:
+        with Session(self._engine) as session:
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            drafts = [d for d in (campaign.draft, campaign.variant_b) if d]
+            return campaign.report, drafts
+
+    @activity.defn
     def mark_sent(self, campaign_id: str, step_id: str, receipt: str) -> None:
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.receipt = receipt
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
+
+    @activity.defn
+    async def publish_content(self, campaign_id: str, drafts: list[dict[str, Any]]) -> None:
+        """Publish the landing page to the CMS and the email assets to the S3 bucket, and
+        keep one receipt per item. Every write is idempotent, so a retry adds nothing."""
+        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        adapters = content_adapters(self._settings, campaign.emails)
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await publisher.publish(client, adapters, campaign)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)

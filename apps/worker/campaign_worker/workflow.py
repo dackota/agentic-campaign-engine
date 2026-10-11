@@ -12,7 +12,8 @@ from typing import Any
 from ace_engine.settings import APPROVE_SIGNAL, WORKFLOW_NAME
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
+from temporalio.workflow import ActivityCancellationType
 
 with workflow.unsafe.imports_passed_through():
     from ace_engine import dag as graph
@@ -21,8 +22,16 @@ with workflow.unsafe.imports_passed_through():
 AGENT_STEP_TIMEOUT = timedelta(minutes=5)
 DB_STEP_TIMEOUT = timedelta(seconds=30)
 SEND_STEP_TIMEOUT = timedelta(minutes=1)
+NOTIFY_TIMEOUT = timedelta(seconds=60)
 AGENT_RETRY = RetryPolicy(maximum_attempts=3)
 SEND_RETRY = RetryPolicy(maximum_attempts=5)
+NO_RETRY = RetryPolicy(maximum_attempts=1)
+
+
+def _retry(step: dict[str, Any], default: RetryPolicy) -> RetryPolicy:
+    """The step's own retry limit when the workflow sets one, else the kind's default."""
+    attempts = step.get("max_attempts")
+    return RetryPolicy(maximum_attempts=attempts) if attempts else default
 
 
 class StepFailed(Exception):
@@ -92,6 +101,22 @@ class CampaignWorkflow:
             activity, args=list(args), start_to_close_timeout=DB_STEP_TIMEOUT
         )
 
+    async def _announce(self, activity: str, *args: Any) -> None:
+        """Slack and Google notices: one try, and a failure never fails the run."""
+        try:
+            await workflow.execute_activity(
+                activity,
+                args=list(args),
+                start_to_close_timeout=NOTIFY_TIMEOUT,
+                retry_policy=NO_RETRY,
+                cancellation_type=ActivityCancellationType.ABANDON,
+            )
+        except ActivityError as exc:
+            # A cancelled wave must still stop this step; only real failures are swallowed.
+            if isinstance(exc.cause, CancelledError):
+                raise
+            workflow.logger.warning("%s failed; the run goes on", activity)
+
     async def _step(
         self,
         campaign_id: str,
@@ -102,13 +127,14 @@ class CampaignWorkflow:
     ) -> None:
         step_id, kind = step["id"], step["kind"]
         if kind == graph.AGENT:
-            await self._agent(campaign_id, report, dag, step_id)
+            await self._agent(campaign_id, report, dag, step)
         elif kind == graph.APPROVAL:
             await self._db("open_approval", campaign_id)
+            await self._announce("announce_approval", campaign_id)
             await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
             await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
         elif kind == graph.PUBLISH:
-            await self._publish(campaign_id, dag, step_id)
+            await self._publish(campaign_id, dag, step)
         elif kind == graph.WAIT:
             await self._db("mark_step", campaign_id, step_id, STEP_STARTED)
             await workflow.sleep(timedelta(seconds=step["duration_seconds"]))
@@ -121,8 +147,9 @@ class CampaignWorkflow:
             raise StepFailed(step_id, f"step {step_id!r} has an unknown kind {kind!r}")
 
     async def _agent(
-        self, campaign_id: str, report: str, dag: dict[str, Any], step_id: str
+        self, campaign_id: str, report: str, dag: dict[str, Any], step: dict[str, Any]
     ) -> None:
+        step_id = step["id"]
         # The agent steps before this one hand it their output.
         before = graph.ancestors(dag, step_id)
         context = {
@@ -135,14 +162,15 @@ class CampaignWorkflow:
                 "run_agent_step",
                 args=[campaign_id, report, step_id, context],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
-                retry_policy=AGENT_RETRY,
+                retry_policy=_retry(step, AGENT_RETRY),
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
         await self._db("save_agent_output", campaign_id, step_id, result)
         self._outputs[step_id] = result["output"]
 
-    async def _publish(self, campaign_id: str, dag: dict[str, Any], step_id: str) -> None:
+    async def _publish(self, campaign_id: str, dag: dict[str, Any], step: dict[str, Any]) -> None:
+        step_id = step["id"]
         source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)
         if source is None:
             raise StepFailed(step_id, f"publish step {step_id!r} has no agent step before it")
@@ -152,11 +180,21 @@ class CampaignWorkflow:
                 "send_email",
                 args=[campaign_id, self._outputs[source]],
                 start_to_close_timeout=SEND_STEP_TIMEOUT,
+                retry_policy=_retry(step, SEND_RETRY),
+            )
+        except ActivityError as exc:
+            raise StepFailed(step_id, _reason(exc)) from exc
+        try:
+            await workflow.execute_activity(
+                "publish_content",
+                args=[campaign_id, self._outputs[source]],
+                start_to_close_timeout=SEND_STEP_TIMEOUT,
                 retry_policy=SEND_RETRY,
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
         await self._db("mark_sent", campaign_id, step_id, receipt)
+        await self._announce("announce_published", campaign_id, receipt)
 
     async def _fail(self, campaign_id: str, failure: StepFailed) -> None:
         await self._db("mark_failed", campaign_id, failure.step_id, failure.reason)
