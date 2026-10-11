@@ -128,7 +128,9 @@ class _Store:
         return task
 
 
-def _matching(items: dict[str, dict[str, Any]], filters: Mapping[str, str | None]) -> list[Any]:
+def _matching(
+    items: dict[str, dict[str, Any]], filters: Mapping[str, str | None]
+) -> list[dict[str, Any]]:
     wanted = {k: v for k, v in filters.items() if v is not None}
     return [_copy(i) for i in items.values() if all(i.get(k) == v for k, v in wanted.items())]
 
@@ -152,7 +154,8 @@ def create_app(config: WorkfrontConfig) -> FastAPI:
 
     _add_token_route(app, store, config)
     _add_project_routes(app, store, authorized)
-    _add_task_routes(app, store, config, authorized)
+    _add_task_routes(app, store, authorized)
+    _add_task_change_route(app, store, config, authorized)
     _add_approval_routes(app, store, authorized)
     return app
 
@@ -195,9 +198,7 @@ def _add_project_routes(app: FastAPI, store: _Store, authorized: list[Any]) -> N
             return {"data": _matching(store.projects, {"externalID": externalID})}
 
 
-def _add_task_routes(
-    app: FastAPI, store: _Store, config: WorkfrontConfig, authorized: list[Any]
-) -> None:
+def _add_task_routes(app: FastAPI, store: _Store, authorized: list[Any]) -> None:
     @app.post(f"{API_PREFIX}/task", dependencies=authorized)
     def upsert_task(body: NewTask) -> dict[str, Any]:
         with store.lock:
@@ -229,6 +230,10 @@ def _add_task_routes(
         with store.lock:
             return {"data": _copy(store.task(task_id))}
 
+
+def _add_task_change_route(
+    app: FastAPI, store: _Store, config: WorkfrontConfig, authorized: list[Any]
+) -> None:
     @app.put(API_PREFIX + "/task/{task_id}", dependencies=authorized)
     def change_task(task_id: str, body: TaskChange) -> dict[str, Any]:
         event = None

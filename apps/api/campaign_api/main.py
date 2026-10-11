@@ -75,10 +75,9 @@ class CampaignOut(BaseModel):
     steps: list[dict[str, Any]]
 
     @classmethod
-    def of(cls, c: db.Campaign, session: Session | None = None) -> "CampaignOut":
-        """The campaign as the API shows it; with a session, its receipts and task status."""
-        receipts = [] if session is None else db.receipts_of(session, c.id)
-        task_status = None if session is None else db.latest_task_status(session, c.id)
+    def of(
+        cls, c: db.Campaign, receipts: list[db.Receipt], task_status: str | None
+    ) -> "CampaignOut":
         return cls(
             id=c.id,
             report=c.report,
@@ -110,12 +109,16 @@ def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.add(campaign)
         session.flush()
-        return CampaignOut.of(campaign)
+        return CampaignOut.of(campaign, [], None)
 
 
 def _list(engine: Engine) -> list[CampaignOut]:
     with Session(engine) as session:
-        return [CampaignOut.of(c, session) for c in db.list_campaigns(session)]
+        campaigns = db.list_campaigns(session)
+        ids = [c.id for c in campaigns]
+        receipts = db.receipts_by_campaign(session, ids)
+        statuses = db.task_statuses(session, ids)
+        return [CampaignOut.of(c, receipts.get(c.id, []), statuses.get(c.id)) for c in campaigns]
 
 
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
@@ -142,7 +145,11 @@ def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -
 def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
     with Session(engine) as session:
         campaign = session.get(db.Campaign, campaign_id)
-        return None if campaign is None else CampaignOut.of(campaign, session)
+        if campaign is None:
+            return None
+        receipts = db.receipts_by_campaign(session, [campaign_id])
+        statuses = db.task_statuses(session, [campaign_id])
+        return CampaignOut.of(campaign, receipts.get(campaign_id, []), statuses.get(campaign_id))
 
 
 async def _found(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:

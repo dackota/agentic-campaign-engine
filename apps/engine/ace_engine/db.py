@@ -1,6 +1,7 @@
 """Campaign storage in Postgres."""
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     create_engine,
+    func,
     select,
 )
 from sqlalchemy.engine import Engine
@@ -169,21 +171,32 @@ def save_receipt(
             found.receipt_id, found.url = receipt_id, url
 
 
-def receipts_of(session: Session, campaign_id: uuid.UUID) -> list[Receipt]:
-    return list(
-        session.scalars(
-            select(Receipt).where(Receipt.campaign_id == campaign_id).order_by(Receipt.seq)
+def receipts_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[Receipt]]:
+    """The receipts of these campaigns, in one query, oldest first."""
+    found: dict[uuid.UUID, list[Receipt]] = {}
+    rows = session.scalars(
+        select(Receipt).where(Receipt.campaign_id.in_(campaign_ids)).order_by(Receipt.seq)
+    )
+    for row in rows:
+        found.setdefault(row.campaign_id, []).append(row)
+    return found
+
+
+def task_statuses(session: Session, campaign_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """The latest task status of each of these campaigns that has one, in one query."""
+    latest = (
+        select(func.max(TaskStatusEvent.seq))
+        .where(TaskStatusEvent.campaign_id.in_(campaign_ids))
+        .group_by(TaskStatusEvent.campaign_id)
+    )
+    rows = session.execute(
+        select(TaskStatusEvent.campaign_id, TaskStatusEvent.status).where(
+            TaskStatusEvent.seq.in_(latest)
         )
     )
-
-
-def latest_task_status(session: Session, campaign_id: uuid.UUID) -> str | None:
-    return session.scalar(
-        select(TaskStatusEvent.status)
-        .where(TaskStatusEvent.campaign_id == campaign_id)
-        .order_by(TaskStatusEvent.seq.desc())
-        .limit(1)
-    )
+    return {campaign_id: status for campaign_id, status in rows}
 
 
 def list_campaigns(session: Session) -> list[Campaign]:

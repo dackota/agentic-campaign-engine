@@ -9,6 +9,7 @@ import hashlib
 import hmac
 import time
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 SIGNATURE_HEADER = "X-Marketo-Signature"
 TIMESTAMP_HEADER = "X-Marketo-Timestamp"
@@ -22,19 +23,28 @@ class WebhookRejected(Exception):
     """The webhook is not from the sender, or not fresh. The message says which."""
 
 
+@dataclass(frozen=True)
+class SignatureHeaders:
+    """The names of the two headers a sender signs with."""
+
+    signature: str = SIGNATURE_HEADER
+    timestamp: str = TIMESTAMP_HEADER
+
+
+MARKETO_HEADERS = SignatureHeaders()
+
+
 def verify(
     headers: Mapping[str, str],
     body: bytes,
     secret: str,
     now: float | None = None,
-    *,
-    signature_header: str = SIGNATURE_HEADER,
-    timestamp_header: str = TIMESTAMP_HEADER,
+    names: SignatureHeaders = MARKETO_HEADERS,
 ) -> None:
     """Return when the body is signed with `secret` and fresh; raise WebhookRejected if not.
     The header names default to Marketo's; another sender names its own."""
-    stamp = headers.get(timestamp_header, "")
-    signature = headers.get(signature_header, "")
+    stamp = headers.get(names.timestamp, "")
+    signature = headers.get(names.signature, "")
     if not (stamp.isascii() and stamp.isdigit()) or len(stamp) > MAX_TIMESTAMP_DIGITS:
         raise WebhookRejected("missing or malformed timestamp")
     if not signature.startswith(SIGNATURE_PREFIX):
