@@ -10,6 +10,7 @@ from typing import Any, Protocol
 
 import httpx
 
+# The publish step of the default workflow.
 PUBLISH_STEP = "publish"
 
 
@@ -18,6 +19,8 @@ class ApprovedCampaign:
     campaign_id: str
     # The approved emails in A/B order: variant A first.
     emails: tuple[dict[str, Any], ...]
+    # The idempotency key of the publish step that sends it.
+    step_key: str
 
 
 @dataclass(frozen=True)
@@ -37,7 +40,7 @@ class Adapter(Protocol):
 
 def idempotency_key(campaign: ApprovedCampaign, target: str) -> str:
     """One key per campaign, step, and target: the same on every retry of the step."""
-    return f"{campaign.campaign_id}:{PUBLISH_STEP}:{target}"
+    return f"{campaign.step_key}:{target}"
 
 
 async def publish(

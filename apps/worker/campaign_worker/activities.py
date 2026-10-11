@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 import httpx
+from ace_engine import dag as graph
 from ace_engine import db, invoker
 from ace_engine.agent_roles import message_for, role_for
 from ace_engine.contracts import citation_problems
@@ -20,13 +21,14 @@ from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
-# An agent step's session: one per step per campaign, so no two steps share a conversation.
-# A second reply in the same step (variant B) gets its own, suffixed with the variant.
+# An agent step's session: the step's idempotency key, so no two steps share a conversation
+# or a message id and a retry of the step reuses them. A second reply in the same step
+# (variant B) gets its own, suffixed with the variant.
 
 
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
-    suffix = "" if variant == 0 else f"-v{variant}"
-    return f"campaign-{campaign_id}-{step_id}{suffix}"
+    suffix = "" if variant == 0 else f":v{variant}"
+    return f"{graph.step_key(campaign_id, step_id)}{suffix}"
 
 
 class Activities:
@@ -132,10 +134,19 @@ class Activities:
             db.add_event(session, campaign.id, db.RUN_STEP, campaign.status)
 
     @activity.defn
-    async def send_email(self, campaign_id: str, drafts: list[dict[str, Any]]) -> str:
+    async def send_email(
+        self,
+        campaign_id: str,
+        drafts: list[dict[str, Any]],
+        step_id: str = publisher.PUBLISH_STEP,
+    ) -> str:
         """Publish the approved A/B emails and the campaign's task; the receipt id of the
         Marketo send. Every target's receipt is stored for the campaign."""
-        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        campaign = publisher.ApprovedCampaign(
+            campaign_id=campaign_id,
+            emails=tuple(drafts),
+            step_key=graph.step_key(campaign_id, step_id),
+        )
         adapters: list[publisher.Adapter] = [MarketoAdapter(self._settings)]
         if self._settings.has_workfront:
             adapters.append(WorkfrontAdapter(self._settings))
@@ -197,10 +208,19 @@ class Activities:
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
 
     @activity.defn
-    async def publish_content(self, campaign_id: str, drafts: list[dict[str, Any]]) -> None:
+    async def publish_content(
+        self,
+        campaign_id: str,
+        drafts: list[dict[str, Any]],
+        step_id: str = publisher.PUBLISH_STEP,
+    ) -> None:
         """Publish the landing page to the CMS and the email assets to the S3 bucket, and
         keep one receipt per item. Every write is idempotent, so a retry adds nothing."""
-        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        campaign = publisher.ApprovedCampaign(
+            campaign_id=campaign_id,
+            emails=tuple(drafts),
+            step_key=graph.step_key(campaign_id, step_id),
+        )
         adapters = content_adapters(self._settings, campaign.emails)
         timeout = self._settings.content_timeout_seconds
         async with httpx.AsyncClient(timeout=timeout) as client:

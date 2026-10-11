@@ -146,3 +146,26 @@ def test_bad_workflow_name_is_rejected(api: httpx.Client) -> None:
     response = api.post("/workflows/Not A Name!/versions", json=DRAFT_APPROVE_PUBLISH)
 
     assert response.status_code == 422
+
+
+def test_retry_policy_and_timeout_are_accepted_and_bounded(api: httpx.Client) -> None:
+    tuned = step(
+        "draft",
+        "agent",
+        timeout_seconds=90,
+        retry={"maximum_attempts": 4, "initial_interval_seconds": 0.5},
+    )
+    good = {**DRAFT_APPROVE_PUBLISH, "steps": [tuned, *DRAFT_APPROVE_PUBLISH["steps"][1:]]}
+
+    assert save_workflow(api, workflow_name(), good)["dag"]["steps"][0] == tuned
+    for bad in (
+        {"timeout_seconds": 0},
+        {"timeout_seconds": 86_401},
+        {"retry": {"maximum_attempts": 0}},
+        {"retry": {"maximum_attempts": 11}},
+        {"retry": {"initial_interval_seconds": 0}},
+        {"retry": {"maximum_attempts": 2, "forever": True}},
+    ):
+        dag = {"steps": [step("draft", "agent", **bad)], "edges": []}
+        found = rejections(api.post(f"/workflows/{workflow_name()}/versions", json=dag))
+        assert [r["rule"] for r in found] == ["invalid_shape"], bad

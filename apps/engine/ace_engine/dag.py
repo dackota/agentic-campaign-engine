@@ -13,6 +13,12 @@ PUBLISH = "publish"
 WAIT = "wait"
 
 
+def step_key(campaign_id: str, step_id: str) -> str:
+    """The step's idempotency key: the same on every attempt and every retry of the step,
+    and different for every other step, so a side effect it keys never happens twice."""
+    return f"campaign-{campaign_id}:{step_id}"
+
+
 def default_dag() -> Dag:
     """The workflow a campaign runs when it names none: draft, wait for a human, publish.
     A fresh dict each call, so no caller can change another's copy."""

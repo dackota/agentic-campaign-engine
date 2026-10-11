@@ -11,6 +11,7 @@ exact replies with `script()` to play a misbehaving agent.
 
 import asyncio
 import json
+import re
 import threading
 import uuid
 from typing import Any
@@ -29,6 +30,10 @@ SOCIAL_POST_CHARS = 280
 SLOW_MARKER = "[agent:slow]"
 BAD_JSON_MARKER = "[agent:bad-json]"
 SLOW_REPLY_SECONDS = 1.5
+# "[agent:down-N]" in a report makes the first N calls that carry that report answer with
+# an A2A error, so a step fails on cue and a later attempt succeeds.
+DOWN_MARKER = re.compile(r"\[agent:down-(\d{1,2})\]")
+JSONRPC_AGENT_DOWN = -32000
 # The worker asks for the A/B test's second email with this phrase in its prompt.
 VARIANT_B_PHRASE = "variant B"
 # A step that works from earlier steps' output (a writer) takes this long to answer, so
@@ -43,12 +48,30 @@ class ScriptedAgent:
         self._lock = threading.Lock()
         self._replies: list[str] = []
         self._modes: dict[str, str] = {}
+        self._failed: dict[str, int] = {}
+        self._message_ids: list[str] = []
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
         """Queue exact reply texts; they are used before the default writer."""
         with self._lock:
             self._replies = list(replies)
+
+    def message_ids(self) -> list[str]:
+        """The A2A messageId of every call so far, in arrival order."""
+        with self._lock:
+            return list(self._message_ids)
+
+    def _is_down(self, text: str, message_id: str) -> bool:
+        """Record the call; True when it must fail because its report says the agent is down."""
+        report = text.split(REPORT_MARKER, 1)[-1]
+        with self._lock:
+            self._message_ids.append(message_id)
+            found = DOWN_MARKER.search(report)
+            if found is None or self._failed.get(report, 0) >= int(found.group(1)):
+                return False
+            self._failed[report] = self._failed.get(report, 0) + 1
+            return True
 
     def _next_reply(self, text: str, context_id: str) -> tuple[str, bool]:
         """The reply text and whether to hold it back a moment."""
@@ -85,6 +108,14 @@ class ScriptedAgent:
             message = body["params"]["message"]
             text = "".join(p.get("text", "") for p in message["parts"] if p.get("kind") == "text")
             context_id = message.get("contextId") or str(uuid.uuid4())
+            if self._is_down(text, str(message.get("messageId", ""))):
+                return JSONResponse(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": body.get("id"),
+                        "error": {"code": JSONRPC_AGENT_DOWN, "message": "agent unavailable"},
+                    }
+                )
             reply, is_slow = self._next_reply(text, context_id)
             if is_slow:
                 await asyncio.sleep(

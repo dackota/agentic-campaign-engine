@@ -13,8 +13,14 @@ from typing import Annotated, Any
 
 from ace_engine import dag as graph
 from ace_engine import db
-from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME, Settings
-from fastapi import FastAPI, Header, HTTPException, Request
+from ace_engine.settings import (
+    APPROVE_SIGNAL,
+    RETRY_SIGNAL,
+    TASK_QUEUE,
+    WORKFLOW_NAME,
+    Settings,
+)
+from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
@@ -106,7 +112,10 @@ class CampaignOut(BaseModel):
             task_status=task_status,
             workflow=c.workflow_name,
             workflow_version=c.workflow_version,
-            steps=graph.ordered(c.dag),
+            steps=[
+                {**s, "idempotency_key": graph.step_key(str(c.id), s["id"])}
+                for s in graph.ordered(c.dag)
+            ],
             engagement=engagement or {},
         )
 
@@ -153,6 +162,30 @@ def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -
             .values(status=new)
         )
         return result.rowcount == 1  # type: ignore[attr-defined,no-any-return]
+
+
+def _claim_retry(engine: Engine, campaign_id: uuid.UUID) -> bool:
+    """Move a failed campaign to retrying and clear its reason; False if it had not failed."""
+    with Session(engine) as session, session.begin():
+        result = session.execute(
+            update(db.Campaign)
+            .where(db.Campaign.id == campaign_id, db.Campaign.status == db.FAILED)
+            .values(status=db.RETRYING, failure_reason=None)
+        )
+        if result.rowcount != 1:  # type: ignore[attr-defined]
+            return False
+        db.add_event(session, campaign_id, db.RUN_STEP, db.RETRYING)
+        return True
+
+
+def _undo_retry(engine: Engine, campaign_id: uuid.UUID, reason: str | None) -> None:
+    with Session(engine) as session, session.begin():
+        session.execute(
+            update(db.Campaign)
+            .where(db.Campaign.id == campaign_id, db.Campaign.status == db.RETRYING)
+            .values(status=db.FAILED, failure_reason=reason)
+        )
+        db.add_event(session, campaign_id, db.RUN_STEP, db.FAILED, reason)
 
 
 def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
@@ -202,6 +235,26 @@ def _register_approval_route(app: FastAPI) -> None:
         return await _found(engine, campaign_id)
 
 
+def _register_retry_route(app: FastAPI) -> None:
+    @app.post("/campaigns/{campaign_id}/retry", status_code=202)
+    async def retry_failed_step(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> CampaignOut:
+        """The retry-step action: re-run the step that stopped a failed run."""
+        engine = request.app.state.engine
+        campaign = await _found(engine, campaign_id)
+        authorize(user, Action.CREATE)
+        if not await run_in_threadpool(_claim_retry, engine, campaign_id):
+            raise HTTPException(status_code=409, detail="only a failed run can retry its step")
+        try:
+            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
+            await handle.signal(RETRY_SIGNAL)
+        except Exception:
+            await run_in_threadpool(_undo_retry, engine, campaign_id, campaign.failure_reason)
+            raise
+        return await _found(engine, campaign_id)
+
+
 def _sse(event: db.RunEvent) -> str:
     data = {
         "seq": event.seq,
@@ -234,11 +287,14 @@ def _add_event_routes(app: FastAPI) -> None:
         request: Request,
         user: BrowserUser,
         last_event_id: Annotated[int, Header(ge=0)] = 0,
+        after: Annotated[int, Query(ge=0)] = 0,
     ) -> StreamingResponse:
+        """`after` is for a browser that follows a run again from a known event (after a
+        retry): an EventSource cannot set Last-Event-ID itself. The later of the two wins."""
         authorize(user, Action.READ)
         await _found(request.app.state.engine, campaign_id)
         return StreamingResponse(
-            _event_stream(request.app.state.engine, campaign_id, last_event_id),
+            _event_stream(request.app.state.engine, campaign_id, max(last_event_id, after)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -356,6 +412,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     _add_campaign_routes(app)
     _register_approval_route(app)
+    _register_retry_route(app)
     _add_event_routes(app)
     _add_step_routes(app)
     _add_activity_routes(app, settings)
