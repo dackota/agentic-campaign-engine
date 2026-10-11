@@ -17,7 +17,7 @@ from typing import Any
 from ace_engine.settings import APPROVE_SIGNAL, RETRY_SIGNAL, WORKFLOW_NAME
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError, RetryState
 from temporalio.exceptions import TimeoutError as ActivityTimedOut
 
 with workflow.unsafe.imports_passed_through():
@@ -89,6 +89,22 @@ def _failed(step_id: str, policy: StepPolicy, exc: ActivityError) -> StepFailed:
     return StepFailed(step_id, f"step {step_id!r} failed: {detail}")
 
 
+def _is_cancellation(error: BaseException) -> bool:
+    if isinstance(error, asyncio.CancelledError | CancelledError):
+        return True
+    return isinstance(error, ActivityError) and isinstance(error.cause, CancelledError)
+
+
+def _as_step_failure(step_id: str, error: BaseException) -> StepFailed:
+    """Any error a step raised, as a stop that names the step: an activity error from a
+    bookkeeping call stops the run with a reason instead of failing the workflow."""
+    if isinstance(error, StepFailed):
+        return error
+    if isinstance(error, ActivityError) and isinstance(error.cause, ApplicationError):
+        return StepFailed(step_id, f"step {step_id!r} failed: {error.cause.message}")
+    return StepFailed(step_id, f"step {step_id!r} failed: {error}")
+
+
 @workflow.defn(name=WORKFLOW_NAME)
 class CampaignWorkflow:
     def __init__(self) -> None:
@@ -147,8 +163,13 @@ class CampaignWorkflow:
         # Await every task so a cancelled one finishes before the failure is recorded.
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         succeeded = frozenset(s["id"] for s, o in zip(wave, outcomes, strict=True) if o is None)
-        # A step that failed on its own comes first; the cancelled ones are fallout.
-        failures = [o for o in outcomes if isinstance(o, StepFailed)]
+        # A step that failed on its own comes first; the cancelled ones are fallout, so they
+        # never hide the real error, whatever their place in the wave.
+        failures = [
+            _as_step_failure(s["id"], o)
+            for s, o in zip(wave, outcomes, strict=True)
+            if isinstance(o, BaseException) and not _is_cancellation(o)
+        ]
         if failures:
             return succeeded, failures[0]
         errors = [o for o in outcomes if isinstance(o, BaseException)]
