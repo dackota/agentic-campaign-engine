@@ -46,8 +46,17 @@ def test_chart_deploys_every_app_component_with_a_service() -> None:
     deployments = {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
     services = {d["metadata"]["name"] for d in by_kind(docs, "Service")}
 
-    assert deployments == {"web", "api", "worker", "fake-marketo", "postgres", "temporal"}
-    assert services == {"web", "api", "fake-marketo", "postgres", "temporal"}
+    assert deployments == {
+        "web",
+        "api",
+        "worker",
+        "fake-marketo",
+        "fake-cms",
+        "fake-s3",
+        "postgres",
+        "temporal",
+    }
+    assert services == {"web", "api", "fake-marketo", "fake-cms", "fake-s3", "postgres", "temporal"}
     for name in services:
         svc = _named(docs, "Service", name)
         labels = _named(docs, "Deployment", name)["spec"]["template"]["metadata"]["labels"]
@@ -57,18 +66,25 @@ def test_chart_deploys_every_app_component_with_a_service() -> None:
 def test_python_services_share_one_image_with_different_commands() -> None:
     docs = render("python.image.repository=reg/py", "python.image.tag=t9")
     commands = {}
-    for name in ("api", "worker", "fake-marketo"):
+    for name in ("api", "worker", "fake-marketo", "fake-cms", "fake-s3"):
         container = _container(_named(docs, "Deployment", name))
         assert container["image"] == "reg/py:t9", name
         commands[name] = tuple(container["command"])
     assert commands["api"] == ("python", "-m", "campaign_api")
     assert commands["worker"] == ("python", "-m", "campaign_worker")
     assert commands["fake-marketo"] == ("python", "-m", "fake_marketo")
+    assert commands["fake-cms"] == ("python", "-m", "fake_cms")
+    assert commands["fake-s3"] == ("python", "-m", "fake_s3")
 
 
 def test_reload_value_wraps_python_commands_in_a_file_watcher() -> None:
     docs = render("python.reload=true")
-    for name, module in (*PYTHON_COMPONENTS.items(), ("fake-marketo", "fake_marketo")):
+    for name, module in (
+        *PYTHON_COMPONENTS.items(),
+        ("fake-marketo", "fake_marketo"),
+        ("fake-cms", "fake_cms"),
+        ("fake-s3", "fake_s3"),
+    ):
         command = _container(_named(docs, "Deployment", name))["command"]
         assert command[0] == "watchfiles", name
         assert f"python -m {module}" in command, name
@@ -109,6 +125,9 @@ def test_services_are_wired_by_service_names() -> None:
         assert env["ACE_TEMPORAL_ADDRESS"] == "temporal.ace.svc.cluster.local:7233"
         assert env["ACE_MARKETO_URL"] == "http://fake-marketo.ace.svc.cluster.local:8000"
         assert env["ACE_MARKETO_CLIENT_ID"] == marketo["ACE_MARKETO_CLIENT_ID"]
+        assert env["ACE_CMS_URL"] == "http://fake-cms.ace.svc.cluster.local:8000"
+        assert env["ACE_S3_URL"] == "http://fake-s3.ace.svc.cluster.local:8000"
+        assert env["ACE_S3_BUCKET"] == "ace-assets"
     assert marketo["ACE_MARKETO_WEBHOOK_URL"] == (
         "http://api.ace.svc.cluster.local:8000/webhooks/marketo"
     )
@@ -116,9 +135,16 @@ def test_services_are_wired_by_service_names() -> None:
     assert "ACE_OIDC_ISSUER" not in worker and "ACE_OIDC_CLIENT_ID" not in worker
     ports = {
         name: _named(docs, "Service", name)["spec"]["ports"][0]["port"]
-        for name in ("api", "fake-marketo", "postgres", "temporal")
+        for name in ("api", "fake-marketo", "fake-cms", "fake-s3", "postgres", "temporal")
     }
-    assert ports == {"api": 8000, "fake-marketo": 8000, "postgres": 5432, "temporal": 7233}
+    assert ports == {
+        "api": 8000,
+        "fake-marketo": 8000,
+        "fake-cms": 8000,
+        "fake-s3": 8000,
+        "postgres": 5432,
+        "temporal": 7233,
+    }
 
 
 def test_worker_agent_url_is_a_value() -> None:

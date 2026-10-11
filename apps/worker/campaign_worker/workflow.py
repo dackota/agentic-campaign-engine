@@ -155,6 +155,15 @@ class CampaignWorkflow:
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
+        try:
+            await workflow.execute_activity(
+                "publish_content",
+                args=[campaign_id, self._outputs[source]],
+                start_to_close_timeout=SEND_STEP_TIMEOUT,
+                retry_policy=SEND_RETRY,
+            )
+        except ActivityError as exc:
+            raise StepFailed(step_id, _reason(exc)) from exc
         await self._db("mark_sent", campaign_id, step_id, receipt)
 
     async def _fail(self, campaign_id: str, failure: StepFailed) -> None:

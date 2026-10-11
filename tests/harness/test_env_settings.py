@@ -38,6 +38,10 @@ FULL_ENV = {
     "ACE_MARKETO_TIMEOUT_SECONDS": "7",
     "ACE_OIDC_ISSUER": "http://dex.example/dex",
     "ACE_OIDC_CLIENT_ID": "other-client",
+    "ACE_CMS_URL": "http://fake-cms:8000",
+    "ACE_S3_URL": "http://fake-s3:8000",
+    "ACE_S3_BUCKET": "other-bucket",
+    "ACE_CONTENT_TIMEOUT_SECONDS": "9",
 }
 
 
@@ -79,6 +83,10 @@ def test_api_loader_reads_every_settings_field() -> None:
         marketo_timeout_seconds=7.0,
         oidc_issuer="http://dex.example/dex",
         oidc_client_id="other-client",
+        cms_url="http://fake-cms:8000",
+        s3_url="http://fake-s3:8000",
+        s3_bucket="other-bucket",
+        content_timeout_seconds=9.0,
     )
     # Every field differs from its default above, so a field the loader skipped would show.
     for f in dataclasses.fields(Settings):

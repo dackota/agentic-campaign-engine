@@ -56,6 +56,9 @@ class Stack:
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        self.cms_port = free_port()
+        self.s3_port = free_port()
+        self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
         self.dex = Dex(dex_port or free_port(), web_origin)
         # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
@@ -81,6 +84,20 @@ class Stack:
     @property
     def marketo_url(self) -> str:
         return f"http://127.0.0.1:{self.marketo_port}"
+
+    @property
+    def cms_url(self) -> str:
+        return f"http://127.0.0.1:{self.cms_port}"
+
+    @property
+    def s3_url(self) -> str:
+        return f"http://127.0.0.1:{self.s3_port}"
+
+    def drop_next_content_replies(self) -> None:
+        """Make the fake CMS and the fake S3 store keep the next write, then answer 503."""
+        for url in (self.cms_url, self.s3_url):
+            response = httpx.put(f"{url}/_fault", json={"drop_next_reply": True}, timeout=10)
+            assert response.status_code == 204, response.text
 
     @property
     def workfront_url(self) -> str:
@@ -194,6 +211,9 @@ class Stack:
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
+                cms_url=self.cms_url,
+                s3_url=self.s3_url,
+                s3_bucket=self.s3_bucket,
                 oidc_issuer=self.dex.issuer,
                 oidc_client_id=CLIENT_ID,
                 marketo_client_id=self.marketo_client_id,
@@ -217,8 +237,10 @@ class Stack:
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
+        from fake_cms.app import create_app as create_cms
         from fake_marketo.app import MarketoConfig
         from fake_marketo.app import create_app as create_marketo
+        from fake_s3.app import create_app as create_s3
         from fake_workfront.app import WorkfrontConfig
         from fake_workfront.app import create_app as create_workfront
 
@@ -237,6 +259,8 @@ class Stack:
         apps = [
             (self.agent.app, agent_port),
             (create_marketo(marketo), self.marketo_port),
+            (create_cms(), self.cms_port),
+            (create_s3(), self.s3_port),
             (create_workfront(workfront), self.workfront_port),
             (create_app(settings), self.api_port),
         ]
