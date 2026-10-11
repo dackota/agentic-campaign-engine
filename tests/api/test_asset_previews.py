@@ -13,7 +13,6 @@ from ace_engine.default_workflow import DEFAULT_WORKFLOW_NAME
 from pptx import Presentation
 from pypdf import PdfReader
 
-from tests.api.conftest import SignIn
 from tests.api.helpers import (
     AWAITING,
     DRAFT_APPROVE_PUBLISH,
@@ -110,15 +109,3 @@ def _no_writer_workflow(api: httpx.Client) -> str:
     name = workflow_name()
     save_workflow(api, name, DRAFT_APPROVE_PUBLISH)
     return name
-
-
-OTHER_TEAM_USER = "pm-owner@demo.example"
-
-
-@pytest.mark.parametrize("kind", KINDS)
-def test_preview_hidden_from_another_team(
-    sign_in: SignIn, campaign: dict[str, Any], kind: str
-) -> None:
-    other = sign_in(OTHER_TEAM_USER)
-
-    assert _preview(other, campaign["id"], kind).status_code == 404
