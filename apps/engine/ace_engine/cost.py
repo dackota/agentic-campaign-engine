@@ -78,6 +78,7 @@ NO_USAGE = Usage(model=UNREPORTED_MODEL, input_tokens=0, output_tokens=0)
 # the Google ADK names kagent's Python harness reports.
 _INPUT_KEYS = ("input_tokens", "prompt_tokens", "promptTokenCount")
 _OUTPUT_KEYS = ("output_tokens", "completion_tokens", "candidatesTokenCount")
+_TOTAL_KEYS = ("total_tokens", "totalTokens", "totalTokenCount")
 
 
 def _count(raw: dict[str, Any], keys: tuple[str, ...]) -> int | None:
@@ -99,6 +100,12 @@ def usage_from(raw: Any) -> Usage:
         logger.warning("agent reply carried no token usage; booked at zero")
         return NO_USAGE
     input_tokens, output_tokens = _count(raw, _INPUT_KEYS), _count(raw, _OUTPUT_KEYS)
+    total = _count(raw, _TOTAL_KEYS)
+    if (input_tokens is None or output_tokens is None) and total is not None:
+        # A total with no split: whatever input is known, the rest as output, the dearer
+        # side, so a budget never undercounts.
+        input_tokens = min(input_tokens or 0, total)
+        output_tokens = total - input_tokens
     if input_tokens is None or output_tokens is None:
         logger.warning("agent reply carried malformed token usage; booked at zero")
         return NO_USAGE
