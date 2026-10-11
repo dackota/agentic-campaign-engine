@@ -208,6 +208,29 @@ def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
         return await run_in_threadpool(activities, request.app.state.engine, campaign_id)
 
 
+class ReceiptOut(BaseModel):
+    target: str
+    receipt_id: str
+    url: str
+
+
+def _receipts(engine: Engine, campaign_id: uuid.UUID) -> list[ReceiptOut]:
+    return [
+        ReceiptOut(target=r.target, receipt_id=r.receipt_id, url=r.url)
+        for r in db.receipts_of(engine, campaign_id)
+    ]
+
+
+def _add_receipt_route(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/receipts")
+    async def campaign_receipts(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> list[ReceiptOut]:
+        authorize(user, Action.READ)
+        await _found(request.app.state.engine, campaign_id)
+        return await run_in_threadpool(_receipts, request.app.state.engine, campaign_id)
+
+
 def _add_preview_route(app: FastAPI) -> None:
     @app.get("/campaigns/{campaign_id}/preview", response_class=HTMLResponse)
     async def preview_email(
@@ -290,6 +313,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_event_routes(app)
     _add_activity_routes(app, settings)
     _add_preview_route(app)
+    _add_receipt_route(app)
     register_workflow_routes(app)
 
     return app

@@ -106,6 +106,47 @@ class Activity(Base):
     )
 
 
+class PublishReceipt(Base):
+    """What a publish target gave back for one item, kept once per (campaign, target)."""
+
+    __tablename__ = "publish_receipts"
+    __table_args__ = (UniqueConstraint("campaign_id", "target"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    target: Mapped[str] = mapped_column(String(100))
+    receipt_id: Mapped[str] = mapped_column(String(255))
+    url: Mapped[str] = mapped_column(Text)
+
+
+def save_receipt(
+    session: Session, campaign_id: uuid.UUID, target: str, receipt_id: str, url: str
+) -> None:
+    """Keep the receipt for (campaign, target); a retried publish replaces it with the same."""
+    found = session.scalars(
+        select(PublishReceipt).where(
+            PublishReceipt.campaign_id == campaign_id, PublishReceipt.target == target
+        )
+    ).first()
+    if found is None:
+        session.add(
+            PublishReceipt(campaign_id=campaign_id, target=target, receipt_id=receipt_id, url=url)
+        )
+    else:
+        found.receipt_id, found.url = receipt_id, url
+
+
+def receipts_of(engine: Engine, campaign_id: uuid.UUID) -> list[PublishReceipt]:
+    with Session(engine) as session:
+        return list(
+            session.scalars(
+                select(PublishReceipt)
+                .where(PublishReceipt.campaign_id == campaign_id)
+                .order_by(PublishReceipt.seq)
+            )
+        )
+
+
 def add_event(
     session: Session, campaign_id: uuid.UUID, step: str, status: str, reason: str | None = None
 ) -> None:

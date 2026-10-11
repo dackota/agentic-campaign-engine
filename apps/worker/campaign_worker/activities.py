@@ -14,6 +14,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from campaign_worker import publisher
+from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
@@ -120,3 +121,19 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.receipt = receipt
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
+
+    @activity.defn
+    async def publish_content(self, campaign_id: str, drafts: list[dict[str, Any]]) -> None:
+        """Publish the landing page to the CMS and the email assets to the S3 bucket, and
+        keep one receipt per item. Every write is idempotent, so a retry adds nothing."""
+        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        adapters = content_adapters(self._settings, campaign.emails)
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await publisher.publish(client, adapters, campaign)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
+
+    def _save_receipts(self, campaign_id: str, receipts: list[publisher.Receipt]) -> None:
+        with Session(self._engine) as session, session.begin():
+            for r in receipts:
+                db.save_receipt(session, uuid.UUID(campaign_id), r.target, r.receipt_id, r.url)

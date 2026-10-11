@@ -77,6 +77,7 @@ def test_image_builds_and_imports_every_entrypoint() -> None:
     try:
         script = (
             "import campaign_api.__main__, campaign_worker.__main__, fake_marketo.__main__, "
+            "fake_cms.__main__, fake_s3.__main__, "
             "render_service.email, ace_engine.env, watchfiles"
         )
         result = subprocess.run(

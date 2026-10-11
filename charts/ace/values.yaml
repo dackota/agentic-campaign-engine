@@ -42,6 +42,16 @@ marketo:
   # Not a secret: Marketo's OAuth2 client id. Its secret is in the app Secret.
   clientId: ace-demo
 
+# The CMS and the S3 store are fakes (docs/decisions/cms-and-asset-store.md).
+cms:
+  serviceName: fake-cms
+  port: 8000
+
+s3:
+  serviceName: fake-s3
+  port: 8000
+  bucket: ace-assets
+
 postgres:
   # Third-party images are pinned by digest (docs/pinned-versions.md).
   image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea

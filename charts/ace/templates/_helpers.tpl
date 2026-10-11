@@ -69,6 +69,12 @@ imagePullPolicy: {{ .Values.python.image.pullPolicy }}
   value: {{ .Values.worker.agentUrl | quote }}
 - name: ACE_MARKETO_URL
   value: {{ printf "http://%s:%v" (include "ace.host" (list . .Values.marketo.serviceName)) .Values.marketo.port | quote }}
+- name: ACE_CMS_URL
+  value: {{ printf "http://%s:%v" (include "ace.host" (list . .Values.cms.serviceName)) .Values.cms.port | quote }}
+- name: ACE_S3_URL
+  value: {{ printf "http://%s:%v" (include "ace.host" (list . .Values.s3.serviceName)) .Values.s3.port | quote }}
+- name: ACE_S3_BUCKET
+  value: {{ .Values.s3.bucket | quote }}
 - name: ACE_MARKETO_CLIENT_ID
   value: {{ .Values.marketo.clientId | quote }}
 {{ include "ace.secretEnv" (list . "ACE_MARKETO_CLIENT_SECRET" "marketo-client-secret") }}

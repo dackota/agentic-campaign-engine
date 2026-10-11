@@ -47,6 +47,12 @@ class Settings:
     # The worker never checks tokens, so it leaves them unset.
     oidc_issuer: str = ""
     oidc_client_id: str = "ace-web"
+    # The CMS that gets the landing page and the S3 store that gets the assets. Both are
+    # in-cluster stand-ins that need no credentials; a blank URL skips that target.
+    cms_url: str = ""
+    s3_url: str = ""
+    s3_bucket: str = "ace-assets"
+    content_timeout_seconds: float = 30.0
 
     def __post_init__(self) -> None:
         # Fail when the worker starts, not on the first send after an approval.
