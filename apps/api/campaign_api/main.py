@@ -6,6 +6,7 @@ role rules."""
 
 import asyncio
 import json
+import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
@@ -47,6 +48,7 @@ from campaign_api.workflows import (
     seed_default_workflow,
 )
 
+logger = logging.getLogger(__name__)
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
 FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED}
@@ -388,6 +390,7 @@ def _add_asset_preview_route(app: FastAPI) -> None:
         try:
             content = await run_in_threadpool(render, *(outputs[step] for step in needed))
         except (KeyError, TypeError) as e:
+            logger.exception("malformed stored %s content for campaign %s", kind, campaign_id)
             raise HTTPException(
                 status_code=422, detail=f"stored {kind} content is malformed"
             ) from e

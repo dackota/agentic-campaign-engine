@@ -24,18 +24,24 @@ from reportlab.platypus import Flowable, ListFlowable, Paragraph, SimpleDocTempl
 
 BRAND_NAME = "Agentic Campaign Engine"
 BRAND_COLOR = "#0b5fff"
-BRAND_RGB = (0x0B, 0x5F, 0xFF)
+BRAND_RGB = tuple(int(BRAND_COLOR[i : i + 2], 16) for i in (1, 3, 5))
 TEXT_COLOR = "#1f2933"
 FONT_STACK = "Helvetica, Arial, sans-serif"
 PAGE_MAX_WIDTH = "640px"
 FIXED_TIMESTAMP = datetime(2026, 1, 1)  # embedded dates would make equal content differ
-ZIP_EPOCH = (2026, 1, 1, 0, 0, 0)
+ZIP_EPOCH = FIXED_TIMESTAMP.timetuple()[:6]
 PDF_TITLE_SIZE = 22
+PDF_TITLE_LEADING_EXTRA = 4
 PDF_TEXT_SIZE = 11
 PDF_LEADING = 15
 PDF_SPACE = 10
 DECK_TITLE_PT = 36
 DECK_TEXT_PT = 20
+DECK_TITLE_ONLY_LAYOUT = 5
+DECK_BODY_LEFT_IN = 1
+DECK_BODY_TOP_IN = 2.5
+DECK_BODY_WIDTH_IN = 8
+DECK_BODY_HEIGHT_IN = 4
 SVG_WIDTH = 1200
 SVG_HEIGHT = 630
 SVG_TITLE_MAX_CHARS = 60
@@ -103,7 +109,7 @@ def render_one_pager_pdf(one_pager: Mapping[str, Any]) -> bytes:
         "title",
         fontName="Helvetica-Bold",
         fontSize=PDF_TITLE_SIZE,
-        leading=PDF_TITLE_SIZE + 4,
+        leading=PDF_TITLE_SIZE + PDF_TITLE_LEADING_EXTRA,
         textColor=HexColor(BRAND_COLOR),
     )
     body_style = ParagraphStyle(
@@ -130,13 +136,18 @@ def render_one_pager_pdf(one_pager: Mapping[str, Any]) -> bytes:
 
 
 def _slide(deck: PresentationType, title: str, lines: Sequence[str]) -> None:
-    slide = deck.slides.add_slide(deck.slide_layouts[5])  # title only
+    slide = deck.slides.add_slide(deck.slide_layouts[DECK_TITLE_ONLY_LAYOUT])
     slide.shapes.title.text = title
     for run in slide.shapes.title.text_frame.paragraphs[0].runs:
         run.font.size = Pt(DECK_TITLE_PT)
         run.font.color.rgb = RGBColor(*BRAND_RGB)  # type: ignore[no-untyped-call]  # python-pptx ships no stub for RGBColor()
     if lines:
-        box = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(4))
+        box = slide.shapes.add_textbox(
+            Inches(DECK_BODY_LEFT_IN),
+            Inches(DECK_BODY_TOP_IN),
+            Inches(DECK_BODY_WIDTH_IN),
+            Inches(DECK_BODY_HEIGHT_IN),
+        )
         box.text_frame.word_wrap = True
         for index, line in enumerate(lines):
             paragraph = (
