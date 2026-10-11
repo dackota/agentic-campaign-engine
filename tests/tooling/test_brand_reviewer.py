@@ -59,8 +59,8 @@ def test_a_retried_step_shows_one_flag_the_latest() -> None:
     campaign_id = uuid.uuid4()
     with Session(engine) as session, session.begin():
         for reason in ('[{"check": "length", "detail": "old"}]', "[]"):
-            db.add_agent_event(session, campaign_id, "social", db.FLAGGED, "s", reason)
-        db.add_agent_event(session, campaign_id, "one_pager", db.FLAGGED, "s", "[]")
+            db.add_agent_event(session, campaign_id, "social", db.FLAGGED, "s").reason = reason
+        db.add_agent_event(session, campaign_id, "one_pager", db.FLAGGED, "s").reason = "[]"
     with Session(engine) as session:
         flags = db.review_flags(session, campaign_id)
 

@@ -34,6 +34,8 @@ FINISHED = "finished"
 # Run events: one row per step status change; the step "run" carries the final state.
 # A step the brand reviewer gave up on after its fix rounds.
 FLAGGED = "flagged"
+# A step the brand reviewer sent back to its writer for a fix.
+REVIEW_FIX = "review_fix"
 RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
@@ -168,8 +170,10 @@ def add_event(
     step: str,
     status: str,
     reason: str | None = None,
-) -> None:
-    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason))
+) -> RunEvent:
+    event = RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason)
+    session.add(event)
+    return event
 
 
 def add_agent_event(
@@ -178,18 +182,12 @@ def add_agent_event(
     step: str,
     status: str,
     agent_session: str | None,
-    reason: str | None = None,
-) -> None:
-    """A run event for an agent step, tagged with the agent session that ran it."""
-    session.add(
-        RunEvent(
-            campaign_id=campaign_id,
-            step=step,
-            status=status,
-            session=agent_session,
-            reason=reason,
-        )
-    )
+) -> RunEvent:
+    """A run event for an agent step, tagged with the agent session that ran it. The
+    caller may set `reason` on the returned event (a review event carries the issues)."""
+    event = add_event(session, campaign_id, step, status)
+    event.session = agent_session
+    return event
 
 
 def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:

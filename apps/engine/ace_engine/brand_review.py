@@ -5,7 +5,6 @@ MAX_FIX_ROUNDS rounds; what the reviewer still flags after that is left for a hu
 import json
 from typing import Any
 
-from ace_engine import db
 from ace_engine.agent_roles import Role
 from ace_engine.contracts import REPORT_MARKER, violations
 
@@ -13,8 +12,6 @@ MAX_FIX_ROUNDS = 2
 PASS = "pass"
 FIX = "fix"
 # The run event statuses of a review: one per fix sent back, one when the loop gives up.
-REVIEW_FIX_STATUS = "review_fix"
-FLAGGED_STATUS = db.FLAGGED
 
 CHECKS = ("uncited_fact", "banned_claim", "off_brand_word", "length")
 

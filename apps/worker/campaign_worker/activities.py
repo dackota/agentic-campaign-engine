@@ -44,18 +44,6 @@ class ReviewJob:
     context: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class WriterTurn:
-    """What a writer step was asked: the campaign, its report, the step, its role, and what
-    earlier steps produced."""
-
-    campaign_id: str
-    report: str
-    step_id: str
-    role: Role
-    context: dict[str, Any]
-
-
 class Activities:
     def __init__(self, settings: Settings, engine: Engine) -> None:
         self._settings = settings
@@ -74,9 +62,10 @@ class Activities:
                 db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
             else:
                 # An agent step's event carries its session; a review event adds the issues.
-                db.add_agent_event(
-                    session, uuid.UUID(campaign_id), step, status, agent_session, reason
+                event = db.add_agent_event(
+                    session, uuid.UUID(campaign_id), step, status, agent_session
                 )
+                event.reason = reason
 
     @activity.defn
     async def run_agent_step(
@@ -142,7 +131,7 @@ class Activities:
                 break
             issues = verdict.output["issues"]
             is_last = turn == fix_rounds
-            status = brand_review.FLAGGED_STATUS if is_last else brand_review.REVIEW_FIX_STATUS
+            status = db.FLAGGED if is_last else db.REVIEW_FIX
             await asyncio.to_thread(
                 self._record,
                 job.campaign_id,
