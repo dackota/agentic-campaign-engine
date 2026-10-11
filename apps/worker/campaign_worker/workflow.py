@@ -1,9 +1,9 @@
 """The campaign workflow: a thin shell that follows the run's pinned workflow DAG.
 
 Each wave starts every step whose parents have all succeeded, at the same time. Agent
-steps draft the A/B emails, approval steps wait for a human, publish steps send only
-after an approval (the API rejects a workflow where they would not), and wait steps
-sleep."""
+steps run their role's agent and save its output, approval steps wait for a human,
+publish steps send only after an approval (the API rejects a workflow where they would
+not), and wait steps sleep."""
 
 import asyncio
 from datetime import timedelta

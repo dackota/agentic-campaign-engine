@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 from ace_engine import db, invoker
-from ace_engine.agent_roles import EMAIL_ROLE, message_for, role_for
+from ace_engine.agent_roles import message_for, role_for
 from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
@@ -71,7 +71,7 @@ class Activities:
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
         output: Any = replies if role.replies > 1 else replies[0]
-        if step_id == "research":
+        if role.checks_citations:
             problems = citation_problems(output, report)
             if problems:
                 raise ApplicationError(
@@ -93,7 +93,7 @@ class Activities:
                     campaign_id=campaign.id, step=step_id, session=agent_session, output=output
                 )
             )
-            if role_for(step_id) is EMAIL_ROLE:
+            if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
             db.add_event(
                 session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session=agent_session

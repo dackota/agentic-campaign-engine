@@ -91,7 +91,9 @@ def seed_default_workflow(engine: Engine) -> None:
                 )
             )
     except IntegrityError:
-        pass  # another replica seeded it first
+        # Another replica seeded it first; anything else is a real failure.
+        if _find(engine, DEFAULT_WORKFLOW_NAME, DEFAULT_WORKFLOW_VERSION) is None:
+            raise
 
 
 async def latest_version(engine: Engine, name: str) -> db.WorkflowVersion | None:

@@ -7,8 +7,8 @@ from typing import Any
 import jsonschema
 
 _DIR = Path(__file__).parent
-# The worker's email prompt puts the threat report after this marker; the scripted agent
-# reads it back out from there.
+# The worker's prompt for every role puts the threat report after this marker; the
+# scripted agent reads it back out from there.
 REPORT_MARKER = "THREAT REPORT:"
 
 

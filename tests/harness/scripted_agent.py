@@ -3,8 +3,9 @@
 kagent 1.x itself serves gRPC A2A (see docs/sources.md); live depth will need a gRPC
 client. Fast depth only needs the message shape, so this speaks JSON-RPC over HTTP.
 
-By default it answers like an email writer: it reads the threat report out of the
-message and replies with a draft that fits the email contract. A test can queue
+By default it plays the role whose prompt opens the message (strategist, research, a
+writer), or the email writer when none matches: it reads the threat report out of the
+message and replies with output that fits that role's contract. A test can queue
 exact replies with `script()` to play a misbehaving agent.
 """
 
@@ -22,6 +23,7 @@ from fastapi.responses import JSONResponse
 JSONRPC_METHOD_NOT_FOUND = -32601
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
+SOCIAL_POST_CHARS = 280
 # Markers in a threat report steer the default writer, so a browser test can pick a
 # behaviour without access to the agent: hold the reply, or reply with broken JSON.
 SLOW_MARKER = "[agent:slow]"
@@ -134,7 +136,9 @@ def default_reply(message_text: str) -> Any:
                 "call_to_action": "Read the full advisory",
             }
         case "social":
-            return {"posts": [{"channel": "linkedin", "text": _first_line(report)[:280]}]}
+            return {
+                "posts": [{"channel": "linkedin", "text": _first_line(report)[:SOCIAL_POST_CHARS]}]
+            }
         case "one_pager":
             return {
                 "title": _first_line(report),

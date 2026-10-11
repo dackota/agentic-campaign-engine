@@ -2,7 +2,9 @@
 returns), a system prompt, and an AgentTemplate of the same name in agents/templates.yaml
 that runs it at live depth. At fast depth the scripted agent plays every role."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import Any
 
 from ace_engine.contracts import (
@@ -35,10 +37,21 @@ class Role:
     reply_schema: dict[str, Any]
     # How many replies the step collects.
     replies: int = 1
+    # Whether the output's facts must cite lines of the report.
+    checks_citations: bool = False
+    # Whether the output is the campaign's email draft and its A/B variant.
+    writes_draft: bool = False
 
 
-def _role(step_id: str, template: str, prompt: str, schema: dict[str, Any]) -> Role:
-    return Role(step_id, template, prompt, schema, schema)
+def _role(
+    step_id: str,
+    template: str,
+    prompt: str,
+    schema: dict[str, Any],
+    *,
+    checks_citations: bool = False,
+) -> Role:
+    return Role(step_id, template, prompt, schema, schema, checks_citations=checks_citations)
 
 
 EMAIL_ROLE = Role(
@@ -56,52 +69,56 @@ EMAIL_ROLE = Role(
     },
     reply_schema=EMAIL_DRAFT_SCHEMA,
     replies=EMAIL_VARIANTS,
+    writes_draft=True,
 )
 
-ROLES: dict[str, Role] = {
-    r.step_id: r
-    for r in (
-        _role(
-            "strategist",
-            "ace-strategist",
-            "You are the campaign strategist. Read the threat report and decide who to reach "
-            f"and with what angle. {_JSON_ONLY} the keys audience, angle, key_messages "
-            "(a list of strings).",
-            STRATEGY_SCHEMA,
-        ),
-        _role(
-            "research",
-            "ace-research",
-            "You are the research agent. Pull the facts out of the threat report. Number its "
-            "lines from 1. Every fact must cite the line it comes from and quote that text "
-            f"exactly. {_JSON_ONLY} the key facts: a list of objects with the keys claim, "
-            "line, quote.",
-            RESEARCH_SCHEMA,
-        ),
-        EMAIL_ROLE,
-        _role(
-            "landing_page",
-            "ace-landing-page-writer",
-            "You are the landing page writer. Turn the strategy and research into a landing "
-            f"page. {_JSON_ONLY} the keys headline, subheadline, body, call_to_action.",
-            LANDING_PAGE_SCHEMA,
-        ),
-        _role(
-            "social",
-            "ace-social-writer",
-            "You are the social writer. Turn the strategy and research into social posts. "
-            f"{_JSON_ONLY} the key posts: a list of objects with the keys channel, text.",
-            SOCIAL_POSTS_SCHEMA,
-        ),
-        _role(
-            "one_pager",
-            "ace-one-pager-writer",
-            "You are the one-pager writer. Turn the strategy and research into a one-page "
-            f"brief. {_JSON_ONLY} the keys title, summary, bullets (a list of strings).",
-            ONE_PAGER_SCHEMA,
-        ),
-    )
-}
+ROLES: Mapping[str, Role] = MappingProxyType(
+    {
+        r.step_id: r
+        for r in (
+            _role(
+                "strategist",
+                "ace-strategist",
+                "You are the campaign strategist. Read the threat report and decide who to reach "
+                f"and with what angle. {_JSON_ONLY} the keys audience, angle, key_messages "
+                "(a list of strings).",
+                STRATEGY_SCHEMA,
+            ),
+            _role(
+                "research",
+                "ace-research",
+                "You are the research agent. Pull the facts out of the threat report. Number its "
+                "lines from 1. Every fact must cite the line it comes from and quote that text "
+                f"exactly. {_JSON_ONLY} the key facts: a list of objects with the keys claim, "
+                "line, quote.",
+                RESEARCH_SCHEMA,
+                checks_citations=True,
+            ),
+            EMAIL_ROLE,
+            _role(
+                "landing_page",
+                "ace-landing-page-writer",
+                "You are the landing page writer. Turn the strategy and research into a landing "
+                f"page. {_JSON_ONLY} the keys headline, subheadline, body, call_to_action.",
+                LANDING_PAGE_SCHEMA,
+            ),
+            _role(
+                "social",
+                "ace-social-writer",
+                "You are the social writer. Turn the strategy and research into social posts. "
+                f"{_JSON_ONLY} the key posts: a list of objects with the keys channel, text.",
+                SOCIAL_POSTS_SCHEMA,
+            ),
+            _role(
+                "one_pager",
+                "ace-one-pager-writer",
+                "You are the one-pager writer. Turn the strategy and research into a one-page "
+                f"brief. {_JSON_ONLY} the keys title, summary, bullets (a list of strings).",
+                ONE_PAGER_SCHEMA,
+            ),
+        )
+    }
+)
 
 
 def role_for(step_id: str) -> Role:
