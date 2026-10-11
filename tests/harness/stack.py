@@ -12,7 +12,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import uvicorn
@@ -106,6 +106,25 @@ class Stack:
             timeout=10,
         )
         assert response.status_code == 204, response.text
+
+    def marketo_audience(self, *, seed: int, time_speed: float) -> None:
+        """Set the simulated audience's seed and its time speed (simulated seconds per
+        real second) for the sends that follow."""
+        response = httpx.put(
+            f"{self.marketo_url}/_audience",
+            json={"seed": seed, "time_speed": time_speed},
+            timeout=10,
+        )
+        assert response.status_code == 204, response.text
+
+    def marketo_planned_events(self, campaign_id: str) -> list[dict[str, Any]]:
+        """Every open and click the fake planned for this campaign, in simulated order."""
+        response = httpx.get(
+            f"{self.marketo_url}/_audience/events", params={"externalId": campaign_id}, timeout=10
+        )
+        assert response.status_code == 200, response.text
+        events: list[dict[str, Any]] = response.json()
+        return events
 
     def restart_worker(self) -> None:
         """Stop the worker and start a fresh one; the workflow resumes by replay."""

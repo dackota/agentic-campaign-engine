@@ -12,6 +12,13 @@ Fake third-party services. Later tickets add more.
   `GET /rest/asset/v1/programs.json?externalId=` shows programs and their sends, so a test
   can check a send from the outside. The client id, secret, and webhook key come from
   `MarketoConfig`, never from code.
+
+  After the first send, a simulated audience (`audience.py`) opens and clicks. Seeded
+  personas score each variant by a hidden rule, so the same seed always gives the same
+  events. Each event posts as a signed `open` or `click` activity once its simulated time,
+  divided by the time speed, has passed. `PUT /_audience {seed, time_speed}` sets both for
+  the sends that follow; `GET /_audience/events?externalId=` shows what was planned. The
+  Campaign API's `GET /campaigns/{id}` shows `engagement` as opens and clicks per variant.
 - `fake_workfront`: a Workfront shaped like its REST API. `POST /oauth2/token` swaps OAuth2
   client credentials for a bearer token; every `/attask/api/v15.0/...` call without one is a
   401. `POST /proj`, `/task`, and `/appr` make projects, tasks, and approvals, idempotent per
