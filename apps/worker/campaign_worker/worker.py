@@ -32,6 +32,8 @@ def build_worker(
             activities.finish_run,
             activities.send_email,
             activities.mark_sent,
+            activities.announce_approval,
+            activities.announce_published,
             activities.publish_content,
         ],
         activity_executor=executor,

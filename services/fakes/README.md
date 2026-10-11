@@ -35,3 +35,15 @@ Fake third-party services. Later tickets add more.
   `externalID` as `campaignId`. The client id, secret, and webhook key come from
   `WorkfrontConfig` (`ACE_WORKFRONT_*`), never from code. The chart does not deploy it yet;
   the worker and API publish to it only when `ACE_WORKFRONT_URL` is set.
+- `fake_slack`: a Slack with `POST /chat.postMessage` (bearer token, `channel` and `text`).
+  A wrong token gets `{"ok": false, "error": "invalid_auth"}`. `GET /_messages` lists what it
+  received. The token comes from `SlackConfig`, never from code.
+- `fake_google`: a Google OAuth and Docs API. `POST /token` swaps the refresh token for an
+  access token; `POST /v1/documents` creates a document and
+  `POST /v1/documents/{id}:batchUpdate` inserts text. `GET /_documents` lists the documents
+  with their text.
+
+Slack and Google Docs are off unless `ACE_SLACK_TOKEN` with `ACE_SLACK_CHANNEL`, or the
+`ACE_GOOGLE_CLIENT_ID`, `ACE_GOOGLE_CLIENT_SECRET`, and `ACE_GOOGLE_REFRESH_TOKEN` triple, are
+set. `ACE_SLACK_URL`, `ACE_GOOGLE_TOKEN_URL`, and `ACE_GOOGLE_DOCS_URL` point them at these
+stand-ins.
