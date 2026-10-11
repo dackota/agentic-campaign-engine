@@ -1,6 +1,9 @@
 """The brand reviewer: its AgentTemplate, its contract, and what it is sent."""
 
+import uuid
+
 import jsonschema
+from ace_engine import db
 from ace_engine.brand_review import (
     BRAND_REVIEWER,
     CHECKS,
@@ -10,6 +13,7 @@ from ace_engine.brand_review import (
     verdict_problems,
 )
 from ace_engine.contracts import REPORT_MARKER
+from sqlalchemy.orm import Session
 
 from tests.tooling.gateway_files import ROOT, yaml_docs
 
@@ -48,3 +52,16 @@ def test_a_verdict_must_fit_the_contract() -> None:
     assert verdict_problems({"verdict": "pass", "issues": []}) == []
     assert verdict_problems({"verdict": "fix", "issues": []})
     assert verdict_problems({"verdict": "maybe", "issues": []})
+
+
+def test_a_retried_step_shows_one_flag_the_latest() -> None:
+    engine = db.make_engine("sqlite://")
+    campaign_id = uuid.uuid4()
+    with Session(engine) as session, session.begin():
+        for reason in ('[{"check": "length", "detail": "old"}]', "[]"):
+            db.add_agent_event(session, campaign_id, "social", db.FLAGGED, "s", reason)
+        db.add_agent_event(session, campaign_id, "one_pager", db.FLAGGED, "s", "[]")
+    with Session(engine) as session:
+        flags = db.review_flags(session, campaign_id)
+
+    assert [(f.step, f.reason) for f in flags] == [("social", "[]"), ("one_pager", "[]")]

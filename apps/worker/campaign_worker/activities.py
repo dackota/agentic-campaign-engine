@@ -49,8 +49,10 @@ class Activities:
             if agent_session is None:
                 db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
             else:
-                # Agent steps carry a session and never a reason.
-                db.add_agent_event(session, uuid.UUID(campaign_id), step, status, agent_session)
+                # An agent step's event carries its session; a review event adds the issues.
+                db.add_agent_event(
+                    session, uuid.UUID(campaign_id), step, status, agent_session, reason
+                )
 
     @activity.defn
     async def run_agent_step(
@@ -128,50 +130,53 @@ class Activities:
                 turn=turn,
             )
             if verdict.output["verdict"] == brand_review.PASS:
-                return output
+                break
             issues = verdict.output["issues"]
-            reason = json.dumps(issues)
-            if turn == fix_rounds:
-                await asyncio.to_thread(
-                    self._record_review,
-                    campaign_id,
-                    step_id,
-                    brand_review.FLAGGED_STATUS,
-                    reason,
-                    writer_session,
-                )
-                return output
+            is_last = turn == fix_rounds
+            status = brand_review.FLAGGED_STATUS if is_last else brand_review.REVIEW_FIX_STATUS
             await asyncio.to_thread(
-                self._record_review,
+                self._record,
                 campaign_id,
                 step_id,
-                brand_review.REVIEW_FIX_STATUS,
-                reason,
+                status,
+                json.dumps(issues),
                 writer_session,
             )
-            fixes = [
-                (
-                    await invoker.invoke(
-                        client,
-                        self._settings.agent_url,
-                        session_key=session_key(campaign_id, step_id, variant),
-                        prompt=brand_review.fix_message(
-                            message_for(role, report, context, variant), issues
-                        ),
-                        schema=role.reply_schema,
-                        turn=turn + 1,
-                    )
-                ).output
-                for variant in range(role.replies)
-            ]
-            output = fixes if role.replies > 1 else fixes[0]
+            if is_last:
+                break
+            output = await self._send_fixes(
+                client, campaign_id, report, step_id, role, context, issues, turn + 1
+            )
         return output
 
-    def _record_review(
-        self, campaign_id: str, step: str, status: str, reason: str, agent_session: str
-    ) -> None:
-        with Session(self._engine) as session, session.begin():
-            db.add_agent_event(session, uuid.UUID(campaign_id), step, status, agent_session, reason)
+    async def _send_fixes(
+        self,
+        client: httpx.AsyncClient,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        role: Role,
+        context: dict[str, Any],
+        issues: list[dict[str, Any]],
+        turn: int,
+    ) -> Any:
+        """Send the reviewer's issues back to each of the writer's sessions; the new output."""
+        fixes = [
+            (
+                await invoker.invoke(
+                    client,
+                    self._settings.agent_url,
+                    session_key=session_key(campaign_id, step_id, variant),
+                    prompt=brand_review.fix_message(
+                        message_for(role, report, context, variant), issues
+                    ),
+                    schema=role.reply_schema,
+                    turn=turn,
+                )
+            ).output
+            for variant in range(role.replies)
+        ]
+        return fixes if role.replies > 1 else fixes[0]
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:

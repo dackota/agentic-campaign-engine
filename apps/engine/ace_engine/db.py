@@ -216,14 +216,15 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
 
 
 def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
-    """The events where a reviewer gave up on a step and flagged it for a human."""
-    return list(
-        session.scalars(
-            select(RunEvent)
-            .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
-            .order_by(RunEvent.seq)
-        )
+    """The events where a reviewer gave up on a step and flagged it for a human: the latest
+    one per step, so a retried step shows one flag."""
+    events = session.scalars(
+        select(RunEvent)
+        .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
+        .order_by(RunEvent.seq)
     )
+    latest = {e.step: e for e in events}
+    return sorted(latest.values(), key=lambda e: e.seq)
 
 
 def save_receipt(
