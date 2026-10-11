@@ -247,7 +247,7 @@ class CampaignWorkflow:
         try:
             result = await workflow.execute_activity(
                 "run_agent_step",
-                args=[campaign_id, report, step_id, context],
+                args=[campaign_id, report, step_id, context, step.get("review_rounds", 0)],
                 start_to_close_timeout=policy.timeout,
                 retry_policy=policy.retry_policy(),
             )

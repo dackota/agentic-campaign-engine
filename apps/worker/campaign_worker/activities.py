@@ -1,13 +1,14 @@
 """Activities: the side-effecting steps the campaign workflow runs."""
 
 import asyncio
+import json
 import uuid
 from typing import Any
 
 import httpx
+from ace_engine import brand_review, db, invoker
 from ace_engine import dag as graph
-from ace_engine import db, invoker
-from ace_engine.agent_roles import message_for, role_for
+from ace_engine.agent_roles import Role, message_for, role_for
 from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
@@ -53,10 +54,17 @@ class Activities:
 
     @activity.defn
     async def run_agent_step(
-        self, campaign_id: str, report: str, step_id: str, context: dict[str, Any]
+        self,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        context: dict[str, Any],
+        review_rounds: int = 0,
     ) -> dict[str, Any]:
         """Ask the step's agent, each reply in its own session. `context` holds what the
-        steps before this one produced. Returns the output and the step's session."""
+        steps before this one produced. With `review_rounds`, the brand reviewer checks the
+        draft and fixes go back to the same sessions. Returns the output and the step's
+        session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
@@ -74,11 +82,15 @@ class Activities:
                     ).output
                     for variant in range(role.replies)
                 ]
+                output: Any = replies if role.replies > 1 else replies[0]
+                if review_rounds > 0:
+                    output = await self._review_loop(
+                        client, campaign_id, report, step_id, role, context, output, review_rounds
+                    )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        output: Any = replies if role.replies > 1 else replies[0]
         if role.checks_citations:
             problems = citation_problems(output, report)
             if problems:
@@ -88,6 +100,78 @@ class Activities:
                     non_retryable=True,
                 )
         return {"output": output, "session": session}
+
+    async def _review_loop(
+        self,
+        client: httpx.AsyncClient,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        role: Role,
+        context: dict[str, Any],
+        output: Any,
+        review_rounds: int,
+    ) -> Any:
+        """Send the draft to the brand reviewer; on a fix verdict send the issues back to
+        the same writer sessions, for at most `review_rounds` rounds (never more than the
+        limit). What the reviewer still flags after the last round is flagged for a human."""
+        writer_session = session_key(campaign_id, step_id)
+        reviewer_session = f"{graph.step_key(campaign_id, step_id)}:review"
+        fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
+        for turn in range(fix_rounds + 1):
+            verdict = await invoker.invoke(
+                client,
+                self._settings.agent_url,
+                session_key=reviewer_session,
+                prompt=brand_review.review_message(output, context, report),
+                schema=brand_review.VERDICT_SCHEMA,
+                turn=turn,
+            )
+            if verdict.output["verdict"] == brand_review.PASS:
+                return output
+            issues = verdict.output["issues"]
+            reason = json.dumps(issues)
+            if turn == fix_rounds:
+                await asyncio.to_thread(
+                    self._record_review,
+                    campaign_id,
+                    step_id,
+                    brand_review.FLAGGED_STATUS,
+                    reason,
+                    writer_session,
+                )
+                return output
+            await asyncio.to_thread(
+                self._record_review,
+                campaign_id,
+                step_id,
+                brand_review.REVIEW_FIX_STATUS,
+                reason,
+                writer_session,
+            )
+            fixes = [
+                (
+                    await invoker.invoke(
+                        client,
+                        self._settings.agent_url,
+                        session_key=session_key(campaign_id, step_id, variant),
+                        prompt=brand_review.fix_message(
+                            message_for(role, report, context, variant), issues
+                        ),
+                        schema=role.reply_schema,
+                        turn=turn + 1,
+                    )
+                ).output
+                for variant in range(role.replies)
+            ]
+            output = fixes if role.replies > 1 else fixes[0]
+        return output
+
+    def _record_review(
+        self, campaign_id: str, step: str, status: str, reason: str, agent_session: str
+    ) -> None:
+        with Session(self._engine) as session, session.begin():
+            db.add_agent_event(session, uuid.UUID(campaign_id), step, status, agent_session, reason)
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:

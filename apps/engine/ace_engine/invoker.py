@@ -96,9 +96,13 @@ async def invoke(
     session_key: str,
     prompt: str,
     schema: dict[str, Any],
+    turn: int = 0,
 ) -> Invocation:
+    """Ask in the session `session_key`. A later `turn` in the same session (a fix the
+    reviewer asked for) gets message ids of its own."""
     session_id = session_key
-    result = await _send(client, agent_url, session_id, f"{session_key}:1", prompt)
+    prefix = session_key if turn == 0 else f"{session_key}:r{turn}"
+    result = await _send(client, agent_url, session_id, f"{prefix}:1", prompt)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:
         repair = (
@@ -106,7 +110,7 @@ async def invoke(
             + "; ".join(problems)
             + ". Reply again with only the corrected JSON."
         )
-        result = await _send(client, agent_url, session_id, f"{session_key}:2", repair)
+        result = await _send(client, agent_url, session_id, f"{prefix}:2", repair)
         output, problems = _parse(_reply_text(result), schema)
     if output is None:
         raise AgentOutputInvalid(

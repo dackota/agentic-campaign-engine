@@ -17,6 +17,7 @@ import uuid
 from typing import Any
 
 from ace_engine.agent_roles import ROLES
+from ace_engine.brand_review import BRAND_REVIEWER
 from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -147,6 +148,8 @@ def _report_of(message_text: str) -> str:
 def default_reply(message_text: str) -> Any:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
+    if BRAND_REVIEWER.prompt in message_text:
+        return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)
     match role.step_id if role else "email_writer":

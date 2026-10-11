@@ -32,6 +32,8 @@ RETRYING = "retrying"
 FINISHED = "finished"
 
 # Run events: one row per step status change; the step "run" carries the final state.
+# A step the brand reviewer gave up on after its fix rounds.
+FLAGGED = "flagged"
 RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
@@ -176,9 +178,18 @@ def add_agent_event(
     step: str,
     status: str,
     agent_session: str | None,
+    reason: str | None = None,
 ) -> None:
     """A run event for an agent step, tagged with the agent session that ran it."""
-    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session))
+    session.add(
+        RunEvent(
+            campaign_id=campaign_id,
+            step=step,
+            status=status,
+            session=agent_session,
+            reason=reason,
+        )
+    )
 
 
 def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
@@ -202,6 +213,17 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
                 .order_by(RunEvent.seq)
             )
         )
+
+
+def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
+    """The events where a reviewer gave up on a step and flagged it for a human."""
+    return list(
+        session.scalars(
+            select(RunEvent)
+            .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
+            .order_by(RunEvent.seq)
+        )
+    )
 
 
 def save_receipt(

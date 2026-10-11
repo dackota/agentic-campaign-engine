@@ -69,6 +69,13 @@ class ReceiptOut(BaseModel):
     url: str
 
 
+class FlagOut(BaseModel):
+    """A step the brand reviewer could not fix in its rounds, left for a human."""
+
+    step: str
+    issues: list[dict[str, Any]]
+
+
 class CampaignOut(BaseModel):
     id: uuid.UUID
     report: str
@@ -87,6 +94,8 @@ class CampaignOut(BaseModel):
     steps: list[dict[str, Any]]
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    # What the brand reviewer still flags after its fix rounds, by step.
+    flags: list[FlagOut] = Field(default_factory=list)
 
     @classmethod
     def of(
@@ -95,6 +104,7 @@ class CampaignOut(BaseModel):
         receipts: list[db.Receipt],
         task_status: str | None,
         engagement: dict[str, dict[str, int]] | None = None,
+        flags: list[FlagOut] | None = None,
     ) -> "CampaignOut":
         return cls(
             id=c.id,
@@ -117,6 +127,7 @@ class CampaignOut(BaseModel):
                 for s in graph.ordered(c.dag)
             ],
             engagement=engagement or {},
+            flags=flags or [],
         )
 
 
@@ -200,6 +211,10 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
             receipts.get(campaign_id, []),
             statuses.get(campaign_id),
             engagement_by_variant(session, campaign_id),
+            [
+                FlagOut(step=e.step, issues=json.loads(e.reason or "[]"))
+                for e in db.review_flags(session, campaign_id)
+            ],
         )
 
 
