@@ -46,6 +46,8 @@ MAX_SCRIPTED_FACTS = 3
 SERVICE = "scripted-agent"
 MODEL_NAME = "scripted-model"
 TOOL_NAME = "read_report"
+# What every scripted reply reports it used, as kagent reports usage in task metadata.
+SCRIPTED_USAGE = {"input_tokens": 120, "output_tokens": 45}
 
 
 class ScriptedAgent:
@@ -140,6 +142,7 @@ class ScriptedAgent:
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
                 "status": {"state": "completed"},
+                "metadata": {"usage": SCRIPTED_USAGE},
                 "artifacts": [
                     {
                         "artifactId": str(uuid.uuid4()),
