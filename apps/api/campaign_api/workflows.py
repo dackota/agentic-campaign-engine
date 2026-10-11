@@ -106,7 +106,9 @@ def register_workflow_routes(app: FastAPI) -> None:
         try:
             instance = _parse(await request.body())
         except HTTPException as exc:
-            return ValidationOut(rejections=[RejectionOut(**r) for r in exc.detail])
+            detail = exc.detail
+            assert isinstance(detail, list)
+            return ValidationOut(rejections=[RejectionOut(**r) for r in detail])
         return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in validate(instance)])
 
     @app.get("/workflows/{name}/versions")
