@@ -106,6 +106,36 @@ class Activity(Base):
     )
 
 
+class Receipt(Base):
+    """What a publish target gave back for a campaign: its id and a link, once per target."""
+
+    __tablename__ = "receipts"
+    __table_args__ = (UniqueConstraint("campaign_id", "target"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    target: Mapped[str] = mapped_column(String(40))
+    receipt_id: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(Text)
+
+
+class TaskStatusEvent(Base):
+    """One status webhook for a campaign's task, recorded once per (source, event id)."""
+
+    __tablename__ = "task_status_events"
+    __table_args__ = (UniqueConstraint("source", "event_id"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40))
+    event_id: Mapped[str] = mapped_column(String(200))
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(40))
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 def add_event(
     session: Session, campaign_id: uuid.UUID, step: str, status: str, reason: str | None = None
 ) -> None:
@@ -123,10 +153,42 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
         )
 
 
-def list_campaigns(engine: Engine) -> list[Campaign]:
+def save_receipt(
+    engine: Engine, campaign_id: uuid.UUID, target: str, receipt_id: str, url: str
+) -> None:
+    """Keep the target's receipt for the campaign; a retried publish writes it only once."""
+    with Session(engine) as session, session.begin():
+        found = session.scalar(
+            select(Receipt).where(Receipt.campaign_id == campaign_id, Receipt.target == target)
+        )
+        if found is None:
+            session.add(
+                Receipt(campaign_id=campaign_id, target=target, receipt_id=receipt_id, url=url)
+            )
+        else:
+            found.receipt_id, found.url = receipt_id, url
+
+
+def receipts_of(session: Session, campaign_id: uuid.UUID) -> list[Receipt]:
+    return list(
+        session.scalars(
+            select(Receipt).where(Receipt.campaign_id == campaign_id).order_by(Receipt.seq)
+        )
+    )
+
+
+def latest_task_status(session: Session, campaign_id: uuid.UUID) -> str | None:
+    return session.scalar(
+        select(TaskStatusEvent.status)
+        .where(TaskStatusEvent.campaign_id == campaign_id)
+        .order_by(TaskStatusEvent.seq.desc())
+        .limit(1)
+    )
+
+
+def list_campaigns(session: Session) -> list[Campaign]:
     """Every campaign, newest first."""
-    with Session(engine) as session:
-        return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
+    return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
 
 
 def make_engine(database_url: str) -> Engine:

@@ -25,7 +25,12 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
-from campaign_api.webhook_routes import ActivityOut, activities, register_webhook_routes
+from campaign_api.webhook_routes import (
+    ActivityOut,
+    activities,
+    register_webhook_routes,
+    register_workfront_routes,
+)
 from campaign_api.workflows import NAME_PATTERN, latest_version, register_workflow_routes
 
 MAX_REPORT_CHARS = 100_000
@@ -46,6 +51,12 @@ class NewCampaign(BaseModel):
             raise ValueError("report must not be blank")
 
 
+class ReceiptOut(BaseModel):
+    target: str
+    receipt_id: str
+    url: str
+
+
 class CampaignOut(BaseModel):
     id: uuid.UUID
     report: str
@@ -56,12 +67,18 @@ class CampaignOut(BaseModel):
     variant_b: dict[str, Any] | None
     failure_reason: str | None
     receipt: str | None
+    # One receipt per publish target; `task_status` is the Workfront task's latest status.
+    receipts: list[ReceiptOut]
+    task_status: str | None
     workflow: str | None
     workflow_version: int | None
     steps: list[dict[str, Any]]
 
     @classmethod
-    def of(cls, c: db.Campaign) -> "CampaignOut":
+    def of(cls, c: db.Campaign, session: Session | None = None) -> "CampaignOut":
+        """The campaign as the API shows it; with a session, its receipts and task status."""
+        receipts = [] if session is None else db.receipts_of(session, c.id)
+        task_status = None if session is None else db.latest_task_status(session, c.id)
         return cls(
             id=c.id,
             report=c.report,
@@ -72,6 +89,10 @@ class CampaignOut(BaseModel):
             variant_b=c.variant_b,
             failure_reason=c.failure_reason,
             receipt=c.receipt,
+            receipts=[
+                ReceiptOut(target=r.target, receipt_id=r.receipt_id, url=r.url) for r in receipts
+            ],
+            task_status=task_status,
             workflow=c.workflow_name,
             workflow_version=c.workflow_version,
             steps=graph.ordered(c.dag),
@@ -93,7 +114,8 @@ def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
 
 
 def _list(engine: Engine) -> list[CampaignOut]:
-    return [CampaignOut.of(c) for c in db.list_campaigns(engine)]
+    with Session(engine) as session:
+        return [CampaignOut.of(c, session) for c in db.list_campaigns(session)]
 
 
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
@@ -120,7 +142,7 @@ def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -
 def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
     with Session(engine) as session:
         campaign = session.get(db.Campaign, campaign_id)
-        return None if campaign is None else CampaignOut.of(campaign)
+        return None if campaign is None else CampaignOut.of(campaign, session)
 
 
 async def _found(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
@@ -198,6 +220,8 @@ def _add_event_routes(app: FastAPI) -> None:
 
 def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
     register_webhook_routes(app, settings.marketo_webhook_secret)
+    if settings.has_workfront:
+        register_workfront_routes(app, settings.workfront_webhook_secret)
 
     @app.get("/campaigns/{campaign_id}/activity")
     async def campaign_activity(

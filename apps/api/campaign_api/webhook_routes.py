@@ -1,4 +1,5 @@
-"""The Marketo activity webhook: verified, size-capped, and recorded once per event id."""
+"""The signed webhooks of the marketing systems (Marketo activity, Workfront task status):
+each is verified, size-capped, and recorded once per event id."""
 
 import uuid
 from typing import Literal
@@ -12,6 +13,10 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 MARKETO_SOURCE = "marketo"
+WORKFRONT_SOURCE = "workfront"
+WORKFRONT_SIGNATURE_HEADER = "X-Workfront-Signature"
+WORKFRONT_TIMESTAMP_HEADER = "X-Workfront-Timestamp"
+MAX_STATUS_CHARS = 40
 MAX_WEBHOOK_BYTES = 64 * 1024
 MAX_EVENT_ID_CHARS = 200
 
@@ -23,6 +28,15 @@ class ActivityEvent(BaseModel):
     type: Literal["send", "open", "click", "bounce", "unsubscribe"]
     campaignId: uuid.UUID = Field(strict=False)  # noqa: N815 (Marketo's name)
     variant: Literal["A", "B"]
+
+
+class TaskStatusEvent(BaseModel):
+    model_config = ConfigDict(strict=True)
+
+    id: str = Field(min_length=1, max_length=MAX_EVENT_ID_CHARS)
+    taskID: str = Field(min_length=1, max_length=MAX_EVENT_ID_CHARS)  # noqa: N815
+    campaignId: uuid.UUID = Field(strict=False)  # noqa: N815 (the fake's name)
+    status: str = Field(min_length=1, max_length=MAX_STATUS_CHARS)
 
 
 class ActivityOut(BaseModel):
@@ -65,6 +79,27 @@ def _record(engine: Engine, event: ActivityEvent) -> None:
             raise HTTPException(status_code=409, detail="webhook id was already received") from None
 
 
+def _record_task_status(engine: Engine, event: TaskStatusEvent) -> None:
+    """Store the status change once; 422 for an unknown campaign, 409 for a replayed id."""
+    with Session(engine) as session:
+        if session.get(db.Campaign, event.campaignId) is None:
+            raise HTTPException(status_code=422, detail="webhook names an unknown campaign")
+        session.add(
+            db.TaskStatusEvent(
+                source=WORKFRONT_SOURCE,
+                event_id=event.id,
+                campaign_id=event.campaignId,
+                task_id=event.taskID,
+                status=event.status,
+            )
+        )
+        try:
+            session.commit()
+        except IntegrityError:
+            session.rollback()
+            raise HTTPException(status_code=409, detail="webhook id was already received") from None
+
+
 def activities(engine: Engine, campaign_id: uuid.UUID) -> list[ActivityOut]:
     with Session(engine) as session:
         rows = (
@@ -89,4 +124,29 @@ def register_webhook_routes(app: FastAPI, secret: str) -> None:
                 detail=f"webhook body is not an activity: {exc.error_count()} errors",
             ) from None
         await run_in_threadpool(_record, request.app.state.engine, event)
+        return {"id": event.id}
+
+
+def register_workfront_routes(app: FastAPI, secret: str) -> None:
+    @app.post("/webhooks/workfront", status_code=202)
+    async def workfront_webhook(request: Request) -> dict[str, str]:
+        body = await _capped_body(request)
+        try:
+            webhooks.verify(
+                request.headers,
+                body,
+                secret,
+                signature_header=WORKFRONT_SIGNATURE_HEADER,
+                timestamp_header=WORKFRONT_TIMESTAMP_HEADER,
+            )
+        except webhooks.WebhookRejected as exc:
+            raise HTTPException(status_code=401, detail=str(exc)) from None
+        try:
+            event = TaskStatusEvent.model_validate_json(body)
+        except ValidationError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=f"webhook body is not a task status: {exc.error_count()} errors",
+            ) from None
+        await run_in_threadpool(_record_task_status, request.app.state.engine, event)
         return {"id": event.id}

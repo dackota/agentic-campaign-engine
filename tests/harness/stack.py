@@ -1,6 +1,6 @@
 """Seam 1 harness: real Postgres, Dex with the demo users, Temporal's time-skipping test
-server, the scripted A2A agent, the worker, and the Campaign API, started together on
-free local ports.
+server, the scripted A2A agent, the fake Marketo, the fake Workfront, the worker, and the
+Campaign API, started together on free local ports.
 
 One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. Live depth
 is wired in a later ticket, so starting a live stack raises.
@@ -56,11 +56,15 @@ class Stack:
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        self.workfront_port = free_port()
         self.dex = Dex(dex_port or free_port(), web_origin)
         # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
         self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
         self.marketo_client_secret = secrets.token_urlsafe(24)
         self.marketo_webhook_secret = secrets.token_urlsafe(24)
+        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
+        self.workfront_client_secret = secrets.token_urlsafe(24)
+        self.workfront_webhook_secret = secrets.token_urlsafe(24)
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -77,6 +81,10 @@ class Stack:
     @property
     def marketo_url(self) -> str:
         return f"http://127.0.0.1:{self.marketo_port}"
+
+    @property
+    def workfront_url(self) -> str:
+        return f"http://127.0.0.1:{self.workfront_port}"
 
     def marketo_malformed_reply(self, is_malformed: bool) -> None:
         """Make the fake Marketo answer sends with a reply that has no receipt id."""
@@ -172,6 +180,10 @@ class Stack:
                 marketo_client_id=self.marketo_client_id,
                 marketo_client_secret=self.marketo_client_secret,
                 marketo_webhook_secret=self.marketo_webhook_secret,
+                workfront_url=self.workfront_url,
+                workfront_client_id=self.workfront_client_id,
+                workfront_client_secret=self.workfront_client_secret,
+                workfront_webhook_secret=self.workfront_webhook_secret,
             )
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
@@ -188,6 +200,8 @@ class Stack:
         from campaign_api.main import create_app
         from fake_marketo.app import MarketoConfig
         from fake_marketo.app import create_app as create_marketo
+        from fake_workfront.app import WorkfrontConfig
+        from fake_workfront.app import create_app as create_workfront
 
         marketo = MarketoConfig(
             client_id=self.marketo_client_id,
@@ -195,9 +209,16 @@ class Stack:
             webhook_url=f"{self.api_url}/webhooks/marketo",
             webhook_secret=self.marketo_webhook_secret,
         )
+        workfront = WorkfrontConfig(
+            client_id=self.workfront_client_id,
+            client_secret=self.workfront_client_secret,
+            webhook_url=f"{self.api_url}/webhooks/workfront",
+            webhook_secret=self.workfront_webhook_secret,
+        )
         apps = [
             (self.agent.app, agent_port),
             (create_marketo(marketo), self.marketo_port),
+            (create_workfront(workfront), self.workfront_port),
             (create_app(settings), self.api_port),
         ]
         return [

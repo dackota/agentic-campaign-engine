@@ -22,10 +22,19 @@ class WebhookRejected(Exception):
     """The webhook is not from the sender, or not fresh. The message says which."""
 
 
-def verify(headers: Mapping[str, str], body: bytes, secret: str, now: float | None = None) -> None:
-    """Return when the body is signed with `secret` and fresh; raise WebhookRejected if not."""
-    stamp = headers.get(TIMESTAMP_HEADER, "")
-    signature = headers.get(SIGNATURE_HEADER, "")
+def verify(
+    headers: Mapping[str, str],
+    body: bytes,
+    secret: str,
+    now: float | None = None,
+    *,
+    signature_header: str = SIGNATURE_HEADER,
+    timestamp_header: str = TIMESTAMP_HEADER,
+) -> None:
+    """Return when the body is signed with `secret` and fresh; raise WebhookRejected if not.
+    The header names default to Marketo's; another sender names its own."""
+    stamp = headers.get(timestamp_header, "")
+    signature = headers.get(signature_header, "")
     if not (stamp.isascii() and stamp.isdigit()) or len(stamp) > MAX_TIMESTAMP_DIGITS:
         raise WebhookRejected("missing or malformed timestamp")
     if not signature.startswith(SIGNATURE_PREFIX):
