@@ -174,9 +174,7 @@ def add_agent_event(
     agent_session: str | None,
 ) -> None:
     """A run event for an agent step, tagged with the agent session that ran it."""
-    session.add(
-        RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session)
-    )
+    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session))
 
 
 def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
