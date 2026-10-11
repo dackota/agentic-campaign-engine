@@ -90,18 +90,21 @@ async def _send(
     return result
 
 
-async def invoke(
-    client: httpx.AsyncClient,
-    agent_url: str,
-    session_key: str,
-    prompt: str,
-    schema: dict[str, Any],
-    turn: int = 0,
-) -> Invocation:
-    """Ask in the session `session_key`. A later `turn` in the same session (a fix the
-    reviewer asked for) gets message ids of its own."""
-    session_id = session_key
-    prefix = session_key if turn == 0 else f"{session_key}:r{turn}"
+@dataclass(frozen=True)
+class AgentCall:
+    """One question to an agent. A later `turn` in the same session (a fix the reviewer
+    asked for) gets message ids of its own."""
+
+    session_key: str
+    prompt: str
+    schema: dict[str, Any]
+    turn: int = 0
+
+
+async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> Invocation:
+    """Ask in the session `call.session_key`."""
+    session_id, prompt, schema = call.session_key, call.prompt, call.schema
+    prefix = session_id if call.turn == 0 else f"{session_id}:r{call.turn}"
     result = await _send(client, agent_url, session_id, f"{prefix}:1", prompt)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:

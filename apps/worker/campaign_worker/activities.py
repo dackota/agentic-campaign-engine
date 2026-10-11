@@ -3,6 +3,7 @@
 import asyncio
 import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
@@ -30,6 +31,29 @@ AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     suffix = "" if variant == 0 else f":v{variant}"
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
+
+
+@dataclass(frozen=True)
+class ReviewJob:
+    """What a writer step was asked, so the reviewer's fixes go back to the same sessions."""
+
+    campaign_id: str
+    step_id: str
+    report: str
+    role: Role
+    context: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class WriterTurn:
+    """What a writer step was asked: the campaign, its report, the step, its role, and what
+    earlier steps produced."""
+
+    campaign_id: str
+    report: str
+    step_id: str
+    role: Role
+    context: dict[str, Any]
 
 
 class Activities:
@@ -72,23 +96,10 @@ class Activities:
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                replies = [
-                    (
-                        await invoker.invoke(
-                            client,
-                            self._settings.agent_url,
-                            session_key=session_key(campaign_id, step_id, variant),
-                            prompt=message_for(role, report, context, variant),
-                            schema=role.reply_schema,
-                        )
-                    ).output
-                    for variant in range(role.replies)
-                ]
-                output: Any = replies if role.replies > 1 else replies[0]
+                job = ReviewJob(campaign_id, step_id, report, role, context)
+                output = await self._writer_outputs(client, job)
                 if review_rounds > 0:
-                    output = await self._review_loop(
-                        client, campaign_id, report, step_id, role, context, output, review_rounds
-                    )
+                    output = await self._review_loop(client, job, output, review_rounds)
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
@@ -106,28 +117,26 @@ class Activities:
     async def _review_loop(
         self,
         client: httpx.AsyncClient,
-        campaign_id: str,
-        report: str,
-        step_id: str,
-        role: Role,
-        context: dict[str, Any],
+        job: ReviewJob,
         output: Any,
         review_rounds: int,
     ) -> Any:
         """Send the draft to the brand reviewer; on a fix verdict send the issues back to
         the same writer sessions, for at most `review_rounds` rounds (never more than the
         limit). What the reviewer still flags after the last round is flagged for a human."""
-        writer_session = session_key(campaign_id, step_id)
-        reviewer_session = f"{graph.step_key(campaign_id, step_id)}:review"
+        writer_session = session_key(job.campaign_id, job.step_id)
+        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
         for turn in range(fix_rounds + 1):
             verdict = await invoker.invoke(
                 client,
                 self._settings.agent_url,
-                session_key=reviewer_session,
-                prompt=brand_review.review_message(output, context, report),
-                schema=brand_review.VERDICT_SCHEMA,
-                turn=turn,
+                invoker.AgentCall(
+                    session_key=reviewer_session,
+                    prompt=brand_review.review_message(output, job.context, job.report),
+                    schema=brand_review.VERDICT_SCHEMA,
+                    turn=turn,
+                ),
             )
             if verdict.output["verdict"] == brand_review.PASS:
                 break
@@ -136,47 +145,43 @@ class Activities:
             status = brand_review.FLAGGED_STATUS if is_last else brand_review.REVIEW_FIX_STATUS
             await asyncio.to_thread(
                 self._record,
-                campaign_id,
-                step_id,
+                job.campaign_id,
+                job.step_id,
                 status,
                 json.dumps(issues),
                 writer_session,
             )
             if is_last:
                 break
-            output = await self._send_fixes(
-                client, campaign_id, report, step_id, role, context, issues, turn + 1
-            )
+            output = await self._writer_outputs(client, job, issues, turn + 1)
         return output
 
-    async def _send_fixes(
+    async def _writer_outputs(
         self,
         client: httpx.AsyncClient,
-        campaign_id: str,
-        report: str,
-        step_id: str,
-        role: Role,
-        context: dict[str, Any],
-        issues: list[dict[str, Any]],
-        turn: int,
+        job: ReviewJob,
+        issues: list[dict[str, Any]] | None = None,
+        turn: int = 0,
     ) -> Any:
-        """Send the reviewer's issues back to each of the writer's sessions; the new output."""
-        fixes = [
-            (
-                await invoker.invoke(
-                    client,
-                    self._settings.agent_url,
-                    session_key=session_key(campaign_id, step_id, variant),
-                    prompt=brand_review.fix_message(
-                        message_for(role, report, context, variant), issues
-                    ),
-                    schema=role.reply_schema,
+        """Ask each of the writer's sessions: the first draft, or with `issues` the fixes the
+        reviewer asked for. The step's output: a list when the role replies more than once."""
+        outputs = []
+        for variant in range(job.role.replies):
+            prompt = message_for(job.role, job.report, job.context, variant)
+            if issues is not None:
+                prompt = brand_review.fix_message(prompt, issues)
+            reply = await invoker.invoke(
+                client,
+                self._settings.agent_url,
+                invoker.AgentCall(
+                    session_key=session_key(job.campaign_id, job.step_id, variant),
+                    prompt=prompt,
+                    schema=job.role.reply_schema,
                     turn=turn,
-                )
-            ).output
-            for variant in range(role.replies)
-        ]
-        return fixes if role.replies > 1 else fixes[0]
+                ),
+            )
+            outputs.append(reply.output)
+        return outputs if job.role.replies > 1 else outputs[0]
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
