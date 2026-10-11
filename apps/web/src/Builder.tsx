@@ -91,7 +91,7 @@ function useRejections(workflow: Workflow, fail: (e: unknown) => void) {
     return () => {
       isCurrent = false;
     };
-    // Re-check on each edit; `fail` is a stable setter wrapper.
+    // Re-check on each edit. `fail` is new each render but only wraps the stable setError.
   }, [workflow]);
   return rejections;
 }
@@ -158,15 +158,49 @@ function useSavedVersions(name: string, isValidName: boolean, fail: (e: unknown)
   const [versions, setVersions] = useState<number[]>([]);
   useEffect(() => {
     if (!isValidName) return setVersions([]);
-    listVersions(name).then(setVersions).catch(fail);
+    let isCurrent = true;
+    listVersions(name)
+      .then((v) => isCurrent && setVersions(v))
+      .catch((e: unknown) => isCurrent && fail(e));
+    return () => {
+      isCurrent = false;
+    };
   }, [name, isValidName]);
   return [versions, setVersions] as const;
+}
+
+interface StepListProps {
+  steps: WorkflowStep[];
+  onSteps: (steps: WorkflowStep[]) => void;
+}
+
+function StepList({ steps, onSteps }: StepListProps): React.JSX.Element {
+  const [dragging, setDragging] = useState<number | null>(null);
+  return (
+    <ol aria-label="Workflow steps">
+      {steps.map((step, i) => (
+        <StepRow
+          key={step.id}
+          step={step}
+          onChange={(next) => onSteps(steps.map((s, j) => (j === i ? next : s)))}
+          onRemove={() => onSteps(steps.filter((_, j) => j !== i))}
+          dragProps={{
+            onDragStart: () => setDragging(i),
+            onDragOver: (e) => e.preventDefault(),
+            onDrop: () => {
+              if (dragging !== null) onSteps(moveStep(steps, dragging, i));
+              setDragging(null);
+            },
+          }}
+        />
+      ))}
+    </ol>
+  );
 }
 
 export function Builder(): React.JSX.Element {
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [name, setName] = useState("");
-  const [dragging, setDragging] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fail = (e: unknown) => setError(messageOf(e));
   const workflow = useMemo(() => toWorkflow(steps), [steps]);
@@ -195,24 +229,7 @@ export function Builder(): React.JSX.Element {
       <button type="button" onClick={() => setSteps(TEMPLATE)}>
         Use template: {TEMPLATE_NAME}
       </button>
-      <ol aria-label="Workflow steps">
-        {steps.map((step, i) => (
-          <StepRow
-            key={step.id}
-            step={step}
-            onChange={(next) => setSteps(steps.map((s, j) => (j === i ? next : s)))}
-            onRemove={() => setSteps(steps.filter((_, j) => j !== i))}
-            dragProps={{
-              onDragStart: () => setDragging(i),
-              onDragOver: (e) => e.preventDefault(),
-              onDrop: () => {
-                if (dragging !== null) setSteps(moveStep(steps, dragging, i));
-                setDragging(null);
-              },
-            }}
-          />
-        ))}
-      </ol>
+      <StepList steps={steps} onSteps={setSteps} />
       <AddStepBar onAdd={add} />
       <RejectionAlert rejections={rejections} />
       {error && <p role="alert">{error}</p>}
