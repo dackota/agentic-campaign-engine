@@ -6,13 +6,16 @@ import {
   getMe,
   listCampaigns,
   previewUrl,
+  raiseBudget,
   retryCampaign,
   SignedOutError,
   type AbResult,
   type Campaign,
+  type CampaignCost,
   type EmailDraft,
   type Me,
   type RunEvent,
+  type Usage,
 } from "./api";
 import { Builder } from "./Builder";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
@@ -32,7 +35,15 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   failed: "Failed",
   retrying: "Retrying",
   finished: "Finished",
+  budget_paused: "Paused at budget",
 };
+
+const COST_DECIMALS = 4;
+
+/** Tokens and dollars, e.g. "3,000 tokens, $0.0162". */
+function costText(usage: Usage): string {
+  return `${usage.total_tokens.toLocaleString("en-US")} tokens, $${usage.cost_usd.toFixed(COST_DECIMALS)}`;
+}
 
 async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
   let current = first;
@@ -58,6 +69,25 @@ async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promi
 function abResultText(result: AbResult): string {
   if (result.status !== "winner" || result.confidence === null) return "No decision yet";
   return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
+}
+
+/** Tokens and cost of each model step that ran, then the run's total. */
+function RunCost({ cost }: { cost: CampaignCost }) {
+  return (
+    <section aria-label="Run cost">
+      <ul>
+        {cost.steps.map((s) => (
+          <li key={s.step}>
+            {s.step}:{" "}
+            <span data-testid={`step-cost-${s.step}`}>{costText(s)}</span>
+          </li>
+        ))}
+      </ul>
+      <p>
+        Cost: <span data-testid="run-cost">{costText(cost)}</span>
+      </p>
+    </section>
+  );
 }
 
 function DraftView({ draft }: { draft: EmailDraft }) {
@@ -98,6 +128,11 @@ function CampaignList({ campaigns, onOpen }: CampaignListProps) {
       </ul>
     </section>
   );
+}
+
+/** Owners run campaigns, so they raise the budget of a paused one. The API enforces the same. */
+function canRaiseBudget(me: Me, campaign: Campaign): boolean {
+  return campaign.status === "budget_paused" && me.roles.includes("owner");
 }
 
 /** Owners run campaigns, so they retry the step that stopped one. The API enforces the same. */
@@ -193,6 +228,20 @@ function useCampaignList(fail: Fail): { campaigns: Campaign[]; refresh: () => Pr
   return { campaigns, refresh };
 }
 
+/** Run a user action: clear the last error first, and show the action's failure. */
+async function attemptAction(
+  task: () => Promise<void>,
+  setError: (message: string | null) => void,
+  fail: Fail,
+): Promise<void> {
+  setError(null);
+  try {
+    await task();
+  } catch (e) {
+    fail(e);
+  }
+}
+
 /** The campaign on screen and its run: open one, create one, approve it. */
 function useCampaignRun(
   fail: Fail,
@@ -201,15 +250,7 @@ function useCampaignRun(
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const { events, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
-
-  async function attempt(task: () => Promise<void>) {
-    setError(null);
-    try {
-      await task();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const attempt = (task: () => Promise<void>) => attemptAction(task, setError, fail);
 
   async function show(next: Promise<Campaign>) {
     setCampaign(null);
@@ -221,9 +262,15 @@ function useCampaignRun(
     campaign,
     events,
     open: (id: string) => attempt(() => show(getCampaign(id))),
-    create: (report: string, workflow: string) =>
+    create: (report: string, workflow: string, budgetUsd: number | null) =>
       attempt(async () => {
-        await show(createCampaign(report, workflow));
+        await show(createCampaign(report, workflow, budgetUsd));
+        await refresh();
+      }),
+    raiseBudget: (id: string, budgetUsd: number) =>
+      attempt(async () => {
+        setCampaign(await raiseBudget(id, budgetUsd));
+        resume();
         await refresh();
       }),
     approve: (id: string) =>
@@ -262,16 +309,22 @@ function SignedInBar({ email, onSignOut }: SignedInBarProps) {
 }
 
 interface NewCampaignFormProps {
-  onCreate: (report: string, workflow: string) => void;
+  onCreate: (report: string, workflow: string, budgetUsd: number | null) => void;
+}
+
+/** A dollar amount typed in a form, or null when the field is blank. */
+function dollarsOf(text: string): number | null {
+  return text.trim() ? Number(text) : null;
 }
 
 function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
   const [report, setReport] = useState("");
   const [workflow, setWorkflow] = useState("");
+  const [budget, setBudget] = useState("");
 
   function submit(event: FormEvent) {
     event.preventDefault();
-    onCreate(report, workflow);
+    onCreate(report, workflow, dollarsOf(budget));
   }
 
   return (
@@ -290,11 +343,54 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
             placeholder="default"
           />
         </label>
+        <label>
+          Budget (USD)
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={budget}
+            onChange={(e) => setBudget(e.target.value)}
+            placeholder="no limit"
+          />
+        </label>
         <button type="submit" disabled={!report.trim()}>
           Create campaign
         </button>
       </form>
     </>
+  );
+}
+
+interface RaiseBudgetFormProps {
+  onRaise: (budgetUsd: number) => void;
+}
+
+function RaiseBudgetForm({ onRaise }: RaiseBudgetFormProps) {
+  const [budget, setBudget] = useState("");
+
+  function submit(event: FormEvent) {
+    event.preventDefault();
+    const dollars = dollarsOf(budget);
+    if (dollars !== null) onRaise(dollars);
+  }
+
+  return (
+    <form onSubmit={submit}>
+      <label>
+        New budget (USD)
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={budget}
+          onChange={(e) => setBudget(e.target.value)}
+        />
+      </label>
+      <button type="submit" disabled={!budget.trim()}>
+        Raise budget
+      </button>
+    </form>
   );
 }
 
@@ -304,13 +400,23 @@ interface RunViewProps {
   events: RunEvent[];
   onApprove: (id: string) => void;
   onRetry: (id: string) => void;
+  onRaiseBudget: (id: string, budgetUsd: number) => void;
 }
 
-function RunView({ me, campaign, events, onApprove, onRetry }: RunViewProps) {
+function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
+      <RunCost cost={campaign.cost} />
+      {campaign.budget_usd !== null && (
+        <p>
+          Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>
+        </p>
+      )}
+      {canRaiseBudget(me, campaign) && (
+        <RaiseBudgetForm onRaise={(dollars) => onRaiseBudget(campaign.id, dollars)} />
+      )}
       {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {canRetry(me, campaign) && (
         <button type="button" onClick={() => onRetry(campaign.id)}>
@@ -398,7 +504,9 @@ function Campaigns({ me, error, list, run }: CampaignsProps) {
   return (
     <>
       <CampaignList campaigns={list} onOpen={(id) => void run.open(id)} />
-      <NewCampaignForm onCreate={(report, workflow) => void run.create(report, workflow)} />
+      <NewCampaignForm
+        onCreate={(report, workflow, budgetUsd) => void run.create(report, workflow, budgetUsd)}
+      />
       {error && <p role="alert">{error}</p>}
       {run.campaign && (
         <RunView
@@ -407,6 +515,7 @@ function Campaigns({ me, error, list, run }: CampaignsProps) {
           events={run.events}
           onApprove={(id) => void run.approve(id)}
           onRetry={(id) => void run.retry(id)}
+          onRaiseBudget={(id, budgetUsd) => void run.raiseBudget(id, budgetUsd)}
         />
       )}
     </>
