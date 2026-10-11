@@ -9,6 +9,7 @@ import {
   raiseBudget,
   retryCampaign,
   SignedOutError,
+  type AbResult,
   type Campaign,
   type CampaignCost,
   type EmailDraft,
@@ -23,6 +24,8 @@ import { RunGraph } from "./RunGraphView";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
+// The simulated audience keeps engaging after the send; watch for the A/B call this long.
+const AB_WATCH_POLLS = 120;
 
 const STATUS_LABELS: Record<Campaign["status"], string> = {
   drafting: "Drafting",
@@ -50,6 +53,22 @@ async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void
     current = await getCampaign(current.id);
     onUpdate(current);
   }
+}
+
+/** Re-read a sent campaign until the A/B test calls a winner, or the watch runs out. */
+async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promise<void> {
+  for (let i = 0; i < AB_WATCH_POLLS; i++) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    const current = await getCampaign(id);
+    onUpdate(current);
+    if (current.ab_result.status === "winner") return;
+  }
+}
+
+/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+function abResultText(result: AbResult): string {
+  if (result.status !== "winner" || result.confidence === null) return "No decision yet";
+  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
 }
 
 /** Tokens and cost of each model step that ran, then the run's total. */
@@ -258,6 +277,11 @@ function useCampaignRun(
       attempt(async () => {
         await pollWhileSending(await approveCampaign(id), setCampaign);
         await refresh();
+        // Not awaited: the page stays usable while the audience engages. A failed read
+        // only stops the watch; the shown result stays as last read.
+        void watchAbResult(id, (next) =>
+          setCampaign((shown) => (shown?.id === id ? next : shown)),
+        ).catch(fail);
       }),
     retry: (id: string) =>
       attempt(async () => {
@@ -404,6 +428,11 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
       {hasStatus && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+        </p>
+      )}
+      {(campaign.status === "sent" || campaign.status === "finished") && (
+        <p>
+          A/B result: <span data-testid="ab-result">{abResultText(campaign.ab_result)}</span>
         </p>
       )}
       {canApprove(me, campaign) && (

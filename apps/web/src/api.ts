@@ -20,6 +20,13 @@ const STATUSES = [
 ] as const;
 type CampaignStatus = (typeof STATUSES)[number];
 
+/** The A/B test's call: a winner with its confidence (0 to 1), or no decision yet. */
+export interface AbResult {
+  status: "winner" | "no_decision";
+  winner: string | null;
+  confidence: number | null;
+}
+
 export interface Campaign {
   id: string;
   report: string;
@@ -39,6 +46,17 @@ export interface Campaign {
   cost: CampaignCost;
   /** The pinned workflow's edges, for drawing the graph. */
   edges: WorkflowEdge[];
+  ab_result: AbResult;
+}
+
+function isAbResult(value: unknown): value is AbResult {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    (r.status === "winner" || r.status === "no_decision") &&
+    (r.winner === null || typeof r.winner === "string") &&
+    (r.confidence === null || typeof r.confidence === "number")
+  );
 }
 
 export interface Usage {
@@ -106,7 +124,8 @@ function isCampaign(value: unknown): value is Campaign {
     c.steps.every(isStep) &&
     (c.budget_usd === null || typeof c.budget_usd === "number") &&
     isCost(c.cost) &&
-    Array.isArray(c.edges)
+    Array.isArray(c.edges) &&
+    isAbResult(c.ab_result)
   );
 }
 

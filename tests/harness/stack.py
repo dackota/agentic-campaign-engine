@@ -52,13 +52,14 @@ class Stack:
         dex_port: int | None = None,
         web_origin: str = "http://127.0.0.1:5173",
         integrations: bool = False,
+        marketo_port: int | None = None,
     ) -> None:
         from ace_engine.settings import Depth
 
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
-        self.marketo_port = free_port()
+        self.marketo_port = marketo_port or free_port()
         self.cms_port = free_port()
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"

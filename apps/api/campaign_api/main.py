@@ -11,7 +11,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from types import MappingProxyType
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from ace_engine import cost, db
 from ace_engine import dag as graph
@@ -34,6 +34,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
+from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.webhook_routes import (
@@ -79,6 +80,19 @@ class ReceiptOut(BaseModel):
     url: str
 
 
+class AbResultOut(BaseModel):
+    status: Literal["winner", "no_decision"]
+    winner: str | None
+    confidence: float | None
+
+    @classmethod
+    def of(cls, result: AbResult) -> "AbResultOut":
+        status: Literal["winner", "no_decision"] = (
+            "no_decision" if result.winner is None else "winner"
+        )
+        return cls(status=status, winner=result.winner, confidence=result.confidence)
+
+
 class CampaignOut(BaseModel):
     id: uuid.UUID
     report: str
@@ -99,6 +113,7 @@ class CampaignOut(BaseModel):
     edges: list[dict[str, str]] = Field(default_factory=list)
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
     budget_usd: float | None = None
     # Tokens and cost per agent step and in total.
     cost: CostOut = Field(default_factory=CostOut)
@@ -134,6 +149,7 @@ class CampaignOut(BaseModel):
             ],
             edges=list(c.dag.get("edges", [])),
             engagement=engagement or {},
+            ab_result=AbResultOut.of(decide(engagement or {})),
             budget_usd=budget_usd(c),
             cost=CostOut.of(usage or []),
         )
