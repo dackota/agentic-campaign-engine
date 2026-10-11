@@ -31,6 +31,19 @@ class WorkflowVersionOut(BaseModel):
     dag: dict[str, Any]
 
 
+class RejectionOut(BaseModel):
+    rule: str
+    message: str
+
+
+class ValidationOut(BaseModel):
+    rejections: list[RejectionOut]
+
+
+class VersionSummary(BaseModel):
+    version: int
+
+
 def _reject(*rejections: Rejection) -> HTTPException:
     return HTTPException(status_code=422, detail=[asdict(r) for r in rejections])
 
@@ -62,6 +75,16 @@ def _save(engine: Engine, name: str, dag: dict[str, Any]) -> int:
     raise HTTPException(status_code=409, detail="the workflow changed while saving; try again")
 
 
+def _versions(engine: Engine, name: str) -> list[int]:
+    with Session(engine) as session:
+        query = (
+            select(db.WorkflowVersion.version)
+            .where(db.WorkflowVersion.name == name)
+            .order_by(db.WorkflowVersion.version.desc())
+        )
+        return list(session.scalars(query))
+
+
 def _find(engine: Engine, name: str, version: int | None) -> db.WorkflowVersion | None:
     """One version of `name`, or its latest version when `version` is None."""
     with Session(engine) as session:
@@ -76,6 +99,28 @@ async def latest_version(engine: Engine, name: str) -> db.WorkflowVersion | None
 
 
 def register_workflow_routes(app: FastAPI) -> None:
+    @app.post("/workflows/validate")
+    async def validate_workflow(request: Request, user: CurrentUser) -> ValidationOut:
+        """The same checks as a save, without saving: the builder shows these before save."""
+        authorize(user, Action.CREATE)
+        raw = await request.body()
+        if len(raw) > MAX_WORKFLOW_BYTES:
+            found = [Rejection("too_large", f"the workflow is over {MAX_WORKFLOW_BYTES} bytes")]
+        else:
+            try:
+                found = validate(json.loads(raw))
+            except (ValueError, RecursionError):
+                found = [Rejection("not_json", "the workflow is not valid JSON")]
+        return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in found])
+
+    @app.get("/workflows/{name}/versions")
+    async def list_workflow_versions(
+        name: WorkflowName, request: Request, user: CurrentUser
+    ) -> list[VersionSummary]:
+        authorize(user, Action.READ)
+        found = await run_in_threadpool(_versions, request.app.state.engine, name)
+        return [VersionSummary(version=v) for v in found]
+
     @app.post("/workflows/{name}/versions", status_code=201)
     async def save_workflow_version(
         name: WorkflowName, request: Request, user: CurrentUser

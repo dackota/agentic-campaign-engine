@@ -13,6 +13,10 @@ export interface WorkflowStep {
   kind: StepKind;
   /** How long a wait step waits. Only wait steps have it, and they must. */
   duration_seconds?: number;
+  /** How many times the step runs before the run fails. Defaults to the step kind's own limit. */
+  max_attempts?: number;
+  /** How many review rounds the step may loop through before it stops. Zero means no review loop. */
+  review_rounds?: number;
 }
 
 /** The step `to` starts only after the step `from` has succeeded. */
