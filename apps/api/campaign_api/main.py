@@ -10,6 +10,7 @@ import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
@@ -80,6 +81,13 @@ class ReceiptOut(BaseModel):
     url: str
 
 
+class FlagOut(BaseModel):
+    """A step the brand reviewer could not fix in its rounds, left for a human."""
+
+    step: str
+    issues: list[dict[str, Any]]
+
+
 class AbResultOut(BaseModel):
     status: Literal["winner", "no_decision"]
     winner: str | None
@@ -91,6 +99,15 @@ class AbResultOut(BaseModel):
             "no_decision" if result.winner is None else "winner"
         )
         return cls(status=status, winner=result.winner, confidence=result.confidence)
+
+
+@dataclass(frozen=True)
+class RunDetail:
+    """What a run's view adds to the campaign row: engagement, reviewer flags, step usage."""
+
+    engagement: dict[str, dict[str, int]] = field(default_factory=dict)
+    flags: list[FlagOut] = field(default_factory=list)
+    usage: list[db.StepUsage] = field(default_factory=list)
 
 
 class CampaignOut(BaseModel):
@@ -113,6 +130,8 @@ class CampaignOut(BaseModel):
     edges: list[dict[str, str]] = Field(default_factory=list)
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    # What the brand reviewer still flags after its fix rounds, by step.
+    flags: list[FlagOut] = Field(default_factory=list)
     ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
     budget_usd: float | None = None
     # Tokens and cost per agent step and in total.
@@ -124,9 +143,9 @@ class CampaignOut(BaseModel):
         c: db.Campaign,
         receipts: list[db.Receipt],
         task_status: str | None,
-        engagement: dict[str, dict[str, int]] | None = None,
-        usage: list[db.StepUsage] | None = None,
+        detail: RunDetail | None = None,
     ) -> "CampaignOut":
+        detail = detail or RunDetail()
         return cls(
             id=c.id,
             report=c.report,
@@ -148,10 +167,11 @@ class CampaignOut(BaseModel):
                 for s in graph.ordered(c.dag)
             ],
             edges=list(c.dag.get("edges", [])),
-            engagement=engagement or {},
-            ab_result=AbResultOut.of(decide(engagement or {})),
+            engagement=detail.engagement,
+            flags=detail.flags,
+            ab_result=AbResultOut.of(decide(detail.engagement)),
             budget_usd=budget_usd(c),
-            cost=CostOut.of(usage or []),
+            cost=CostOut.of(detail.usage),
         )
 
 
@@ -177,7 +197,12 @@ def _list(engine: Engine) -> list[CampaignOut]:
         statuses = db.task_statuses(session, ids)
         usage = db.usage_by_campaign(session, ids)
         return [
-            CampaignOut.of(c, receipts.get(c.id, []), statuses.get(c.id), usage=usage.get(c.id, []))
+            CampaignOut.of(
+                c,
+                receipts.get(c.id, []),
+                statuses.get(c.id),
+                RunDetail(usage=usage.get(c.id, [])),
+            )
             for c in campaigns
         ]
 
@@ -238,8 +263,14 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
             campaign,
             receipts.get(campaign_id, []),
             statuses.get(campaign_id),
-            engagement_by_variant(session, campaign_id),
-            db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
+            RunDetail(
+                engagement=engagement_by_variant(session, campaign_id),
+                flags=[
+                    FlagOut(step=e.step, issues=json.loads(e.reason or "[]"))
+                    for e in db.review_flags(session, campaign_id)
+                ],
+                usage=db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
+            ),
         )
 
 
