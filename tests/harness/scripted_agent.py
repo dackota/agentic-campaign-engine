@@ -46,6 +46,9 @@ MAX_SCRIPTED_FACTS = 3
 # sets the numbers for each reply on that report; the default applies otherwise.
 SCRIPTED_MODEL = "scripted-model"
 USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
+# "[agent:usage-total-N]" reports only a total, as some harnesses do (Google ADK's
+# totalTokenCount with no split).
+TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
 DEFAULT_INPUT_TOKENS = 1000
 DEFAULT_OUTPUT_TOKENS = 500
 
@@ -148,6 +151,9 @@ class ScriptedAgent:
 
 def scripted_usage(message_text: str) -> dict[str, Any]:
     """The token usage a reply reports: the report's usage marker, else the default."""
+    total = TOTAL_USAGE_MARKER.search(message_text)
+    if total:
+        return {"model": SCRIPTED_MODEL, "totalTokenCount": int(total.group(1))}
     found = USAGE_MARKER.search(message_text)
     input_tokens, output_tokens = (
         (int(found.group(1)), int(found.group(2)))

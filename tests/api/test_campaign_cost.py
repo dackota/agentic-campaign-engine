@@ -80,6 +80,20 @@ def test_each_step_reports_the_scripted_tokens_and_cost(api: httpx.Client) -> No
     ]
 
 
+def test_usage_with_only_a_total_is_booked_at_the_output_price(api: httpx.Client) -> None:
+    created = api.post("/campaigns", json={"report": report("total-700")})
+    assert created.status_code == 201, created.text
+
+    campaign = settle(api, created.json()["id"])
+
+    # Two replies of 700 tokens with no split: booked as output, the dearer side, so a
+    # budget never undercounts. 1400 * 15 = 21000 micro-dollars.
+    [email_draft] = campaign["cost"]["steps"]
+    assert (email_draft["input_tokens"], email_draft["output_tokens"]) == (0, 1400)
+    assert email_draft["total_tokens"] == 1400
+    assert email_draft["cost_usd"] == pytest.approx(0.021)
+
+
 def test_campaign_totals_add_up_over_its_steps(api: httpx.Client) -> None:
     dag = {
         "steps": [step("strategist", "agent"), step("research", "agent"), step("writer", "agent")],
