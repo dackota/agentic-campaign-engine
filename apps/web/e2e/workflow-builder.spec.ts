@@ -4,7 +4,7 @@ import { signIn } from "./fixtures/sign-in";
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
 test("builds, breaks, fixes, saves, and runs a workflow", async ({ page }) => {
-  const name = `e2e-build-${Date.now()}`;
+  const name = `e2e-build-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   await signIn(page);
   await page.getByRole("button", { name: "Workflow builder" }).click();
 

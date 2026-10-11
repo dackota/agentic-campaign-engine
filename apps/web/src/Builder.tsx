@@ -10,6 +10,8 @@ const TEMPLATE: WorkflowStep[] = [
   { id: "publish", kind: "publish" },
 ];
 const DEFAULT_WAIT_SECONDS = 60;
+const FIRST_DUPLICATE_SUFFIX = 2;
+// Must match NAME_PATTERN in apps/api/campaign_api/workflows.py.
 const NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
 /** A chain: each step starts after the one above it. Reordering rewires the edges. */
@@ -23,7 +25,7 @@ export function toWorkflow(steps: WorkflowStep[]): Workflow {
 function freshId(steps: WorkflowStep[], kind: StepKind): string {
   const taken = new Set(steps.map((s) => s.id));
   if (!taken.has(kind)) return kind;
-  let n = 2;
+  let n = FIRST_DUPLICATE_SUFFIX;
   while (taken.has(`${kind}_${n}`)) n += 1;
   return `${kind}_${n}`;
 }
@@ -81,34 +83,96 @@ function useRejections(workflow: Workflow, fail: (e: unknown) => void) {
   // null while the API is still checking the latest edit.
   const [rejections, setRejections] = useState<Rejection[] | null>(null);
   useEffect(() => {
-    let current = true;
+    let isCurrent = true;
     setRejections(null);
     validateWorkflow(workflow)
-      .then((r) => current && setRejections(r))
-      .catch((e: unknown) => current && fail(e));
+      .then((r) => isCurrent && setRejections(r))
+      .catch((e: unknown) => isCurrent && fail(e));
     return () => {
-      current = false;
+      isCurrent = false;
     };
     // Re-check on each edit; `fail` is a stable setter wrapper.
   }, [workflow]);
   return rejections;
 }
 
-export function Builder() {
+const ADDABLE: { kind: StepKind; label: string }[] = [
+  { kind: "agent", label: "Add agent step" },
+  { kind: "render", label: "Add render step" },
+  { kind: "approval", label: "Add approval gate" },
+  { kind: "publish", label: "Add publish step" },
+  { kind: "wait", label: "Add wait step" },
+];
+
+function AddStepBar({ onAdd }: { onAdd: (kind: StepKind) => void }) {
+  return (
+    <>
+      {ADDABLE.map(({ kind, label }) => (
+        <button key={kind} type="button" onClick={() => onAdd(kind)}>
+          {label}
+        </button>
+      ))}
+    </>
+  );
+}
+
+function RejectionAlert({ rejections }: { rejections: Rejection[] | null }) {
+  if (!rejections || rejections.length === 0) return null;
+  return (
+    <div role="alert">
+      {rejections.map((r) => (
+        <p key={r.message}>{r.message}</p>
+      ))}
+    </div>
+  );
+}
+
+interface VersionPanelProps {
+  name: string;
+  versions: number[];
+  canSave: boolean;
+  onName: (name: string) => void;
+  onSave: () => void;
+}
+
+function VersionPanel({ name, versions, canSave, onName, onSave }: VersionPanelProps) {
+  return (
+    <>
+      <label>
+        Workflow name
+        <input value={name} onChange={(e) => onName(e.target.value)} />
+      </label>
+      <button type="button" disabled={!canSave} onClick={onSave}>
+        Save version
+      </button>
+      <ul aria-label="Saved versions">
+        {versions.map((v) => (
+          <li key={v}>Version {v}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
+function useSavedVersions(name: string, isValidName: boolean, fail: (e: unknown) => void) {
+  const [versions, setVersions] = useState<number[]>([]);
+  useEffect(() => {
+    if (!isValidName) return setVersions([]);
+    listVersions(name).then(setVersions).catch(fail);
+  }, [name, isValidName]);
+  return [versions, setVersions] as const;
+}
+
+export function Builder(): React.JSX.Element {
   const [steps, setSteps] = useState<WorkflowStep[]>([]);
   const [name, setName] = useState("");
-  const [versions, setVersions] = useState<number[]>([]);
   const [dragging, setDragging] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fail = (e: unknown) => setError(messageOf(e));
   const workflow = useMemo(() => toWorkflow(steps), [steps]);
   const rejections = useRejections(workflow, fail);
-  const validName = NAME_PATTERN.test(name);
-
-  useEffect(() => {
-    if (!validName) return setVersions([]);
-    listVersions(name).then(setVersions).catch(fail);
-  }, [name, validName]);
+  const isValidName = NAME_PATTERN.test(name);
+  const [versions, setVersions] = useSavedVersions(name, isValidName, fail);
 
   function add(kind: StepKind) {
     const extra = kind === "wait" ? { duration_seconds: DEFAULT_WAIT_SECONDS } : {};
@@ -125,7 +189,6 @@ export function Builder() {
     }
   }
 
-  const canSave = validName && rejections?.length === 0;
   return (
     <section>
       <h1>Workflow builder</h1>
@@ -150,41 +213,16 @@ export function Builder() {
           />
         ))}
       </ol>
-      <button type="button" onClick={() => add("agent")}>
-        Add agent step
-      </button>{" "}
-      <button type="button" onClick={() => add("render")}>
-        Add render step
-      </button>{" "}
-      <button type="button" onClick={() => add("approval")}>
-        Add approval gate
-      </button>{" "}
-      <button type="button" onClick={() => add("publish")}>
-        Add publish step
-      </button>{" "}
-      <button type="button" onClick={() => add("wait")}>
-        Add wait step
-      </button>
-      {(rejections ?? []).length > 0 && (
-        <div role="alert">
-          {rejections?.map((r) => (
-            <p key={r.message}>{r.message}</p>
-          ))}
-        </div>
-      )}
+      <AddStepBar onAdd={add} />
+      <RejectionAlert rejections={rejections} />
       {error && <p role="alert">{error}</p>}
-      <label>
-        Workflow name
-        <input value={name} onChange={(e) => setName(e.target.value)} />
-      </label>
-      <button type="button" disabled={!canSave} onClick={() => void save()}>
-        Save version
-      </button>
-      <ul aria-label="Saved versions">
-        {versions.map((v) => (
-          <li key={v}>Version {v}</li>
-        ))}
-      </ul>
+      <VersionPanel
+        name={name}
+        versions={versions}
+        canSave={isValidName && rejections?.length === 0}
+        onName={setName}
+        onSave={() => void save()}
+      />
     </section>
   );
 }

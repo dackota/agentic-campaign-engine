@@ -103,13 +103,15 @@ def register_workflow_routes(app: FastAPI) -> None:
     async def validate_workflow(request: Request, user: CurrentUser) -> ValidationOut:
         """The same checks as a save, without saving: the builder shows these before save."""
         authorize(user, Action.CREATE)
-        try:
-            instance = _parse(await request.body())
-        except HTTPException as exc:
-            detail = exc.detail
-            assert isinstance(detail, list)
-            return ValidationOut(rejections=[RejectionOut(**r) for r in detail])
-        return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in validate(instance)])
+        raw = await request.body()
+        if len(raw) > MAX_WORKFLOW_BYTES:
+            found = [Rejection("too_large", f"the workflow is over {MAX_WORKFLOW_BYTES} bytes")]
+        else:
+            try:
+                found = validate(json.loads(raw))
+            except (ValueError, RecursionError):
+                found = [Rejection("not_json", "the workflow is not valid JSON")]
+        return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in found])
 
     @app.get("/workflows/{name}/versions")
     async def list_workflow_versions(
