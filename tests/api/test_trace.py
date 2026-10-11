@@ -6,13 +6,13 @@ from collections.abc import Iterator
 
 import httpx
 import pytest
+from ace_engine import telemetry
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanKind
 
-from tests.api.helpers import AWAITING, SENT, create, until_status
+from tests.api.helpers import AWAITING, OWNER, SENT, create, until_status
 from tests.harness.stack import Stack
 
-GEN_AI_OPERATION = "gen_ai.operation.name"
 # Every service of the run names itself on the spans it makes (`ace.service`).
 RUN_SERVICES = {"campaign-api", "campaign-worker", "render", "fake-marketo", "fake-s3", "fake-cms"}
 AGENT_OPERATIONS = {"invoke_agent", "chat", "execute_tool"}
@@ -26,17 +26,17 @@ def campaign_spans(stack: Stack, campaign_id: str) -> list[ReadableSpan]:
 
 def services_of(spans: list[ReadableSpan]) -> set[str]:
     return {
-        str(s.attributes["ace.service"])
+        str(s.attributes[telemetry.SERVICE_ATTRIBUTE])
         for s in spans
-        if s.attributes and "ace.service" in s.attributes
+        if s.attributes and telemetry.SERVICE_ATTRIBUTE in s.attributes
     }
 
 
 def operations_of(spans: list[ReadableSpan]) -> set[str]:
     return {
-        str(s.attributes[GEN_AI_OPERATION])
+        str(s.attributes[telemetry.OPERATION_ATTRIBUTE])
         for s in spans
-        if s.attributes and GEN_AI_OPERATION in s.attributes
+        if s.attributes and telemetry.OPERATION_ATTRIBUTE in s.attributes
     }
 
 
@@ -71,7 +71,11 @@ def test_approval_spans_join_the_campaign_trace(stack: Stack, sent_campaign: str
 
     assert "campaign.approve" in names
     assert "campaign.start" in names
-    sends = [s for s in spans if s.attributes and s.attributes.get("ace.service") == "fake-marketo"]
+    sends = [
+        s
+        for s in spans
+        if s.attributes and s.attributes.get(telemetry.SERVICE_ATTRIBUTE) == "fake-marketo"
+    ]
     assert any(s.kind is SpanKind.SERVER for s in sends)
 
 
@@ -85,3 +89,34 @@ def test_a_second_campaign_is_a_second_trace(stack: Stack, api: httpx.Client) ->
 
     assert len(first_ids) == len(second_ids) == 1
     assert first_ids != second_ids
+
+
+def test_no_span_records_the_access_token_of_the_event_stream(
+    stack: Stack, api: httpx.Client
+) -> None:
+    """The browser sends its bearer token in the event stream's query string, so no span
+    attribute may keep a query."""
+    campaign_id = create(api)["id"]
+    until_status(api, campaign_id, AWAITING)
+    token = stack.dex.token(OWNER)
+
+    response = httpx.get(
+        f"{stack.api_url}/campaigns/{campaign_id}/events",
+        params={"access_token": token},
+        timeout=30,
+    )
+
+    assert response.status_code == 200
+    exported = [
+        str(value)
+        for s in stack.spans.get_finished_spans()
+        for value in (s.attributes or {}).values()
+    ]
+    assert exported, "the request exported spans"
+    leaks = [
+        (s.name, key, s.kind)
+        for s in stack.spans.get_finished_spans()
+        for key, value in (s.attributes or {}).items()
+        if token in str(value) or "access_token" in str(value)
+    ]
+    assert not leaks

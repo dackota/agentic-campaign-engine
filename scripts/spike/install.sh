@@ -48,8 +48,18 @@ helm --kube-context "$KCTX" upgrade --install kagent-crds \
   oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
   --version "$KAGENT_VERSION" -n kagent --create-namespace --wait
 
+# `make up FULL=1` sets ACE_OTEL_ENDPOINT: kagent's controller and agents export traces to the
+# collector (kagent 1.x docs, Observability > Tracing: the shared endpoint is the collector's
+# root, and gains /v1/traces on http/protobuf).
+otel_args=()
+if [ -n "${ACE_OTEL_ENDPOINT:-}" ]; then
+  otel_args=(--set otel.traces.enabled=true --set "otel.exporter.otlp.endpoint=$ACE_OTEL_ENDPOINT"
+    --set otel.exporter.otlp.protocol=http/protobuf)
+fi
+
 helm --kube-context "$KCTX" upgrade --install kagent \
   oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   --version "$KAGENT_VERSION" -n kagent --timeout 10m \
   -f "$(dirname "$0")/../../manifests/spike/kagent-values.yaml" \
-  --set substrateWorkerPool.workerImage="$WORKER_IMAGE"
+  --set substrateWorkerPool.workerImage="$WORKER_IMAGE" \
+  ${otel_args[@]+"${otel_args[@]}"}

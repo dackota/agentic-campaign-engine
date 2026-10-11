@@ -21,7 +21,6 @@ from opentelemetry import trace
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
-from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
@@ -252,7 +251,11 @@ class Stack:
         self._stop = asyncio.Event()
         self._restart_requested = asyncio.Event()
         agent_port = free_port()
-        env = await WorkflowEnvironment.start_time_skipping(interceptors=[TracingInterceptor()])
+        from ace_engine import telemetry
+
+        env = await WorkflowEnvironment.start_time_skipping(
+            interceptors=telemetry.temporal_interceptors()
+        )
         try:
             settings = Settings(
                 depth=self.depth,

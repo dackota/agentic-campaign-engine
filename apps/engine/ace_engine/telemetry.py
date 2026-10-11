@@ -32,6 +32,8 @@ SERVICE_NAME_ENV = "OTEL_SERVICE_NAME"
 SERVICE_ATTRIBUTE = "ace.service"
 CAMPAIGN_ATTRIBUTE = "ace.campaign_id"
 OPERATION_ATTRIBUTE = "gen_ai.operation.name"
+URL_ATTRIBUTES = ("http.url", "url.full", "http.target", "url.path")
+QUERY_ATTRIBUTE = "url.query"
 SPAN_ID_BITS = 64
 _tracer = trace.get_tracer("ace")
 
@@ -100,7 +102,20 @@ def configure(service: str, environ: Mapping[str, str] | None = None) -> None:
 
 def instrument_httpx() -> None:
     """Send the current trace's `traceparent` with every httpx request. Safe to repeat."""
-    HTTPXClientInstrumentor().instrument()
+    HTTPXClientInstrumentor().instrument(request_hook=lambda span, _request: _drop_query(span))
+
+
+def _drop_query(span: Span) -> None:
+    """Keep the path only on a span's URL attributes. The event stream takes the
+    user's bearer token in its query string (`?access_token=`), and a token must never be
+    exported, as it is never logged (campaign_api/__main__.py)."""
+    attributes = getattr(span, "attributes", None) or {}
+    for key in URL_ATTRIBUTES:
+        value = attributes.get(key)
+        if isinstance(value, str) and "?" in value:
+            span.set_attribute(key, value.split("?", 1)[0])
+    if QUERY_ATTRIBUTE in attributes:
+        span.set_attribute(QUERY_ATTRIBUTE, "")
 
 
 def instrument_app(app: FastAPI, service: str) -> None:
@@ -111,6 +126,7 @@ def instrument_app(app: FastAPI, service: str) -> None:
 
     def name_service(span: Span, _scope: object) -> None:
         span.set_attribute(SERVICE_ATTRIBUTE, service)
+        _drop_query(span)
 
     FastAPIInstrumentor.instrument_app(app, server_request_hook=name_service)
 

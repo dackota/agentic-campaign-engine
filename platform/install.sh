@@ -123,7 +123,9 @@ run() {
   ate_secrets="$(k get secret -n ate-system -o name)" || fail "could not list Secrets in ate-system"
   podcert_secrets="$(k get secret -n podcertificate-controller-system -o name)" ||
     fail "could not list Secrets in podcertificate-controller-system"
-  if platform_installed "$releases" "$ate_secrets" "$podcert_secrets"; then installed=1; fi
+  # FULL=1 (ACE_OTEL_ENDPOINT set) runs the kagent install again, to set its tracing values.
+  if platform_installed "$releases" "$ate_secrets" "$podcert_secrets" &&
+    [ -z "${ACE_OTEL_ENDPOINT:-}" ]; then installed=1; fi
   if [ "$installed" = 1 ]; then
     echo "skipping the Substrate and kagent install: both releases and the CA pools are there"
   else

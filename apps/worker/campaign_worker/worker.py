@@ -5,11 +5,10 @@ from ace_engine.settings import TASK_QUEUE, Settings
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-from campaign_worker.activities import Activities
+from campaign_worker.activities import SERVICE, Activities
 from campaign_worker.workflow import CampaignWorkflow
 
 DEFAULT_CACHED_WORKFLOWS = 1000
-SERVICE = "campaign-worker"
 
 
 def build_worker(

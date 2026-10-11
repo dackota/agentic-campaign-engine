@@ -61,6 +61,8 @@ page before you rely on a row.
 | [OpenCode Go model list](https://opencode.ai/zen/go/v1/models) | The live list of model IDs |
 | [agentgateway model failover](https://agentgateway.dev/docs/kubernetes/latest/llm/failover/) | Priority groups set failover order. Providers in one group are load balanced. A 429 with `Retry-After` sets the eviction time |
 | [agentgateway rate limiting](https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/) | `traffic.rateLimit.local` with `tokens` and `unit` on an HTTPRoute sets a token budget. Over budget the gateway answers 429 with `retry-after` and `x-ratelimit-*` headers. Checked 2026-10-10 |
+| [kagent tracing](https://kagent.dev/docs/kagent/1.x/observability/tracing/) | Helm values `otel.traces.enabled` (default false), `otel.exporter.otlp.endpoint` (absolute http(s) URL, the collector's root) and `otel.exporter.otlp.protocol` (`grpc` default, or `http/protobuf`, which appends `/v1/traces`). `scripts/spike/install.sh` sets them when `ACE_OTEL_ENDPOINT` is set. Checked live 2026-10-11 against the 1.x docs; the chart pin is alpha9, not read separately |
+| [agentgateway traces setup](https://agentgateway.dev/docs/kubernetes/latest/observability/traces/setup.md) | `AgentgatewayPolicy` `spec.frontend.tracing` takes `backendRef` (`name`, `namespace`, `port` 4317), `protocol: GRPC` and `randomSampling: "true"`, and also `clientSampling`. The page does not mention a ReferenceGrant for a collector in another namespace; `manifests/observability/gateway-tracing.yaml` adds one to be safe. Checked live 2026-10-11 on the `latest` docs, not the v1.6.0 pin |
 
 ## Image signing
 
