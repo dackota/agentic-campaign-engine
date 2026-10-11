@@ -62,3 +62,14 @@ Home for this part. Later tickets fill it.
   `kube-system` (`dex/coredns-custom.yaml`), which rewrites the host to the Dex Service. The
   step restarts CoreDNS and waits on the rollout so the rewrite is live. A second run is safe.
 - `status.sh` adds a Dex line: the discovery document must answer at the issuer and name it.
+
+## Traces (`make up FULL=1`)
+
+- `make up FULL=1` runs `observability.sh` between the platform and the app. It applies
+  `manifests/observability/collector.yaml` (namespace `observability`: an OpenTelemetry collector
+  on OTLP ports 4317 and 4318, and `grafana/otel-lgtm`), sets kagent's `otel.traces` to the
+  collector, and applies a gateway tracing policy. The app chart gets `otel.endpoint`, so the API,
+  worker, and fakes export too.
+- See Grafana: `kubectl --context k3d-ace -n observability port-forward svc/lgtm 3000:3000`, then
+  Explore, Tempo, and the campaign's id as the trace id (hex, no dashes).
+- Without `FULL=1` nothing is installed and no service exports.

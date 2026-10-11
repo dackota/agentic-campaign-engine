@@ -1,0 +1,13 @@
+# agentgateway exports a span per model call to the collector. A caller's `traceparent`
+# header is honoured (client sampling is on by default), so a model call made inside a
+# campaign's trace shows in it.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: tracing, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: Gateway, name: agentgateway-proxy}
+  frontend:
+    tracing:
+      url: http://otel-collector.observability.svc.cluster.local:4318
+      protocol: HTTP

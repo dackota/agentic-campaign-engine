@@ -31,6 +31,7 @@ spec:
             - name: ACE_MARKETO_WEBHOOK_URL
               value: {{ printf "http://%s:%v/webhooks/marketo" (include "ace.host" (list . .Values.api.serviceName)) .Values.api.port | quote }}
             {{- include "ace.secretEnv" (list . "ACE_MARKETO_WEBHOOK_SECRET" "marketo-webhook-secret") | nindent 12 }}
+            {{- include "ace.otelEnv" (list . "fake-marketo") | nindent 12 }}
           readinessProbe:
             httpGet:
               path: /healthz

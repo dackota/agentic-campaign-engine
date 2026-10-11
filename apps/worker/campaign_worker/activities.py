@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 from ace_engine import dag as graph
-from ace_engine import db, invoker
+from ace_engine import db, invoker, telemetry
 from ace_engine.agent_roles import message_for, role_for
 from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
@@ -21,6 +21,7 @@ from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
+SERVICE = "campaign-worker"
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
@@ -62,18 +63,19 @@ class Activities:
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                replies = [
-                    (
-                        await invoker.invoke(
-                            client,
-                            self._settings.agent_url,
-                            session_key=session_key(campaign_id, step_id, variant),
-                            prompt=message_for(role, report, context, variant),
-                            schema=role.reply_schema,
-                        )
-                    ).output
-                    for variant in range(role.replies)
-                ]
+                with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
+                    replies = [
+                        (
+                            await invoker.invoke(
+                                client,
+                                self._settings.agent_url,
+                                session_key=session_key(campaign_id, step_id, variant),
+                                prompt=message_for(role, report, context, variant),
+                                schema=role.reply_schema,
+                            )
+                        ).output
+                        for variant in range(role.replies)
+                    ]
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True

@@ -17,6 +17,11 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 import uvicorn
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from temporalio.contrib.opentelemetry import TracingInterceptor
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
@@ -38,6 +43,19 @@ STARTUP_POLLS = 600
 STARTUP_POLL_SECONDS = 0.1
 
 
+_SPAN_EXPORTER = InMemorySpanExporter()
+
+
+def _install_span_exporter() -> InMemorySpanExporter:
+    """The test exporter, set as the process's tracer provider the first time a stack is built
+    (OpenTelemetry allows one provider per process)."""
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
+        trace.set_tracer_provider(provider)
+    return _SPAN_EXPORTER
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -56,6 +74,8 @@ class Stack:
         from ace_engine.settings import Depth
 
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
+        # Every service runs in this process, so one in-memory exporter holds every span.
+        self.spans = _install_span_exporter()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
@@ -232,7 +252,7 @@ class Stack:
         self._stop = asyncio.Event()
         self._restart_requested = asyncio.Event()
         agent_port = free_port()
-        env = await WorkflowEnvironment.start_time_skipping()
+        env = await WorkflowEnvironment.start_time_skipping(interceptors=[TracingInterceptor()])
         try:
             settings = Settings(
                 depth=self.depth,

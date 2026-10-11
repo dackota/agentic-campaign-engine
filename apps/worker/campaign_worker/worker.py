@@ -1,6 +1,6 @@
 from concurrent.futures import Executor
 
-from ace_engine import db
+from ace_engine import db, telemetry
 from ace_engine.settings import TASK_QUEUE, Settings
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -9,6 +9,7 @@ from campaign_worker.activities import Activities
 from campaign_worker.workflow import CampaignWorkflow
 
 DEFAULT_CACHED_WORKFLOWS = 1000
+SERVICE = "campaign-worker"
 
 
 def build_worker(
@@ -18,6 +19,8 @@ def build_worker(
     *,
     max_cached_workflows: int = DEFAULT_CACHED_WORKFLOWS,
 ) -> Worker:
+    telemetry.configure(SERVICE)
+    telemetry.instrument_httpx()
     activities = Activities(settings, db.make_engine(settings.database_url))
     return Worker(
         client,

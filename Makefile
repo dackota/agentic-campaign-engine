@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-app status-cluster status-platform
+.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -25,7 +25,13 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py
 
-up: env-check up-cluster up-platform up-app ## Create the ace cluster, install the platform, then build, push, and install our app
+# FULL=1 adds the OpenTelemetry collector and grafana/otel-lgtm, and points every service at them.
+COLLECTOR_ENDPOINT := http://otel-collector.observability.svc.cluster.local:4318
+ifeq ($(FULL),1)
+export ACE_OTEL_ENDPOINT := $(COLLECTOR_ENDPOINT)
+endif
+
+up: env-check up-cluster up-platform $(if $(filter 1,$(FULL)),up-observability) up-app ## Create the ace cluster, install the platform, then build, push, and install our app (FULL=1 adds the collector and Grafana)
 
 env-check:
 	platform/install.sh check-env
@@ -35,6 +41,9 @@ up-cluster:
 
 up-platform:
 	platform/install.sh run
+
+up-observability:
+	platform/observability.sh run
 
 up-app:
 	platform/app.sh run

@@ -12,7 +12,7 @@ from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from ace_engine import dag as graph
-from ace_engine import db
+from ace_engine import db, telemetry
 from ace_engine.settings import (
     APPROVE_SIGNAL,
     RETRY_SIGNAL,
@@ -46,6 +46,7 @@ from campaign_api.workflows import (
 )
 
 MAX_REPORT_CHARS = 100_000
+SERVICE = "campaign-api"
 EVENT_POLL_SECONDS = 0.1
 FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED}
 Report = Annotated[
@@ -226,7 +227,8 @@ def _register_approval_route(app: FastAPI) -> None:
             raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
-            await handle.signal(APPROVE_SIGNAL)
+            with telemetry.campaign_span(SERVICE, "campaign.approve", campaign_id):
+                await handle.signal(APPROVE_SIGNAL)
         except Exception:
             await run_in_threadpool(
                 _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
@@ -248,7 +250,8 @@ def _register_retry_route(app: FastAPI) -> None:
             raise HTTPException(status_code=409, detail="only a failed run can retry its step")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
-            await handle.signal(RETRY_SIGNAL)
+            with telemetry.campaign_span(SERVICE, "campaign.retry", campaign_id):
+                await handle.signal(RETRY_SIGNAL)
         except Exception:
             await run_in_threadpool(_undo_retry, engine, campaign_id, campaign.failure_reason)
             raise
@@ -376,12 +379,13 @@ def _add_campaign_routes(app: FastAPI) -> None:
             dag=dag,
         )
         created = await run_in_threadpool(_insert, engine, campaign)
-        await request.app.state.temporal.start_workflow(
-            WORKFLOW_NAME,
-            args=[str(created.id), body.report, dag],
-            id=f"campaign-{created.id}",
-            task_queue=TASK_QUEUE,
-        )
+        with telemetry.campaign_span(SERVICE, "campaign.start", created.id):
+            await request.app.state.temporal.start_workflow(
+                WORKFLOW_NAME,
+                args=[str(created.id), body.report, dag],
+                id=f"campaign-{created.id}",
+                task_queue=TASK_QUEUE,
+            )
         return created
 
     @app.get("/campaigns/{campaign_id}")
@@ -399,12 +403,15 @@ def create_app(settings: Settings) -> FastAPI:
         await run_in_threadpool(seed_default_workflow, app.state.engine)
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
-            settings.temporal_address, namespace=settings.temporal_namespace
+            settings.temporal_address,
+            namespace=settings.temporal_namespace,
+            interceptors=telemetry.temporal_interceptors(),
         )
         yield
         app.state.engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
+    telemetry.instrument_app(app, SERVICE)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

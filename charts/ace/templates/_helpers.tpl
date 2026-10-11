@@ -81,6 +81,18 @@ imagePullPolicy: {{ .Values.python.image.pullPolicy }}
 {{ include "ace.secretEnv" (list . "ACE_MARKETO_WEBHOOK_SECRET" "marketo-webhook-secret") }}
 {{- end -}}
 
+{{/* OpenTelemetry settings for one service; call with (list . "service-name"). Empty
+otel.endpoint renders nothing, so the service exports no spans. */}}
+{{- define "ace.otelEnv" -}}
+{{- $root := index . 0 -}}
+{{- if $root.Values.otel.endpoint }}
+- name: OTEL_SERVICE_NAME
+  value: {{ index . 1 | quote }}
+- name: OTEL_EXPORTER_OTLP_ENDPOINT
+  value: {{ $root.Values.otel.endpoint | quote }}
+{{- end }}
+{{- end -}}
+
 {{/* An init container that waits until Postgres and Temporal accept TCP connections.
 Under python.reload the file watcher does not restart a process that exits, so the API
 and the worker must not start before their dependencies listen. */}}

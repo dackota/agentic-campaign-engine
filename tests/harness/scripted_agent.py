@@ -20,6 +20,8 @@ from ace_engine.agent_roles import ROLES
 from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
+from opentelemetry import trace
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 
 JSONRPC_METHOD_NOT_FOUND = -32601
 SUBJECT_HEADLINE_CHARS = 80
@@ -41,6 +43,9 @@ VARIANT_B_PHRASE = "variant B"
 WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
+SERVICE = "scripted-agent"
+MODEL_NAME = "scripted-model"
+TOOL_NAME = "read_report"
 
 
 class ScriptedAgent:
@@ -89,6 +94,7 @@ class ScriptedAgent:
 
     def _build_app(self) -> FastAPI:
         app = FastAPI()
+        FastAPIInstrumentor.instrument_app(app)
 
         @app.get("/readyz")
         def readyz() -> dict[str, str]:
@@ -117,6 +123,14 @@ class ScriptedAgent:
                     }
                 )
             reply, is_slow = self._next_reply(text, context_id)
+            # What kagent exports on a real run: a tool call and a model call, as children
+            # of the request that carries the caller's trace context.
+            for operation, name in (("execute_tool", TOOL_NAME), ("chat", MODEL_NAME)):
+                with trace.get_tracer(SERVICE).start_as_current_span(
+                    f"{operation} {name}",
+                    attributes={"ace.service": SERVICE, "gen_ai.operation.name": operation},
+                ):
+                    pass
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
