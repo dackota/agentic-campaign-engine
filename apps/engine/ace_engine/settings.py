@@ -9,6 +9,11 @@ TASK_QUEUE = "campaigns"
 APPROVE_SIGNAL = "approve"
 DEPTH_ENV = "ACE_DEPTH"
 REQUIRED_SECRETS = ("marketo_client_id", "marketo_client_secret", "marketo_webhook_secret")
+WORKFRONT_SECRETS = (
+    "workfront_client_id",
+    "workfront_client_secret",
+    "workfront_webhook_secret",
+)
 
 
 class Depth(StrEnum):
@@ -41,6 +46,12 @@ class Settings:
     marketo_client_id: str
     marketo_client_secret: str = field(repr=False)
     marketo_webhook_secret: str = field(repr=False)
+    # The Workfront-shaped fake, optional: with no URL, approved campaigns publish to
+    # Marketo only. With a URL, its client credentials and webhook key are required.
+    workfront_url: str = ""
+    workfront_client_id: str = ""
+    workfront_client_secret: str = field(default="", repr=False)
+    workfront_webhook_secret: str = field(default="", repr=False)
     agent_timeout_seconds: float = 30.0
     marketo_timeout_seconds: float = 30.0
     # The OIDC provider (Dex) the Campaign API trusts, and the client id tokens are for.
@@ -55,3 +66,11 @@ class Settings:
         for name in REQUIRED_SECRETS:
             if not getattr(self, name).strip():
                 raise ValueError(f"{name} is required: set it from the environment")
+        if self.workfront_url.strip():
+            for name in WORKFRONT_SECRETS:
+                if not getattr(self, name).strip():
+                    raise ValueError(f"{name} is required when workfront_url is set")
+
+    @property
+    def has_workfront(self) -> bool:
+        return bool(self.workfront_url.strip())
