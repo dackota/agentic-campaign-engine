@@ -3,13 +3,25 @@ local stand-ins for both APIs, the approval request and the publish notice reach
 one Google Doc holds the brief and the drafts. With no tokens, a campaign still runs to
 approval and publish and nothing errors."""
 
+import time
 from collections.abc import Iterator
 from typing import Any
 
 import httpx
 import pytest
 
-from tests.api.helpers import APPROVER, AWAITING, OWNER, REPORT, SENT, create, settle, until_status
+from tests.api.helpers import (
+    APPROVER,
+    AWAITING,
+    OWNER,
+    POLL_INTERVAL_SECONDS,
+    POLL_SECONDS,
+    REPORT,
+    SENT,
+    create,
+    settle,
+    until_status,
+)
 from tests.harness.stack import Stack
 
 HTTP_TIMEOUT_SECONDS = 30
@@ -37,6 +49,18 @@ def read(url: str) -> list[dict[str, Any]]:
     return items
 
 
+def until_messages(stack: Stack, campaign_id: str, count: int) -> list[str]:
+    """Poll the Slack stand-in until it holds `count` messages about the campaign."""
+    deadline = time.monotonic() + POLL_SECONDS
+    texts: list[str] = []
+    while time.monotonic() < deadline:
+        texts = [m["text"] for m in read(stack.slack_messages_url) if campaign_id in m["text"]]
+        if len(texts) >= count:
+            break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return texts
+
+
 def run_to_sent(stack: Stack, report: str) -> dict[str, Any]:
     stack.agent.script([])
     with client(stack, OWNER) as owner, client(stack, APPROVER) as approver:
@@ -50,7 +74,7 @@ def test_slack_gets_the_approval_request_and_the_publish_notice(wired: Stack) ->
     report = f"{REPORT} slack-marker-1"
     sent = run_to_sent(wired, report)
 
-    texts = [m["text"] for m in read(wired.slack_messages_url) if sent["id"] in m["text"]]
+    texts = until_messages(wired, sent["id"], 2)
 
     assert len(texts) == 2, texts
     assert "approval" in texts[0].lower()

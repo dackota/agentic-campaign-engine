@@ -12,7 +12,8 @@ from typing import Any
 from ace_engine.settings import APPROVE_SIGNAL, WORKFLOW_NAME
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, CancelledError
+from temporalio.workflow import ActivityCancellationType
 
 with workflow.unsafe.imports_passed_through():
     from ace_engine import dag as graph
@@ -21,7 +22,7 @@ with workflow.unsafe.imports_passed_through():
 AGENT_STEP_TIMEOUT = timedelta(minutes=5)
 DB_STEP_TIMEOUT = timedelta(seconds=30)
 SEND_STEP_TIMEOUT = timedelta(minutes=1)
-NOTIFY_TIMEOUT = timedelta(seconds=30)
+NOTIFY_TIMEOUT = timedelta(seconds=60)
 AGENT_RETRY = RetryPolicy(maximum_attempts=3)
 SEND_RETRY = RetryPolicy(maximum_attempts=5)
 NO_RETRY = RetryPolicy(maximum_attempts=1)
@@ -102,8 +103,12 @@ class CampaignWorkflow:
                 args=list(args),
                 start_to_close_timeout=NOTIFY_TIMEOUT,
                 retry_policy=NO_RETRY,
+                cancellation_type=ActivityCancellationType.ABANDON,
             )
-        except ActivityError:
+        except ActivityError as exc:
+            # A cancelled wave must still stop this step; only real failures are swallowed.
+            if isinstance(exc.cause, CancelledError):
+                raise
             workflow.logger.warning("%s failed; the run goes on", activity)
 
     async def _step(

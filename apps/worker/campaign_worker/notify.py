@@ -15,6 +15,8 @@ log = logging.getLogger(__name__)
 
 DOC_URL_TEMPLATE = "https://docs.google.com/document/d/{document_id}/edit"
 SUMMARY_LINE_LIMIT = 120
+# Google Docs counts characters from 1 at the start of a new document body.
+DOC_BODY_START_INDEX = 1
 
 
 def first_line(report: str) -> str:
@@ -75,10 +77,14 @@ async def export_to_google_doc(
         update = await client.post(
             f"{settings.google_docs_url}/v1/documents/{document_id}:batchUpdate",
             headers=headers,
-            json={"requests": [{"insertText": {"location": {"index": 1}, "text": text}}]},
+            json={
+                "requests": [
+                    {"insertText": {"location": {"index": DOC_BODY_START_INDEX}, "text": text}}
+                ]
+            },
         )
         update.raise_for_status()
-    except (httpx.HTTPError, ValueError, KeyError) as exc:
+    except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
         log.warning("google doc export failed: %s", type(exc).__name__)
         return None
     return DOC_URL_TEMPLATE.format(document_id=document_id)

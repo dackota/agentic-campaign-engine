@@ -7,6 +7,7 @@ is wired in a later ticket, so starting a live stack raises.
 """
 
 import asyncio
+import dataclasses
 import secrets
 import socket
 import threading
@@ -200,8 +201,19 @@ class Stack:
                 marketo_client_id=self.marketo_client_id,
                 marketo_client_secret=self.marketo_client_secret,
                 marketo_webhook_secret=self.marketo_webhook_secret,
-                **self._integration_settings(),
             )
+            if self.integrations:
+                settings = dataclasses.replace(
+                    settings,
+                    slack_token=self.slack_token,
+                    slack_channel=self.slack_channel,
+                    slack_url=self.slack_url,
+                    google_client_id=self.google_client_id,
+                    google_client_secret=self.google_client_secret,
+                    google_refresh_token=self.google_refresh_token,
+                    google_token_url=f"{self.google_url}/token",
+                    google_docs_url=self.google_url,
+                )
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
             with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
@@ -212,20 +224,6 @@ class Stack:
             await asyncio.gather(*tasks)
         finally:
             await env.shutdown()
-
-    def _integration_settings(self) -> dict[str, Any]:
-        if not self.integrations:
-            return {}
-        return {
-            "slack_token": self.slack_token,
-            "slack_channel": self.slack_channel,
-            "slack_url": self.slack_url,
-            "google_client_id": self.google_client_id,
-            "google_client_secret": self.google_client_secret,
-            "google_refresh_token": self.google_refresh_token,
-            "google_token_url": f"{self.google_url}/token",
-            "google_docs_url": self.google_url,
-        }
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app

@@ -116,8 +116,23 @@ class Activities:
 
     @activity.defn
     async def announce_approval(self, campaign_id: str) -> None:
-        """Export the brief and drafts to a Google Doc and ask for approval in Slack. Each
-        does nothing when its credentials are not set, and neither fails the run."""
+        """Ask for approval in Slack. Does nothing when Slack is not set up, and never
+        fails the run."""
+        if not self._settings.slack_enabled:
+            return
+        report, _ = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
+        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+            await notify.post_to_slack(
+                client,
+                self._settings,
+                f"Campaign {campaign_id} needs approval: {notify.first_line(report)}",
+            )
+
+    @activity.defn
+    async def announce_published(self, campaign_id: str, receipt: str) -> None:
+        """After the send: export the brief and drafts to a Google Doc, then tell Slack. A
+        write to an outside account waits for the approval. Each does nothing when its
+        credentials are not set, and neither fails the run."""
         if not (self._settings.slack_enabled or self._settings.google_enabled):
             return
         report, drafts = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
@@ -128,21 +143,9 @@ class Activities:
                 f"Campaign {campaign_id}",
                 notify.doc_text(report, drafts),
             )
-            text = f"Campaign {campaign_id} needs approval: {notify.first_line(report)}"
+            text = f"Campaign {campaign_id} sent. Marketo receipt: {receipt}"
             await notify.post_to_slack(
                 client, self._settings, f"{text}\n{doc_url}" if doc_url else text
-            )
-
-    @activity.defn
-    async def announce_published(self, campaign_id: str, receipt: str) -> None:
-        """Tell Slack the campaign was sent. Does nothing when Slack is not set up."""
-        if not self._settings.slack_enabled:
-            return
-        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
-            await notify.post_to_slack(
-                client,
-                self._settings,
-                f"Campaign {campaign_id} sent. Marketo receipt: {receipt}",
             )
 
     def _brief_and_drafts(self, campaign_id: str) -> tuple[str, list[dict[str, Any]]]:

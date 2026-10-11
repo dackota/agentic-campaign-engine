@@ -21,6 +21,7 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi import Request as HttpRequest
 from pydantic import BaseModel
 
+ACCESS_TOKEN_LIFETIME_SECONDS = 3600
 UNAUTHENTICATED = {"error": {"code": 401, "status": "UNAUTHENTICATED"}}
 
 
@@ -82,7 +83,11 @@ def create_app(config: GoogleConfig) -> FastAPI:
         access = secrets.token_urlsafe(24)
         with lock:
             access_tokens.add(access)
-        return {"access_token": access, "expires_in": 3600, "token_type": "Bearer"}
+        return {
+            "access_token": access,
+            "expires_in": ACCESS_TOKEN_LIFETIME_SECONDS,
+            "token_type": "Bearer",
+        }
 
     @app.post("/v1/documents", dependencies=[Depends(require_token)])
     def create_document(new: NewDocument) -> dict[str, str]:
