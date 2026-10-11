@@ -36,16 +36,18 @@ def _etag(data: bytes) -> str:
     return f'"{hashlib.md5(data, usedforsecurity=False).hexdigest()}"'
 
 
-def create_app() -> FastAPI:
-    store = _Store()
-    app = FastAPI()
+Objects = dict[str, tuple[bytes, str]]
 
-    def bucket(name: str) -> dict[str, tuple[bytes, str]]:
-        found = store.buckets.get(name)
-        if found is None:
-            raise HTTPException(status_code=404, detail=NO_SUCH_BUCKET)
-        return found
 
+def _bucket(store: _Store, name: str) -> Objects:
+    """The named bucket's objects, or a 404. The caller holds the lock."""
+    found = store.buckets.get(name)
+    if found is None:
+        raise HTTPException(status_code=404, detail=NO_SUCH_BUCKET)
+    return found
+
+
+def _add_bucket_routes(app: FastAPI, store: _Store) -> None:
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
         return {"status": "ok"}
@@ -62,6 +64,8 @@ def create_app() -> FastAPI:
             store.buckets.setdefault(bucket_name, {})
         return Response(status_code=200)
 
+
+def _add_object_routes(app: FastAPI, store: _Store) -> None:
     @app.put("/{bucket_name}/{key:path}")
     async def put_object(bucket_name: str, key: str, request: Request) -> Response:
         data = await request.body()
@@ -69,8 +73,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=413, detail="object is too large")
         content_type = request.headers.get("content-type", "application/octet-stream")
         with store.lock:
-            objects = bucket(bucket_name)
-            objects[key] = (data, content_type)
+            _bucket(store, bucket_name)[key] = (data, content_type)
             is_dropped = store.fault.drop_next_reply
             store.fault = Fault()
         if is_dropped:
@@ -80,16 +83,18 @@ def create_app() -> FastAPI:
     @app.get("/{bucket_name}/{key:path}")
     def get_object(bucket_name: str, key: str) -> Response:
         with store.lock:
-            found = bucket(bucket_name).get(key)
+            found = _bucket(store, bucket_name).get(key)
         if found is None:
             raise HTTPException(status_code=404, detail="NoSuchKey")
         data, content_type = found
         return Response(content=data, media_type=content_type, headers={"ETag": _etag(data)})
 
+
+def _add_listing_route(app: FastAPI, store: _Store) -> None:
     @app.get("/{bucket_name}")
     def list_objects(bucket_name: str, prefix: str = "") -> Response:
         with store.lock:
-            objects = dict(bucket(bucket_name))
+            objects = dict(_bucket(store, bucket_name))
         contents = "".join(
             f"<Contents><Key>{escape(key)}</Key><ETag>{escape(_etag(data))}</ETag>"
             f"<Size>{len(data)}</Size></Contents>"
@@ -103,4 +108,11 @@ def create_app() -> FastAPI:
         )
         return Response(content=xml, media_type="application/xml")
 
+
+def create_app() -> FastAPI:
+    store = _Store()
+    app = FastAPI()
+    _add_bucket_routes(app, store)
+    _add_object_routes(app, store)
+    _add_listing_route(app, store)
     return app

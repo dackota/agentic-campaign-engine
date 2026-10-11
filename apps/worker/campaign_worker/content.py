@@ -4,6 +4,7 @@ email variant goes to the S3 bucket as an HTML asset.
 Both writes are idempotent by key (the page by its slug, the object by its key), so a
 retried publish replaces an item with itself and never adds a second one."""
 
+import asyncio
 from html import escape
 from typing import Any
 
@@ -62,7 +63,7 @@ class AssetAdapter:
         self, client: httpx.AsyncClient, campaign: ApprovedCampaign, idempotency_key: str
     ) -> Receipt:
         try:
-            html = render_email(campaign.emails[self._email_index])
+            html = await asyncio.to_thread(render_email, campaign.emails[self._email_index])
         except EmailTooLarge as exc:
             raise ApplicationError(str(exc), type=ASSET_TOO_LARGE, non_retryable=True) from exc
         made = await client.put(f"{self._url}/{self._bucket}")
