@@ -13,10 +13,10 @@ two-proportion z-test), not a Bayesian win rate.
   `z = (a - b) / sqrt((a + b) * (1 - p))`, with `p = (a + b) / 2n` the pooled open rate.
   We drop the `(1 - p)` factor and use `z = (a - b) / sqrt(a + b)`: the small-rate
   approximation, which treats the opens as Poisson counts. It is valid when the open
-  rate is low, and it overstates z (so overstates confidence) as the rate grows: at a
-  50% pooled rate z is too high by a factor of about 1.4. It is accepted for this demo,
-  whose audience opens at modest rates and whose call is conservative at the 95% bar and
-  30-open floor. Store the send count and use the pooled form if
+  rate is low, and it understates z (so understates confidence) as the rate grows: at a
+  50% pooled rate z is too low by a factor of about 1.4. That errs toward "no decision
+  yet", never toward a false win, so it is accepted for this demo, on top of the 95% bar
+  and the 30-open floor. Store the send count and use the pooled form if
   the rate ever runs high. Clicks are too few to test on their own (about 10 per
   variant for the 120-reader audience).
 - Two-sided. Confidence is `1 - p`, from `math.erf`.

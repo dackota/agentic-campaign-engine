@@ -234,7 +234,7 @@ function useCampaignRun(
         // only stops the watch; the shown result stays as last read.
         void watchAbResult(id, (next) =>
           setCampaign((shown) => (shown?.id === id ? next : shown)),
-        ).catch(() => undefined);
+        ).catch(fail);
       }),
     retry: (id: string) =>
       attempt(async () => {

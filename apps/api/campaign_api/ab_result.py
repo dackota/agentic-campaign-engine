@@ -21,7 +21,8 @@ NO_DECISION = AbResult(winner=None, confidence=None)
 def decide(engagement: dict[str, dict[str, int]]) -> AbResult:
     """Open rate of A against B, both sent to equally many readers. The test is the
     small-rate form of the two-proportion z-test, z = (a - b) / sqrt(a + b): it needs no
-    send count, and it overstates confidence when the open rate is high (see the ADR).
+    send count, and it understates confidence (errs toward no decision) when the open
+    rate is high (see the ADR).
     Confidence is 1 - p, two-sided."""
     if not all(v in engagement for v in VARIANTS):
         return NO_DECISION
