@@ -12,6 +12,13 @@ Fake third-party services. Later tickets add more.
   `GET /rest/asset/v1/programs.json?externalId=` shows programs and their sends, so a test
   can check a send from the outside. The client id, secret, and webhook key come from
   `MarketoConfig`, never from code.
+
+  After the first send, a simulated audience (`audience.py`) opens and clicks. Seeded
+  personas score each variant by a hidden rule, so the same seed always gives the same
+  events. Each event posts as a signed `open` or `click` activity once its simulated time,
+  divided by the time speed, has passed. `PUT /_audience {seed, time_speed}` sets both for
+  the sends that follow; `GET /_audience/events?externalId=` shows what was planned. The
+  Campaign API's `GET /campaigns/{id}` shows `engagement` as opens and clicks per variant.
 - `fake_cms`: a headless-CMS-shaped fake. `PUT /api/pages/{slug}` creates or replaces a
   page (idempotent per slug); `GET /api/pages[/{slug}]` reads pages back.
 - `fake_s3`: a path-style S3 fake with no signature checks. `PUT /{bucket}`,
