@@ -6,12 +6,11 @@ import json
 from typing import Any
 
 from ace_engine.agent_roles import Role
-from ace_engine.contracts import REPORT_MARKER, violations
+from ace_engine.contracts import REPORT_MARKER, AgentOutput, violations
 
 MAX_FIX_ROUNDS = 2
 PASS = "pass"
 FIX = "fix"
-# The run event statuses of a review: one per fix sent back, one when the loop gives up.
 
 CHECKS = ("uncited_fact", "banned_claim", "off_brand_word", "length")
 
@@ -54,7 +53,7 @@ def verdict_problems(verdict: object) -> list[str]:
     return violations(verdict, VERDICT_SCHEMA)
 
 
-def review_message(draft: Any, context: dict[str, Any], report: str) -> str:
+def review_message(draft: AgentOutput, context: dict[str, Any], report: str) -> str:
     """What the reviewer is sent: its prompt, the draft, what earlier steps produced, and
     the report after the marker."""
     parts = [BRAND_REVIEWER.prompt, f"DRAFT: {json.dumps(draft)}"]

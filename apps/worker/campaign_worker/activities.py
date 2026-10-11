@@ -10,7 +10,7 @@ import httpx
 from ace_engine import brand_review, db, invoker
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, message_for, role_for
-from ace_engine.contracts import citation_problems
+from ace_engine.contracts import AgentOutput, citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -93,7 +93,7 @@ class Activities:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        if role.checks_citations:
+        if role.checks_citations and isinstance(output, dict):
             problems = citation_problems(output, report)
             if problems:
                 raise ApplicationError(
@@ -107,9 +107,9 @@ class Activities:
         self,
         client: httpx.AsyncClient,
         job: ReviewJob,
-        output: Any,
+        output: AgentOutput,
         review_rounds: int,
-    ) -> Any:
+    ) -> AgentOutput:
         """Send the draft to the brand reviewer; on a fix verdict send the issues back to
         the same writer sessions, for at most `review_rounds` rounds (never more than the
         limit). What the reviewer still flags after the last round is flagged for a human."""
@@ -151,7 +151,7 @@ class Activities:
         job: ReviewJob,
         issues: list[dict[str, Any]] | None = None,
         turn: int = 0,
-    ) -> Any:
+    ) -> AgentOutput:
         """Ask each of the writer's sessions: the first draft, or with `issues` the fixes the
         reviewer asked for. The step's output: a list when the role replies more than once."""
         outputs = []
