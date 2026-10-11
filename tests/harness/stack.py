@@ -13,7 +13,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import httpx
 import uvicorn
@@ -25,6 +25,7 @@ from tests.harness.scripted_agent import ScriptedAgent
 
 if TYPE_CHECKING:
     from ace_engine.settings import Settings
+    from fastapi import FastAPI
 
 POSTGRES_IMAGE = "postgres:16-alpine"
 START_TIMEOUT_SECONDS = 180
@@ -236,7 +237,7 @@ class Stack:
             webhook_url=f"{self.api_url}/webhooks/marketo",
             webhook_secret=self.marketo_webhook_secret,
         )
-        apps: list[tuple[Any, int]] = [
+        apps: list[tuple[FastAPI, int]] = [
             (self.agent.app, agent_port),
             (create_marketo(marketo), self.marketo_port),
             (create_app(settings), self.api_port),

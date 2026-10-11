@@ -137,15 +137,16 @@ class Activities:
             return
         report, drafts = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
         async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
-            doc_url = await notify.export_to_google_doc(
+            await notify.export_to_google_doc(
                 client,
                 self._settings,
                 f"Campaign {campaign_id}",
                 notify.doc_text(report, drafts),
             )
-            text = f"Campaign {campaign_id} sent. Marketo receipt: {receipt}"
             await notify.post_to_slack(
-                client, self._settings, f"{text}\n{doc_url}" if doc_url else text
+                client,
+                self._settings,
+                f"Campaign {campaign_id} sent. Marketo receipt: {receipt}",
             )
 
     def _brief_and_drafts(self, campaign_id: str) -> tuple[str, list[dict[str, Any]]]:

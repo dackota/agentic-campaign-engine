@@ -61,6 +61,18 @@ def until_messages(stack: Stack, campaign_id: str, count: int) -> list[str]:
     return texts
 
 
+def until_docs(stack: Stack, report: str) -> list[dict[str, Any]]:
+    """Poll the Google stand-in until a doc about the report appears; the export follows SENT."""
+    deadline = time.monotonic() + POLL_SECONDS
+    docs: list[dict[str, Any]] = []
+    while time.monotonic() < deadline:
+        docs = [d for d in read(stack.google_documents_url) if report in d["text"]]
+        if docs:
+            break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return docs
+
+
 def run_to_sent(stack: Stack, report: str) -> dict[str, Any]:
     stack.agent.script([])
     with client(stack, OWNER) as owner, client(stack, APPROVER) as approver:
@@ -89,7 +101,7 @@ def test_google_stand_in_gets_one_doc_with_the_brief_and_drafts(wired: Stack) ->
     report = f"{REPORT} google-marker-2"
     sent = run_to_sent(wired, report)
 
-    docs = [d for d in read(wired.google_documents_url) if report in d["text"]]
+    docs = until_docs(wired, report)
 
     assert len(docs) == 1, docs
     assert sent["draft"]["subject"] in docs[0]["text"]
