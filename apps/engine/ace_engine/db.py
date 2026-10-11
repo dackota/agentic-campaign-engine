@@ -24,6 +24,8 @@ AWAITING_APPROVAL = "awaiting_approval"
 SENDING = "sending"
 SENT = "sent"
 FAILED = "failed"
+# A failed run the owner asked to retry: it re-runs the step that stopped it.
+RETRYING = "retrying"
 # A run whose workflow has no publish step ends here.
 FINISHED = "finished"
 
@@ -33,6 +35,8 @@ EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
 STEP_SUCCEEDED = "succeeded"
 STEP_FAILED = "failed"
+# A failed run the owner asked to retry: it re-runs the step that stopped it.
+RETRYING = "retrying"
 
 
 class Base(DeclarativeBase):

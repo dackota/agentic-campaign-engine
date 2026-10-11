@@ -122,6 +122,9 @@ def test_retry_step_resumes_the_run_to_the_end(stack: Stack, api: httpx.Client) 
     assert statuses(events, "preview") == ["started", "succeeded"]
     assert [e["seq"] for e in events if e["step"] == "preview"][0] > stopped_at
     assert (events[-1]["step"], events[-1]["status"]) == ("run", FINISHED)
+    resumed = read_events(api, campaign_id, after=stopped_at)
+    assert (resumed[0]["step"], resumed[0]["status"]) == ("run", RETRYING)
+    assert resumed[-1]["status"] == FINISHED
     # Two failed attempts, then one call per A/B variant.
     assert len(calls_for(stack, key_of(created, "writer"))) == 4
 

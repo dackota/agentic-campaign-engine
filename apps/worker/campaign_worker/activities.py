@@ -5,6 +5,7 @@ import uuid
 from typing import Any
 
 import httpx
+from ace_engine import dag as graph
 from ace_engine import db, invoker
 from ace_engine.contracts import EMAIL_DRAFT_SCHEMA, REPORT_MARKER
 from ace_engine.settings import Settings
@@ -44,9 +45,11 @@ class Activities:
     async def write_email_draft(
         self, campaign_id: str, report: str, step_id: str
     ) -> list[dict[str, Any]]:
-        """Both A/B variants of the email, A first; each in its own agent session."""
+        """Both A/B variants of the email, A first; each in its own agent session, keyed by
+        the step's idempotency key so no two steps share a session or a message id."""
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED)
-        variants = [("", EMAIL_PROMPT), ("-b", VARIANT_B_PROMPT)]
+        key = graph.step_key(campaign_id, step_id)
+        variants = [(":a", EMAIL_PROMPT), (":b", VARIANT_B_PROMPT)]
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
                 return [
@@ -54,7 +57,7 @@ class Activities:
                         await invoker.invoke(
                             client,
                             self._settings.agent_url,
-                            session_key=f"campaign-{campaign_id}{suffix}",
+                            session_key=f"{key}{suffix}",
                             prompt=f"{prompt}\n{report}",
                             schema=EMAIL_DRAFT_SCHEMA,
                         )
@@ -107,9 +110,18 @@ class Activities:
             db.add_event(session, campaign.id, db.RUN_STEP, campaign.status)
 
     @activity.defn
-    async def send_email(self, campaign_id: str, drafts: list[dict[str, Any]]) -> str:
+    async def send_email(
+        self,
+        campaign_id: str,
+        drafts: list[dict[str, Any]],
+        step_id: str = publisher.PUBLISH_STEP,
+    ) -> str:
         """Publish the approved A/B emails; the receipt id of the Marketo send."""
-        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        campaign = publisher.ApprovedCampaign(
+            campaign_id=campaign_id,
+            emails=tuple(drafts),
+            step_key=graph.step_key(campaign_id, step_id),
+        )
         async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
             receipts = await publisher.publish(client, [MarketoAdapter(self._settings)], campaign)
         return receipts[0].receipt_id

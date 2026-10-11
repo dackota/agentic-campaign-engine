@@ -6,6 +6,7 @@ import {
   getMe,
   listCampaigns,
   previewUrl,
+  retryCampaign,
   SignedOutError,
   type Campaign,
   type EmailDraft,
@@ -27,6 +28,7 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   sending: "Sending",
   sent: "Sent",
   failed: "Failed",
+  retrying: "Retrying",
   finished: "Finished",
 };
 
@@ -93,6 +95,11 @@ function CampaignList({ campaigns, onOpen }: CampaignListProps) {
       </ul>
     </section>
   );
+}
+
+/** Owners run campaigns, so they retry the step that stopped one. The API enforces the same. */
+function canRetry(me: Me, campaign: Campaign): boolean {
+  return campaign.status === "failed" && me.roles.includes("owner");
 }
 
 /** Approvers approve; nobody approves a campaign they created. The API enforces the same. */
@@ -190,7 +197,7 @@ function useCampaignRun(
   refresh: () => Promise<void>,
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
+  const { steps, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
 
   async function attempt(task: () => Promise<void>) {
     setError(null);
@@ -219,6 +226,12 @@ function useCampaignRun(
     approve: (id: string) =>
       attempt(async () => {
         await pollWhileSending(await approveCampaign(id), setCampaign);
+        await refresh();
+      }),
+    retry: (id: string) =>
+      attempt(async () => {
+        setCampaign(await retryCampaign(id));
+        resume();
         await refresh();
       }),
   };
@@ -282,14 +295,20 @@ interface RunViewProps {
   campaign: Campaign;
   steps: Record<string, RunEvent>;
   onApprove: (id: string) => void;
+  onRetry: (id: string) => void;
 }
 
-function RunView({ me, campaign, steps, onApprove }: RunViewProps) {
+function RunView({ me, campaign, steps, onApprove, onRetry }: RunViewProps) {
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
       <RunSteps dag={campaign.steps} events={steps} />
       {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
+      {canRetry(me, campaign) && (
+        <button type="button" onClick={() => onRetry(campaign.id)}>
+          Retry step
+        </button>
+      )}
       {campaign.draft && <DraftView draft={campaign.draft} />}
       {campaign.draft && <EmailPreview id={campaign.id} />}
       {hasStatus && (
@@ -334,6 +353,7 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           campaign={run.campaign}
           steps={run.steps}
           onApprove={(id) => void run.approve(id)}
+          onRetry={(id) => void run.retry(id)}
         />
       )}
     </main>

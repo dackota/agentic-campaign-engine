@@ -97,15 +97,21 @@ DRAFT_APPROVE_PUBLISH = {
 
 
 def read_events(
-    api: httpx.Client, campaign_id: str, last_event_id: int | None = None
+    api: httpx.Client,
+    campaign_id: str,
+    last_event_id: int | None = None,
+    after: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Read the run event stream until the server closes it; one dict per event."""
+    """Read the run event stream until the server closes it; one dict per event. `after`
+    starts it the way the browser does, from the query instead of Last-Event-ID."""
     headers = {"Last-Event-ID": str(last_event_id)} if last_event_id is not None else {}
+    params = {"after": str(after)} if after is not None else {}
     events: list[dict[str, Any]] = []
     with api.stream(
         "GET",
         f"/campaigns/{campaign_id}/events",
         headers=headers,
+        params=params,
         timeout=STREAM_TIMEOUT_SECONDS,
     ) as response:
         assert response.status_code == 200, response.read()
