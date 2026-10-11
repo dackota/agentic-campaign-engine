@@ -229,6 +229,20 @@ function useCampaignList(fail: Fail): { campaigns: Campaign[]; refresh: () => Pr
   return { campaigns, refresh };
 }
 
+/** Run a user action: clear the last error first, and show the action's failure. */
+async function attemptAction(
+  task: () => Promise<void>,
+  setError: (message: string | null) => void,
+  fail: Fail,
+): Promise<void> {
+  setError(null);
+  try {
+    await task();
+  } catch (e) {
+    fail(e);
+  }
+}
+
 /** The campaign on screen and its run: open one, create one, approve it. */
 function useCampaignRun(
   fail: Fail,
@@ -237,15 +251,7 @@ function useCampaignRun(
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const { steps, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
-
-  async function attempt(task: () => Promise<void>) {
-    setError(null);
-    try {
-      await task();
-    } catch (e) {
-      fail(e);
-    }
-  }
+  const attempt = (task: () => Promise<void>) => attemptAction(task, setError, fail);
 
   async function show(next: Promise<Campaign>) {
     setCampaign(null);
