@@ -18,7 +18,7 @@ SECONDS_PER_DAY = 86_400
 
 
 def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
-    campaign_id = create(api)["id"]
+    campaign_id: str = create(api)["id"]
     settle(api, campaign_id)
     assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
