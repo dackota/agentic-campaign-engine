@@ -84,6 +84,24 @@ class RunEvent(Base):
     step: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The kagent Session the step talked to; None for steps that talk to no agent.
+    session: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepOutput(Base):
+    """What an agent step produced, with the session it ran in."""
+
+    __tablename__ = "step_outputs"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    session: Mapped[str] = mapped_column(String(200))
+    output: Mapped[Any] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -107,9 +125,34 @@ class Activity(Base):
 
 
 def add_event(
-    session: Session, campaign_id: uuid.UUID, step: str, status: str, reason: str | None = None
+    session: Session,
+    campaign_id: uuid.UUID,
+    step: str,
+    status: str,
+    reason: str | None = None,
+    agent_session: str | None = None,
 ) -> None:
-    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason))
+    session.add(
+        RunEvent(
+            campaign_id=campaign_id,
+            step=step,
+            status=status,
+            reason=reason,
+            session=agent_session,
+        )
+    )
+
+
+def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
+    """What the campaign's agent steps produced, in the order they finished."""
+    with Session(engine) as session:
+        return list(
+            session.scalars(
+                select(StepOutput)
+                .where(StepOutput.campaign_id == campaign_id)
+                .order_by(StepOutput.created_at, StepOutput.step)
+            )
+        )
 
 
 def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list[RunEvent]:

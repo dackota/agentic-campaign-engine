@@ -102,7 +102,7 @@ class CampaignWorkflow:
     ) -> None:
         step_id, kind = step["id"], step["kind"]
         if kind == graph.AGENT:
-            await self._agent(campaign_id, report, step_id)
+            await self._agent(campaign_id, report, dag, step_id)
         elif kind == graph.APPROVAL:
             await self._db("open_approval", campaign_id)
             await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
@@ -120,18 +120,27 @@ class CampaignWorkflow:
         else:
             raise StepFailed(step_id, f"step {step_id!r} has an unknown kind {kind!r}")
 
-    async def _agent(self, campaign_id: str, report: str, step_id: str) -> None:
+    async def _agent(
+        self, campaign_id: str, report: str, dag: dict[str, Any], step_id: str
+    ) -> None:
+        # The agent steps before this one hand it their output.
+        before = graph.ancestors(dag, step_id)
+        context = {
+            s["id"]: self._outputs[s["id"]]
+            for s in dag["steps"]
+            if s["id"] in before and s["id"] in self._outputs
+        }
         try:
-            drafts = await workflow.execute_activity(
-                "write_email_draft",
-                args=[campaign_id, report, step_id],
+            result = await workflow.execute_activity(
+                "run_agent_step",
+                args=[campaign_id, report, step_id, context],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
                 retry_policy=AGENT_RETRY,
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
-        await self._db("save_agent_output", campaign_id, step_id, drafts)
-        self._outputs[step_id] = drafts
+        await self._db("save_agent_output", campaign_id, step_id, result)
+        self._outputs[step_id] = result["output"]
 
     async def _publish(self, campaign_id: str, dag: dict[str, Any], step_id: str) -> None:
         source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)

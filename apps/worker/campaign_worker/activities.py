@@ -6,7 +6,8 @@ from typing import Any
 
 import httpx
 from ace_engine import db, invoker
-from ace_engine.contracts import EMAIL_DRAFT_SCHEMA, REPORT_MARKER
+from ace_engine.agent_roles import EMAIL_ROLE, message_for, role_for
+from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -17,18 +18,13 @@ from campaign_worker import publisher
 from campaign_worker.marketo import MarketoAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
-EMAIL_PROMPT = (
-    "You are the email writer. Turn the threat report into a marketing email. "
-    "Reply with only JSON that has the keys subject, preheader, body, call_to_action.\n\n"
-    + REPORT_MARKER
-)
+# An agent step's session: one per step per campaign, so no two steps share a conversation.
+# A second reply in the same step (variant B) gets its own, suffixed with the variant.
 
-VARIANT_B_PROMPT = (
-    "You are the email writer. Write variant B of an A/B test for this threat report: "
-    "the same facts, a different subject line and angle. "
-    "Reply with only JSON that has the keys subject, preheader, body, call_to_action.\n\n"
-    + REPORT_MARKER
-)
+
+def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
+    suffix = "" if variant == 0 else f"-v{variant}"
+    return f"campaign-{campaign_id}-{step_id}{suffix}"
 
 
 class Activities:
@@ -36,47 +32,72 @@ class Activities:
         self._settings = settings
         self._engine = engine
 
-    def _record(self, campaign_id: str, step: str, status: str, reason: str | None = None) -> None:
+    def _record(
+        self,
+        campaign_id: str,
+        step: str,
+        status: str,
+        reason: str | None = None,
+        agent_session: str | None = None,
+    ) -> None:
         with Session(self._engine) as session, session.begin():
-            db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
+            db.add_event(session, uuid.UUID(campaign_id), step, status, reason, agent_session)
 
     @activity.defn
-    async def write_email_draft(
-        self, campaign_id: str, report: str, step_id: str
-    ) -> list[dict[str, Any]]:
-        """Both A/B variants of the email, A first; each in its own agent session."""
-        await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED)
-        variants = [("", EMAIL_PROMPT), ("-b", VARIANT_B_PROMPT)]
+    async def run_agent_step(
+        self, campaign_id: str, report: str, step_id: str, context: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Ask the step's agent, each reply in its own session. `context` holds what the
+        steps before this one produced. Returns the output and the step's session."""
+        role = role_for(step_id)
+        session = session_key(campaign_id, step_id)
+        await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                return [
+                replies = [
                     (
                         await invoker.invoke(
                             client,
                             self._settings.agent_url,
-                            session_key=f"campaign-{campaign_id}{suffix}",
-                            prompt=f"{prompt}\n{report}",
-                            schema=EMAIL_DRAFT_SCHEMA,
+                            session_key=session_key(campaign_id, step_id, variant),
+                            prompt=message_for(role, report, context, variant),
+                            schema=role.reply_schema,
                         )
                     ).output
-                    for suffix, prompt in variants
+                    for variant in range(role.replies)
                 ]
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        output: Any = replies if role.replies > 1 else replies[0]
+        if step_id == "research":
+            problems = citation_problems(output, report)
+            if problems:
+                raise ApplicationError(
+                    "research broke the citation rule: " + "; ".join(problems),
+                    type=AGENT_OUTPUT_INVALID,
+                    non_retryable=True,
+                )
+        return {"output": output, "session": session}
 
     @activity.defn
-    def save_agent_output(
-        self, campaign_id: str, step_id: str, drafts: list[dict[str, Any]]
-    ) -> None:
-        """Store an agent step's A/B email variants and mark the step succeeded."""
-        variant_a, variant_b = drafts
+    def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
+        """Store an agent step's output and mark the step succeeded. The email writer's
+        two emails become the campaign's draft and its A/B variant."""
+        output, agent_session = result["output"], result["session"]
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
-            campaign.draft = variant_a
-            campaign.variant_b = variant_b
-            db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
+            session.merge(
+                db.StepOutput(
+                    campaign_id=campaign.id, step=step_id, session=agent_session, output=output
+                )
+            )
+            if role_for(step_id) is EMAIL_ROLE:
+                campaign.draft, campaign.variant_b = output
+            db.add_event(
+                session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session=agent_session
+            )
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:

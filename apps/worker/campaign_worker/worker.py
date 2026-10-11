@@ -24,7 +24,7 @@ def build_worker(
         task_queue=TASK_QUEUE,
         workflows=[CampaignWorkflow],
         activities=[
-            activities.write_email_draft,
+            activities.run_agent_step,
             activities.save_agent_output,
             activities.mark_step,
             activities.open_approval,
