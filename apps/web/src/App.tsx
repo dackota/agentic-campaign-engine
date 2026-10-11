@@ -16,12 +16,10 @@ import {
 import { Builder } from "./Builder";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
+import { RunGraph } from "./RunGraphView";
 import { useRunEvents } from "./useRunEvents";
-import type { WorkflowStep } from "./workflow.gen";
 
 const POLL_MS = 500;
-
-const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
 const STATUS_LABELS: Record<Campaign["status"], string> = {
   drafting: "Drafting",
@@ -33,8 +31,6 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   finished: "Finished",
 };
 
-const PENDING = "pending";
-
 async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
   let current = first;
   onUpdate(current);
@@ -43,19 +39,6 @@ async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void
     current = await getCampaign(current.id);
     onUpdate(current);
   }
-}
-
-/** The pinned workflow's steps in run order, each with its latest status. */
-function RunSteps({ dag, events }: { dag: WorkflowStep[]; events: Record<string, RunEvent> }) {
-  return (
-    <ul aria-label="Run steps">
-      {dag.map((step) => (
-        <li key={step.id} data-testid={`step-${step.id}`}>
-          {STEP_LABELS[step.id] ?? step.id}: {events[step.id]?.status ?? PENDING}
-        </li>
-      ))}
-    </ul>
-  );
 }
 
 function DraftView({ draft }: { draft: EmailDraft }) {
@@ -198,7 +181,7 @@ function useCampaignRun(
   refresh: () => Promise<void>,
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const { steps, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
+  const { events, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
 
   async function attempt(task: () => Promise<void>) {
     setError(null);
@@ -217,7 +200,7 @@ function useCampaignRun(
 
   return {
     campaign,
-    steps,
+    events,
     open: (id: string) => attempt(() => show(getCampaign(id))),
     create: (report: string, workflow: string) =>
       attempt(async () => {
@@ -294,16 +277,16 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
 interface RunViewProps {
   me: Me;
   campaign: Campaign;
-  steps: Record<string, RunEvent>;
+  events: RunEvent[];
   onApprove: (id: string) => void;
   onRetry: (id: string) => void;
 }
 
-function RunView({ me, campaign, steps, onApprove, onRetry }: RunViewProps) {
+function RunView({ me, campaign, events, onApprove, onRetry }: RunViewProps) {
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
-      <RunSteps dag={campaign.steps} events={steps} />
+      <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
       {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
       {canRetry(me, campaign) && (
         <button type="button" onClick={() => onRetry(campaign.id)}>
@@ -392,7 +375,7 @@ function Campaigns({ me, error, list, run }: CampaignsProps) {
         <RunView
           me={me}
           campaign={run.campaign}
-          steps={run.steps}
+          events={run.events}
           onApprove={(id) => void run.approve(id)}
           onRetry={(id) => void run.retry(id)}
         />

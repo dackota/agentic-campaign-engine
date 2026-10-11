@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import { getCampaign, isFinalEvent, watchRun, type Campaign, type RunEvent } from "./api";
 import { messageOf } from "./messages";
 
-/** Follow a campaign's run: per-step events while it runs, the refetched campaign at the end.
+/** Follow a campaign's run: every step event so far while it runs, the refetched campaign at the end.
  * `resume` follows it again from the last event seen, after a retried step. */
 export function useRunEvents(
   campaignId: string | undefined,
   onCampaign: (campaign: Campaign) => void,
   onError: (message: string) => void,
-): { steps: Record<string, RunEvent>; reset: () => void; resume: () => void } {
-  const [steps, setSteps] = useState<Record<string, RunEvent>>({});
+): { events: RunEvent[]; reset: () => void; resume: () => void } {
+  const [events, setEvents] = useState<RunEvent[]>([]);
   const [round, setRound] = useState(0);
   const lastSeq = useRef(0);
 
@@ -23,7 +23,7 @@ export function useRunEvents(
         if (isFinalEvent(event)) {
           getCampaign(campaignId).then(onCampaign, (e: unknown) => onError(messageOf(e)));
         } else {
-          setSteps((current) => ({ ...current, [event.step]: event }));
+          setEvents((current) => [...current, event]);
         }
       },
       onError,
@@ -33,10 +33,10 @@ export function useRunEvents(
   }, [campaignId, round]);
 
   return {
-    steps,
+    events,
     reset: () => {
       lastSeq.current = 0;
-      setSteps({});
+      setEvents([]);
     },
     resume: () => setRound((r) => r + 1),
   };

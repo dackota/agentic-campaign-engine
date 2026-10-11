@@ -48,3 +48,29 @@ def test_stream_resumes_after_last_event_id(stack: Stack, api: httpx.Client) -> 
 
 def test_unknown_campaign_stream_is_404(api: httpx.Client) -> None:
     assert api.get(f"/campaigns/{uuid.uuid4()}/events").status_code == 404
+
+
+def test_agent_step_succeeded_event_carries_tokens(api: httpx.Client) -> None:
+    events = read_events(api, create(api)["id"])
+
+    done = next(e for e in events if e["step"] == "email_draft" and e["status"] == "succeeded")
+    started = next(e for e in events if e["step"] == "email_draft" and e["status"] == "started")
+    assert isinstance(done["tokens"], int) and done["tokens"] > 0
+    assert started["tokens"] is None
+
+
+def test_campaign_carries_dag_edges(api: httpx.Client) -> None:
+    from tests.api.helpers import create_on, save_workflow, workflow_name
+
+    name = workflow_name()
+    edge = {"from": "brief", "to": "writer"}
+    save_workflow(
+        api,
+        name,
+        {
+            "steps": [{"id": "brief", "kind": "agent"}, {"id": "writer", "kind": "agent"}],
+            "edges": [edge],
+        },
+    )
+
+    assert create_on(api, name)["edges"] == [edge]
