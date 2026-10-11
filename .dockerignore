@@ -1,0 +1,13 @@
+.git
+.env
+.env.*
+!.env.example
+.lane
+.scratch
+.venv
+**/node_modules
+**/dist
+**/test-results
+**/playwright-report
+.bin
+.tilt-cache

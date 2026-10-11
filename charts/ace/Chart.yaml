@@ -1,0 +1,6 @@
+apiVersion: v2
+name: ace
+description: Our services for the Agentic Campaign Engine - web, API, worker, fake Marketo, Postgres, and the Temporal dev server.
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

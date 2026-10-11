@@ -1,0 +1,77 @@
+{{- $labels := include "ace.labels" (list . "temporal") -}}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: temporal-data
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: {{ .Values.temporal.storage }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: temporal
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  # SQLite on a ReadWriteOnce volume: one server at a time.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: temporal
+          image: {{ .Values.temporal.image | quote }}
+          args:
+            - server
+            - start-dev
+            - --ip
+            - 0.0.0.0
+            - --port
+            - "7233"
+            - --headless
+            - --namespace
+            - {{ .Values.temporal.namespace | quote }}
+            - --db-filename
+            - /data/temporal.db
+          ports:
+            - name: grpc
+              containerPort: 7233
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          readinessProbe:
+            tcpSocket:
+              port: grpc
+            periodSeconds: 5
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: temporal-data
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.temporal.serviceName }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selector:
+    {{- $labels | nindent 4 }}
+  ports:
+    - name: grpc
+      port: {{ .Values.temporal.port }}
+      targetPort: grpc

@@ -1,0 +1,101 @@
+name: publish-images
+# On push to main only: build both images, push them to GHCR, check the packages are still
+# private, sign each pushed digest with the cosign key pair held in Actions secrets (nothing
+# goes to the public transparency log), verify each signature with the committed cosign.pub,
+# and list `image@sha256:` lines in the job summary for pasting into a Harness.
+# Pull requests never run this workflow: images.yml builds there and never pushes or signs.
+on:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+  packages: write
+env:
+  IMAGE_PREFIX: ghcr.io/dackota/agentic-campaign-engine
+jobs:
+  publish:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Version and SHA are pinned in docs/pinned-versions.md; flags checked in docs/sources.md.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+      - name: Log in to GHCR with the job token
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GHCR_USER: ${{ github.actor }}
+        run: printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$GHCR_USER" --password-stdin
+      - name: Build both images
+        # Same build argument as `make up` and the Tiltfile: one constant for the issuer.
+        run: |
+          docker build -f apps/python.Dockerfile -t "$IMAGE_PREFIX/ace-python:$GITHUB_SHA" .
+          docker build -f apps/web/Dockerfile \
+            --build-arg "VITE_OIDC_ISSUER=$(tr -d '[:space:]' < platform/oidc-issuer.txt)" \
+            -t "$IMAGE_PREFIX/ace-web:$GITHUB_SHA" .
+      - name: Push both images and record each pushed digest
+        run: |
+          set -euo pipefail
+          : > "$RUNNER_TEMP/digests"
+          for image in ace-python ace-web; do
+            docker push "$IMAGE_PREFIX/$image:$GITHUB_SHA"
+            ref=$(docker image inspect --format '{{index .RepoDigests 0}}' "$IMAGE_PREFIX/$image:$GITHUB_SHA")
+            if [[ ! "$ref" =~ ^$IMAGE_PREFIX/$image@sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::no pushed digest for $image (got '$ref')"
+              exit 1
+            fi
+            echo "$ref" >> "$RUNNER_TEMP/digests"
+          done
+      - name: Check the packages are private
+        # Reads visibility only; this workflow never changes it. A package first pushed from a
+        # private repo starts private.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for image in ace-python ace-web; do
+            visibility=$(gh api "/users/dackota/packages/container/agentic-campaign-engine%2F$image" --jq .visibility)
+            if [ "$visibility" != private ]; then
+              echo "::error::package agentic-campaign-engine/$image is '$visibility', not private"
+              exit 1
+            fi
+            echo "agentic-campaign-engine/$image is private"
+          done
+      - name: Sign each pushed digest
+        # The key and its password reach cosign only through env. cosign v3 refuses
+        # --tlog-upload=false while it reads the public TUF signing config, so that is off too.
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "::error::Actions secret COSIGN_PRIVATE_KEY is not set (see decisions A23)"
+            exit 1
+          fi
+          while read -r ref; do
+            cosign sign --yes --key env://COSIGN_PRIVATE_KEY \
+              --use-signing-config=false --tlog-upload=false "$ref"
+          done < "$RUNNER_TEMP/digests"
+      - name: Verify each signature with the committed public key
+        run: |
+          set -euo pipefail
+          if [ ! -f cosign.pub ]; then
+            echo "::error::cosign.pub is not committed at the repo root (see decisions A23)"
+            exit 1
+          fi
+          while read -r ref; do
+            cosign verify --key cosign.pub --insecure-ignore-tlog=true "$ref" > /dev/null
+            echo "verified $ref"
+          done < "$RUNNER_TEMP/digests"
+      - name: List the signed images by digest in the job summary
+        run: |
+          {
+            echo "Signed images, pinned by digest (paste into a Harness):"
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/digests"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

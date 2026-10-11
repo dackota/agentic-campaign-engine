@@ -61,3 +61,17 @@ page before you rely on a row.
 | [OpenCode Go model list](https://opencode.ai/zen/go/v1/models) | The live list of model IDs |
 | [agentgateway model failover](https://agentgateway.dev/docs/kubernetes/latest/llm/failover/) | Priority groups set failover order. Providers in one group are load balanced. A 429 with `Retry-After` sets the eviction time |
 | [agentgateway rate limiting](https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/) | `traffic.rateLimit.local` with `tokens` and `unit` on an HTTPRoute sets a token budget. Over budget the gateway answers 429 with `retry-after` and `x-ratelimit-*` headers. Checked 2026-10-10 |
+
+## Image signing
+
+Checked on 2026-10-10 against cosign v3.1.3, the version `.github/workflows/publish-images.yml`
+installs, with its own `--help` and a local round trip (throwaway key pair, local registry).
+
+| Source | What it told us |
+|---|---|
+| [cosign v3.1.3 release](https://github.com/sigstore/cosign/releases/tag/v3.1.3) | Latest v3 release on 2026-08-06. Binaries and `cosign_checksums.txt` |
+| [cosign-installer v4.1.2](https://github.com/sigstore/cosign-installer/releases/tag/v4.1.2) | Installer action at commit `6f9f1778...`. Its default is cosign v3.0.6; the `cosign-release` input picks v3.1.3, which the installer verifies before it installs |
+| `cosign sign --help` (v3.1.3) | `--key env://[ENV_VAR]` reads the private key from an env var; the password comes from `COSIGN_PASSWORD`. `--use-signing-config` defaults to true (the public TUF signing config). `--tlog-upload` is deprecated in favour of a signing config with no transparency log |
+| `cosign sign` round trip (v3.1.3) | `--tlog-upload=false` alone fails: "--tlog-upload=false is not supported with --signing-config or --use-signing-config". `--use-signing-config=false --tlog-upload=false` signs, uploads nothing to Rekor, and stores the signature in the new bundle format as an OCI referrer next to the image |
+| `cosign verify --help` (v3.1.3) | `--insecure-ignore-tlog` defaults to false: "ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log". With `--insecure-ignore-tlog=true`, `cosign verify --key <pub>` exits 0 on a signature made as above; without it, verify exits 1 |
+| [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |

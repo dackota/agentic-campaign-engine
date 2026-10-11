@@ -1,0 +1,11 @@
+# k3s imports every *.override key of this ConfigMap into CoreDNS. Pods that look up the
+# issuer's host get the Dex Service, the same URL the browser reaches through the k3d load
+# balancer (*.localhost resolves to 127.0.0.1).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: coredns-custom
+  namespace: kube-system
+data:
+  dex.override: |
+    rewrite name dex.ace.localhost dex.dex.svc.cluster.local

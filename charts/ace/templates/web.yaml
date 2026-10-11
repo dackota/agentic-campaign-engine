@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    {{- include "ace.webLabels" . | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "ace.webLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "ace.webLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: web
+          image: "{{ .Values.web.image.repository }}:{{ .Values.web.image.tag }}"
+          imagePullPolicy: {{ .Values.web.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: API_HOST
+              # nginx's resolver ignores search domains: pass the full name.
+              value: {{ printf "%s.%s.svc.cluster.local" .Values.api.serviceName .Release.Namespace | quote }}
+            - name: API_PORT
+              value: {{ .Values.api.port | quote }}
+            - name: DNS_RESOLVER
+              value: {{ .Values.web.dnsResolver | quote }}
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+  labels:
+    {{- include "ace.webLabels" . | nindent 4 }}
+spec:
+  type: NodePort
+  selector:
+    {{- include "ace.webLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      nodePort: {{ .Values.web.nodePort }}

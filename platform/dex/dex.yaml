@@ -1,0 +1,60 @@
+# Dex on the `ace` cluster: the stand-in company login. Applied by platform/dex/install.sh,
+# which adds the ConfigMap `dex-config` (rendered from config.yaml) and fills in the checksum.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dex
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: dex
+  template:
+    metadata:
+      labels:
+        app: dex
+      annotations:
+        # A new config changes this value, so the pod restarts to read it.
+        ace/config-sha256: "__CONFIG_SHA256__"
+    spec:
+      containers:
+        - name: dex
+          image: ghcr.io/dexidp/dex:v2.46.0@sha256:933fcd3f523338c847b88ef84a7145fb2fcb7b9917f08418612afeaaa2001777
+          args: ["dex", "serve", "/etc/dex/config.yaml"]
+          ports:
+            - name: http
+              containerPort: 5556
+          readinessProbe:
+            httpGet:
+              path: /dex/healthz
+              port: http
+            periodSeconds: 3
+          volumeMounts:
+            - name: config
+              mountPath: /etc/dex
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: dex-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  type: NodePort
+  selector:
+    app: dex
+  ports:
+    - name: http
+      port: 15656 # the issuer's port, so a pod reaches the issuer URL the browser uses
+      targetPort: 5556 # web.http in config.yaml
+      nodePort: 30656 # mapped to host 15656 by platform/ace-cluster.yaml
