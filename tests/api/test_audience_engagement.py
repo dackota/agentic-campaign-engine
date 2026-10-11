@@ -35,7 +35,7 @@ def shape(events: list[dict[str, Any]]) -> list[tuple[Any, ...]]:
 
 def until_delivered(
     api: httpx.Client, campaign_id: str, expected: dict[str, dict[str, int]]
-) -> Any:
+) -> dict[str, dict[str, int]]:
     deadline = time.monotonic() + DELIVERY_SECONDS
     shown: dict[str, dict[str, int]] | None = None
     while time.monotonic() < deadline:
