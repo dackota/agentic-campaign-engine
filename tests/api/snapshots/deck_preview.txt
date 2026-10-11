@@ -1,0 +1,12 @@
+Volt Typhoon targets edge routers
+What it means for you
+---
+Summary
+Volt Typhoon targets edge routers
+Actors exploit unpatched VPN appliances.
+---
+Key points
+Volt Typhoon targets edge routers
+---
+Next step
+Read the full advisory
