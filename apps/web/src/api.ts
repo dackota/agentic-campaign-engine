@@ -19,6 +19,13 @@ const STATUSES = [
 ] as const;
 type CampaignStatus = (typeof STATUSES)[number];
 
+/** The A/B test's call: a winner with its confidence (0 to 1), or no decision yet. */
+export interface AbResult {
+  status: "winner" | "no_decision";
+  winner: string | null;
+  confidence: number | null;
+}
+
 export interface Campaign {
   id: string;
   report: string;
@@ -33,6 +40,17 @@ export interface Campaign {
   workflow_version: number | null;
   /** The pinned workflow's steps, in run order. */
   steps: WorkflowStep[];
+  ab_result: AbResult;
+}
+
+function isAbResult(value: unknown): value is AbResult {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    (r.status === "winner" || r.status === "no_decision") &&
+    (r.winner === null || typeof r.winner === "string") &&
+    (r.confidence === null || typeof r.confidence === "number")
+  );
 }
 
 function isStep(value: unknown): value is WorkflowStep {
@@ -57,7 +75,8 @@ function isCampaign(value: unknown): value is Campaign {
     (c.workflow === null || typeof c.workflow === "string") &&
     (c.workflow_version === null || typeof c.workflow_version === "number") &&
     Array.isArray(c.steps) &&
-    c.steps.every(isStep)
+    c.steps.every(isStep) &&
+    isAbResult(c.ab_result)
   );
 }
 

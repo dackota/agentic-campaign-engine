@@ -9,7 +9,7 @@ import json
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from ace_engine import dag as graph
 from ace_engine import db
@@ -30,6 +30,7 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
+from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.webhook_routes import (
     ActivityOut,
@@ -69,6 +70,19 @@ class ReceiptOut(BaseModel):
     url: str
 
 
+class AbResultOut(BaseModel):
+    status: Literal["winner", "no_decision"]
+    winner: str | None
+    confidence: float | None
+
+    @classmethod
+    def of(cls, result: AbResult) -> "AbResultOut":
+        status: Literal["winner", "no_decision"] = (
+            "no_decision" if result.winner is None else "winner"
+        )
+        return cls(status=status, winner=result.winner, confidence=result.confidence)
+
+
 class CampaignOut(BaseModel):
     id: uuid.UUID
     report: str
@@ -87,6 +101,7 @@ class CampaignOut(BaseModel):
     steps: list[dict[str, Any]]
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
 
     @classmethod
     def of(
@@ -117,6 +132,7 @@ class CampaignOut(BaseModel):
                 for s in graph.ordered(c.dag)
             ],
             engagement=engagement or {},
+            ab_result=AbResultOut.of(decide(engagement or {})),
         )
 
 

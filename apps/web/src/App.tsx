@@ -8,6 +8,7 @@ import {
   previewUrl,
   retryCampaign,
   SignedOutError,
+  type AbResult,
   type Campaign,
   type EmailDraft,
   type Me,
@@ -56,6 +57,12 @@ function RunSteps({ dag, events }: { dag: WorkflowStep[]; events: Record<string,
       ))}
     </ul>
   );
+}
+
+/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+function abResultText(result: AbResult): string {
+  if (result.status !== "winner" || result.confidence === null) return "No decision yet";
+  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
 }
 
 function DraftView({ draft }: { draft: EmailDraft }) {
@@ -315,6 +322,11 @@ function RunView({ me, campaign, steps, onApprove, onRetry }: RunViewProps) {
       {hasStatus && (
         <p>
           Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+        </p>
+      )}
+      {(campaign.status === "sent" || campaign.status === "finished") && (
+        <p>
+          A/B result: <span data-testid="ab-result">{abResultText(campaign.ab_result)}</span>
         </p>
       )}
       {canApprove(me, campaign) && (
