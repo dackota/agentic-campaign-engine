@@ -6,7 +6,7 @@ from typing import Any
 
 import httpx
 
-from tests.api.test_audience_engagement import DAY_SPEED, send_campaign
+from tests.api.helpers import DAY_SPEED, send_campaign
 
 SLOW_SPEED = 1.0
 SEED = 1  # a seed whose audience opens variant A far more than B
