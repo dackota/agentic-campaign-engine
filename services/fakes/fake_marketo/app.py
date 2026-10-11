@@ -11,6 +11,10 @@ A/B sends, plus signed activity webhooks to the Campaign API.
   variant to the webhook URL.
 - `GET /rest/asset/v1/programs.json[?externalId=]` shows programs with their sends, so a
   test can check from the outside what was published.
+- After the first send, a simulated audience (see `audience.py`) opens and clicks. Each
+  open and click is posted as a signed activity once its simulated time, divided by the
+  time speed, has passed. `PUT /_audience` sets the seed and time speed;
+  `GET /_audience/events?externalId=` shows what the audience planned.
 """
 
 import hashlib
@@ -32,6 +36,8 @@ from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from fake_marketo import audience
+
 log = logging.getLogger(__name__)
 
 RECEIPT_HEX_LENGTH = 12
@@ -42,6 +48,10 @@ TIMESTAMP_HEADER = "X-Marketo-Timestamp"
 MIN_AB_VARIANTS = 2
 MAX_AB_VARIANTS = 2
 CONFIG_ENV_PREFIX = "ACE_MARKETO_"
+MIN_TIME_SPEED = 0.001
+MAX_TIME_SPEED = 1e9
+DEFAULT_AUDIENCE_SEED = 1
+DEFAULT_TIME_SPEED = float(audience.SECONDS_PER_DAY)  # a simulated day per real second
 INVALID_TOKEN = {"success": False, "errors": [{"code": "601", "message": "Access token invalid"}]}
 
 
@@ -61,6 +71,13 @@ class MarketoConfig:
 class Fault(BaseModel):
     malformed_reply: bool = False
     drop_next_send_reply: bool = False
+
+
+class AudienceSettings(BaseModel):
+    """The seed and time speed (simulated seconds per real second) for later sends."""
+
+    seed: int
+    time_speed: float = Field(ge=MIN_TIME_SPEED, le=MAX_TIME_SPEED)
 
 
 class NewProgram(BaseModel):
@@ -104,6 +121,37 @@ def _post_activity(config: MarketoConfig, events: list[dict[str, Any]]) -> None:
             log.warning("activity webhook %s failed: %r", event["id"], exc)
 
 
+def _engagement_events(
+    program: dict[str, Any], planned: list[audience.Engagement]
+) -> list[tuple[int, dict[str, Any]]]:
+    """The audience's opens and clicks as activity events, each with its simulated time."""
+    send_id = program["sends"][0]["id"]
+    return [
+        (
+            e.at_seconds,
+            {
+                "id": f"{send_id}-{e.persona}-{e.type}",
+                "type": e.type,
+                "campaignId": program["externalId"],
+                "variant": e.variant,
+            },
+        )
+        for e in planned
+    ]
+
+
+def _deliver_engagement(
+    config: MarketoConfig, timeline: list[tuple[int, dict[str, Any]]], time_speed: float
+) -> None:
+    """Post each event when its simulated time, at this speed, has come."""
+    started = time.monotonic()
+    for at_seconds, event in timeline:
+        wait = started + at_seconds / time_speed - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _post_activity(config, [event])
+
+
 def _copy(program: dict[str, Any]) -> dict[str, Any]:
     """A deep copy, so a reply never shares state the lock guards."""
     copied: dict[str, Any] = json.loads(json.dumps(program))
@@ -119,6 +167,8 @@ class _Store:
         self.programs: dict[int, dict[str, Any]] = {}
         self.by_external_id: dict[str, int] = {}
         self.fault = Fault()
+        self.audience = AudienceSettings(seed=DEFAULT_AUDIENCE_SEED, time_speed=DEFAULT_TIME_SPEED)
+        self.planned: dict[str, list[dict[str, Any]]] = {}
 
     def program(self, program_id: int) -> dict[str, Any]:
         program = self.programs.get(program_id)
@@ -146,6 +196,7 @@ def create_app(config: MarketoConfig) -> FastAPI:
 
     authorized = [Depends(bearer)]
     _add_ops_routes(app, store)
+    _add_audience_routes(app, store)
     _add_token_route(app, store, config)
     _add_program_routes(app, store, authorized)
     _add_send_route(app, store, config, authorized)
@@ -163,6 +214,21 @@ def _add_ops_routes(app: FastAPI, store: _Store) -> None:
         with store.lock:
             store.fault = body
         return Response(status_code=204)
+
+
+def _add_audience_routes(app: FastAPI, store: _Store) -> None:
+    @app.put("/_audience", status_code=204)
+    def set_audience(body: AudienceSettings) -> Response:
+        """Test hook: the seed and time speed the sends that follow use."""
+        with store.lock:
+            store.audience = body
+        return Response(status_code=204)
+
+    @app.get("/_audience/events")
+    def planned_events(externalId: str) -> list[dict[str, Any]]:  # noqa: N803
+        """Test hook: every open and click planned for this campaign, in simulated order."""
+        with store.lock:
+            return [dict(e) for e in store.planned.get(externalId, [])]
 
 
 def _add_token_route(app: FastAPI, store: _Store, config: MarketoConfig) -> None:
@@ -249,6 +315,18 @@ def _send_events(program: dict[str, Any], labels: list[str]) -> list[dict[str, A
     ]
 
 
+def _plan_audience(
+    store: _Store, program: dict[str, Any], variants: list[dict[str, Any]]
+) -> list[tuple[int, dict[str, Any]]]:
+    """Plan the audience's engagement with a new send and record it. The caller holds the lock."""
+    planned = audience.simulate(store.audience.seed, variants)
+    store.planned[program["externalId"]] = [
+        {"persona": e.persona, "type": e.type, "variant": e.variant, "at_seconds": e.at_seconds}
+        for e in planned
+    ]
+    return _engagement_events(program, planned)
+
+
 def _add_send_route(
     app: FastAPI, store: _Store, config: MarketoConfig, authorized: list[Any]
 ) -> None:
@@ -269,10 +347,16 @@ def _add_send_route(
             program, is_new = _record_send(store, program_id, body)
             send = _copy(program["sends"][0])
             events = _send_events(program, labels) if is_new else []
+            timeline = _plan_audience(store, program, send["variants"]) if is_new else []
+            time_speed = store.audience.time_speed
             if fault.drop_next_send_reply:
                 store.fault = fault.model_copy(update={"drop_next_send_reply": False})
         if events:
             threading.Thread(target=_post_activity, args=(config, events), daemon=True).start()
+        if timeline:
+            threading.Thread(
+                target=_deliver_engagement, args=(config, timeline, time_speed), daemon=True
+            ).start()
         if fault.drop_next_send_reply:
             return JSONResponse({"success": False, "errors": [{"code": "604"}]}, status_code=503)
         return {
