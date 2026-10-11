@@ -14,7 +14,11 @@ AUDIENCE_SIZE = 120
 SECONDS_PER_DAY = 86_400
 MAX_ENGAGEMENT_DAYS = 5
 MEAN_OPEN_DELAY_SECONDS = SECONDS_PER_DAY
-MEAN_CLICK_DELAY_SECONDS = SECONDS_PER_DAY // 8
+SECONDS_PER_HOUR = 3_600
+MEAN_CLICK_DELAY_SECONDS = 3 * SECONDS_PER_HOUR
+CUE_COUNT = 3  # brevity, urgency, call to action
+TASTE_MIN_WEIGHT = 0.2
+TASTE_MAX_WEIGHT = 1.0
 # The hidden rule: a variant is scored on how short its subject and call to action are
 # and on whether it sounds urgent. These are the numbers a user must not be told.
 SUBJECT_LIMIT_CHARS = 80
@@ -28,6 +32,8 @@ CLICK_RATE_GAIN = 0.5
 
 @dataclass(frozen=True)
 class Persona:
+    """One simulated reader and how much each cue sways them (the tastes sum to 1)."""
+
     name: str
     brevity_taste: float
     urgency_taste: float
@@ -36,6 +42,8 @@ class Persona:
 
 @dataclass(frozen=True)
 class Engagement:
+    """One open or click, `at_seconds` of simulated time after the send."""
+
     at_seconds: int
     persona: str
     type: str  # "open" or "click"
@@ -47,7 +55,7 @@ def personas(seed: int, size: int = AUDIENCE_SIZE) -> list[Persona]:
     rng = random.Random(f"personas:{seed}")
     audience = []
     for index in range(size):
-        weights = [rng.uniform(0.2, 1.0) for _ in range(3)]
+        weights = [rng.uniform(TASTE_MIN_WEIGHT, TASTE_MAX_WEIGHT) for _ in range(CUE_COUNT)]
         total = sum(weights)
         audience.append(Persona(f"persona-{index:03d}", *(w / total for w in weights)))
     return audience

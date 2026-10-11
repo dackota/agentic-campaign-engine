@@ -48,6 +48,8 @@ TIMESTAMP_HEADER = "X-Marketo-Timestamp"
 MIN_AB_VARIANTS = 2
 MAX_AB_VARIANTS = 2
 CONFIG_ENV_PREFIX = "ACE_MARKETO_"
+MIN_TIME_SPEED = 0.001
+MAX_TIME_SPEED = 1e9
 DEFAULT_AUDIENCE_SEED = 1
 DEFAULT_TIME_SPEED = float(audience.SECONDS_PER_DAY)  # a simulated day per real second
 INVALID_TOKEN = {"success": False, "errors": [{"code": "601", "message": "Access token invalid"}]}
@@ -72,8 +74,10 @@ class Fault(BaseModel):
 
 
 class AudienceSettings(BaseModel):
+    """The seed and time speed (simulated seconds per real second) for later sends."""
+
     seed: int
-    time_speed: float = Field(gt=0)  # simulated seconds per real second
+    time_speed: float = Field(ge=MIN_TIME_SPEED, le=MAX_TIME_SPEED)
 
 
 class NewProgram(BaseModel):
@@ -224,7 +228,7 @@ def _add_audience_routes(app: FastAPI, store: _Store) -> None:
     def planned_events(externalId: str) -> list[dict[str, Any]]:  # noqa: N803
         """Test hook: every open and click planned for this campaign, in simulated order."""
         with store.lock:
-            return list(store.planned.get(externalId, []))
+            return [dict(e) for e in store.planned.get(externalId, [])]
 
 
 def _add_token_route(app: FastAPI, store: _Store, config: MarketoConfig) -> None:

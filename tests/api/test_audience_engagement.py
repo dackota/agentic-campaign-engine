@@ -37,9 +37,10 @@ def until_delivered(
     api: httpx.Client, campaign_id: str, expected: dict[str, dict[str, int]]
 ) -> Any:
     deadline = time.monotonic() + DELIVERY_SECONDS
-    shown: Any = None
+    shown: dict[str, dict[str, int]] | None = None
     while time.monotonic() < deadline:
         shown = api.get(f"/campaigns/{campaign_id}").json()["engagement"]
+        assert shown is not None
         if all(shown.get(v, {}).get(k) == n for v, c in expected.items() for k, n in c.items()):
             return shown
         time.sleep(POLL_SECONDS)
