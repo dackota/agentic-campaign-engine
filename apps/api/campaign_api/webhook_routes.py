@@ -7,6 +7,7 @@ from ace_engine import db, webhooks
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -71,6 +72,20 @@ def activities(engine: Engine, campaign_id: uuid.UUID) -> list[ActivityOut]:
             session.query(db.Activity).filter_by(campaign_id=campaign_id).order_by(db.Activity.seq)
         )
         return [ActivityOut(id=r.event_id, type=r.type, variant=r.variant) for r in rows]
+
+
+def engagement_by_variant(session: Session, campaign_id: uuid.UUID) -> dict[str, dict[str, int]]:
+    """Opens and clicks per variant label: {"A": {"opens": 3, "clicks": 1}, ...}."""
+    rows = session.execute(
+        select(db.Activity.variant, db.Activity.type, func.count())
+        .where(db.Activity.campaign_id == campaign_id, db.Activity.type.in_(("open", "click")))
+        .group_by(db.Activity.variant, db.Activity.type)
+    )
+    shown: dict[str, dict[str, int]] = {}
+    for variant, kind, total in rows:
+        per_variant = shown.setdefault(variant, {"opens": 0, "clicks": 0})
+        per_variant["opens" if kind == "open" else "clicks"] = total
+    return shown
 
 
 def register_webhook_routes(app: FastAPI, secret: str) -> None:

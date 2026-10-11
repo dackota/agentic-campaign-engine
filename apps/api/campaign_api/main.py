@@ -25,7 +25,12 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
-from campaign_api.webhook_routes import ActivityOut, activities, register_webhook_routes
+from campaign_api.webhook_routes import (
+    ActivityOut,
+    activities,
+    engagement_by_variant,
+    register_webhook_routes,
+)
 from campaign_api.workflows import NAME_PATTERN, latest_version, register_workflow_routes
 
 MAX_REPORT_CHARS = 100_000
@@ -59,9 +64,13 @@ class CampaignOut(BaseModel):
     workflow: str | None
     workflow_version: int | None
     steps: list[dict[str, Any]]
+    # Opens and clicks per variant label, from the marketing system's activity webhooks.
+    engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
 
     @classmethod
-    def of(cls, c: db.Campaign) -> "CampaignOut":
+    def of(
+        cls, c: db.Campaign, engagement: dict[str, dict[str, int]] | None = None
+    ) -> "CampaignOut":
         return cls(
             id=c.id,
             report=c.report,
@@ -75,6 +84,7 @@ class CampaignOut(BaseModel):
             workflow=c.workflow_name,
             workflow_version=c.workflow_version,
             steps=graph.ordered(c.dag),
+            engagement=engagement or {},
         )
 
 
@@ -120,7 +130,9 @@ def _set_status(engine: Engine, campaign_id: uuid.UUID, wanted: str, new: str) -
 def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
     with Session(engine) as session:
         campaign = session.get(db.Campaign, campaign_id)
-        return None if campaign is None else CampaignOut.of(campaign)
+        if campaign is None:
+            return None
+        return CampaignOut.of(campaign, engagement_by_variant(session, campaign_id))
 
 
 async def _found(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut:
