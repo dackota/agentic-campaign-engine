@@ -8,6 +8,7 @@ WORKFLOW_NAME = "CampaignWorkflow"
 TASK_QUEUE = "campaigns"
 APPROVE_SIGNAL = "approve"
 RETRY_SIGNAL = "retry_step"
+RAISE_BUDGET_SIGNAL = "raise_budget"
 DEPTH_ENV = "ACE_DEPTH"
 REQUIRED_SECRETS = ("marketo_client_id", "marketo_client_secret", "marketo_webhook_secret")
 WORKFRONT_SECRETS = (

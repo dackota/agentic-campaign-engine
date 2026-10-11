@@ -5,8 +5,8 @@ import uuid
 from typing import Any
 
 import httpx
+from ace_engine import cost, db, invoker
 from ace_engine import dag as graph
-from ace_engine import db, invoker
 from ace_engine.agent_roles import message_for, role_for
 from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
@@ -59,25 +59,29 @@ class Activities:
         steps before this one produced. Returns the output and the step's session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
+        if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+            raise ApplicationError(
+                "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
+            )
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                replies = [
-                    (
-                        await invoker.invoke(
-                            client,
-                            self._settings.agent_url,
-                            session_key=session_key(campaign_id, step_id, variant),
-                            prompt=message_for(role, report, context, variant),
-                            schema=role.reply_schema,
-                        )
-                    ).output
+                invocations = [
+                    await invoker.invoke(
+                        client,
+                        self._settings.agent_url,
+                        session_key=session_key(campaign_id, step_id, variant),
+                        prompt=message_for(role, report, context, variant),
+                        schema=role.reply_schema,
+                    )
                     for variant in range(role.replies)
                 ]
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        replies = [i.output for i in invocations]
+        usage = sum((i.usage for i in invocations), cost.NO_USAGE)
         output: Any = replies if role.replies > 1 else replies[0]
         if role.checks_citations:
             problems = citation_problems(output, report)
@@ -87,18 +91,37 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
-        return {"output": output, "session": session}
+        return {"output": output, "session": session, "usage": usage.as_dict()}
+
+    def _is_budget_spent(self, campaign_id: str) -> bool:
+        """True when the campaign has a budget and its model calls have used all of it."""
+        with Session(self._engine) as session:
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            return cost.is_budget_spent(
+                campaign.budget_micros, db.spent_micros(session, campaign.id)
+            )
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
         """Store an agent step's output and mark the step succeeded. The email writer's
         two emails become the campaign's draft and its A/B variant."""
         output, agent_session = result["output"], result["session"]
+        usage = cost.usage_from(result.get("usage"))
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             session.merge(
                 db.StepOutput(
                     campaign_id=campaign.id, step=step_id, session=agent_session, output=output
+                )
+            )
+            session.merge(
+                db.StepUsage(
+                    campaign_id=campaign.id,
+                    step=step_id,
+                    model=usage.model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cost_micros=usage.cost_micros,
                 )
             )
             if role_for(step_id).writes_draft:
@@ -115,6 +138,28 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.AWAITING_APPROVAL
             db.add_event(session, campaign.id, db.RUN_STEP, db.AWAITING_APPROVAL)
+
+    @activity.defn
+    def pause_for_budget(self, campaign_id: str) -> None:
+        """Hold the run at its budget until the owner raises it."""
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            spent = cost.to_dollars(db.spent_micros(session, campaign.id))
+            budget = cost.to_dollars(campaign.budget_micros or 0)
+            reason = f"budget of ${budget:.4f} reached: ${spent:.4f} spent"
+            campaign.status = db.BUDGET_PAUSED
+            db.add_event(session, campaign.id, db.RUN_STEP, db.BUDGET_PAUSED, reason)
+
+    @activity.defn
+    def resume_after_budget(self, campaign_id: str) -> None:
+        """The owner raised the budget: the paused run drafts again. Writers that waited
+        together each call this; only the first changes anything."""
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            if campaign.status != db.BUDGET_PAUSED:
+                return
+            campaign.status = db.DRAFTING
+            db.add_event(session, campaign.id, db.RUN_STEP, db.DRAFTING)
 
     @activity.defn
     def mark_failed(self, campaign_id: str, step_id: str, reason: str) -> None:

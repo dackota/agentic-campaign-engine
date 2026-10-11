@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     DateTime,
     ForeignKey,
     Integer,
@@ -30,6 +31,9 @@ FAILED = "failed"
 RETRYING = "retrying"
 # A run whose workflow has no publish step ends here.
 FINISHED = "finished"
+# A run that reached its budget: it waits before its next model step for the owner to
+# raise the budget.
+BUDGET_PAUSED = "budget_paused"
 
 # Run events: one row per step status change; the step "run" carries the final state.
 RUN_STEP = "run"
@@ -64,6 +68,8 @@ class Campaign(Base):
     workflow_name: Mapped[str | None] = mapped_column(String(63), nullable=True)
     workflow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dag: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # What the owner lets the run spend on models, in micro-dollars; None is no limit.
+    budget_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -108,6 +114,25 @@ class StepOutput(Base):
     step: Mapped[str] = mapped_column(String(40), primary_key=True)
     session: Mapped[str] = mapped_column(String(200))
     output: Mapped[Any] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepUsage(Base):
+    """The cost ledger: the tokens an agent step's model calls used and what they cost.
+    One row per step; a re-run of the step replaces it."""
+
+    __tablename__ = "step_usage"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    model: Mapped[str] = mapped_column(String(100))
+    input_tokens: Mapped[int] = mapped_column(BigInteger)
+    output_tokens: Mapped[int] = mapped_column(BigInteger)
+    cost_micros: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -246,6 +271,31 @@ def task_statuses(session: Session, campaign_ids: Collection[uuid.UUID]) -> dict
         )
     )
     return {campaign_id: status for campaign_id, status in rows}
+
+
+def usage_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[StepUsage]]:
+    """The ledger rows of these campaigns, in one query, in the order the steps finished."""
+    found: dict[uuid.UUID, list[StepUsage]] = {}
+    rows = session.scalars(
+        select(StepUsage)
+        .where(StepUsage.campaign_id.in_(campaign_ids))
+        .order_by(StepUsage.created_at, StepUsage.step)
+    )
+    for row in rows:
+        found.setdefault(row.campaign_id, []).append(row)
+    return found
+
+
+def spent_micros(session: Session, campaign_id: uuid.UUID) -> int:
+    """What the campaign's model calls have cost so far."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(StepUsage.cost_micros), 0)).where(
+            StepUsage.campaign_id == campaign_id
+        )
+    )
+    return int(total or 0)
 
 
 def list_campaigns(session: Session) -> list[Campaign]:
