@@ -8,6 +8,11 @@ from dataclasses import asdict
 from typing import Annotated, Any
 
 from ace_engine import db
+from ace_engine.default_workflow import (
+    DEFAULT_WORKFLOW_NAME,
+    DEFAULT_WORKFLOW_VERSION,
+    default_workflow_dag,
+)
 from ace_engine.workflow_spec import Rejection, validate
 from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.concurrency import run_in_threadpool
@@ -92,6 +97,26 @@ def _find(engine: Engine, name: str, version: int | None) -> db.WorkflowVersion 
         if version is not None:
             query = query.where(db.WorkflowVersion.version == version)
         return session.scalars(query.order_by(db.WorkflowVersion.version.desc())).first()
+
+
+def seed_default_workflow(engine: Engine) -> None:
+    """Save the default workflow as version 1 unless it is there; safe to run from every
+    API replica at once."""
+    if _find(engine, DEFAULT_WORKFLOW_NAME, DEFAULT_WORKFLOW_VERSION) is not None:
+        return
+    try:
+        with Session(engine) as session, session.begin():
+            session.add(
+                db.WorkflowVersion(
+                    name=DEFAULT_WORKFLOW_NAME,
+                    version=DEFAULT_WORKFLOW_VERSION,
+                    dag=default_workflow_dag(),
+                )
+            )
+    except IntegrityError:
+        # Another replica seeded it first; anything else is a real failure.
+        if _find(engine, DEFAULT_WORKFLOW_NAME, DEFAULT_WORKFLOW_VERSION) is None:
+            raise
 
 
 async def latest_version(engine: Engine, name: str) -> db.WorkflowVersion | None:

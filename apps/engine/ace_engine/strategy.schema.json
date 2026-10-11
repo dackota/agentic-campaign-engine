@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Campaign strategy",
+  "description": "The strategy contract: what the strategist returns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["audience", "angle", "key_messages"],
+  "properties": {
+    "audience": { "type": "string", "minLength": 1 },
+    "angle": { "type": "string", "minLength": 1 },
+    "key_messages": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}
