@@ -2,6 +2,7 @@
 fails at start."""
 
 import asyncio
+import uuid
 from typing import Any
 
 import httpx
@@ -67,10 +68,12 @@ def test_marketo_call_uses_its_own_timeout(monkeypatch: pytest.MonkeyPatch) -> N
         return real_client(transport=httpx.MockTransport(reply), **kwargs)
 
     monkeypatch.setattr("campaign_worker.activities.httpx.AsyncClient", client)
+    # This test is about the timeout; where receipts are stored is tested through the API.
+    monkeypatch.setattr("campaign_worker.activities.db.save_receipt", lambda *args: None)
     settings = _settings(marketo_timeout_seconds=MARKETO_TIMEOUT)
 
     activities = Activities(settings, engine=None)  # type: ignore[arg-type]
-    receipt = asyncio.run(activities.send_email("c-1", [GOOD_DRAFT, GOOD_DRAFT]))
+    receipt = asyncio.run(activities.send_email(str(uuid.uuid4()), [GOOD_DRAFT, GOOD_DRAFT]))
 
     assert receipt == "r-1"
     assert seen and all(t == httpx.Timeout(MARKETO_TIMEOUT) for t in seen)

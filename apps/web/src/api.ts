@@ -14,6 +14,7 @@ const STATUSES = [
   "sending",
   "sent",
   "failed",
+  "retrying",
   "finished",
 ] as const;
 type CampaignStatus = (typeof STATUSES)[number];
@@ -63,7 +64,7 @@ function isCampaign(value: unknown): value is Campaign {
 /** Thrown on a 401, so the screen can send the user back to sign in. */
 export class SignedOutError extends Error {}
 
-async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
+export async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
   const headers = new Headers(init?.headers);
   const token = accessToken();
   if (token) headers.set("authorization", `Bearer ${token}`);
@@ -130,10 +131,15 @@ export function approveCampaign(id: string): Promise<Campaign> {
   return request(`/campaigns/${id}/approve`, { method: "POST" });
 }
 
+/** The retry-step action: re-run the step that stopped a failed run. */
+export function retryCampaign(id: string): Promise<Campaign> {
+  return request(`/campaigns/${id}/retry`, { method: "POST" });
+}
+
 /** A URL the browser loads itself (an iframe, an EventSource), so it cannot send the
  * Authorization header: the API also takes the token as the `access_token` parameter. */
-function withToken(path: string): string {
-  const query = new URLSearchParams({ access_token: accessToken() ?? "" });
+function withToken(path: string, extra: Record<string, string> = {}): string {
+  const query = new URLSearchParams({ ...extra, access_token: accessToken() ?? "" });
   return `/api${path}?${query}`;
 }
 
@@ -166,13 +172,17 @@ function isRunEvent(value: unknown): value is RunEvent {
   );
 }
 
-/** Follow a run's event stream; close it after the final event. Returns a stop function. */
+/** Follow a run's event stream from the event after `afterSeq`; close it after the final
+ * event. Returns a stop function. */
 export function watchRun(
   id: string,
+  afterSeq: number,
   onEvent: (event: RunEvent) => void,
   onError: (message: string) => void,
 ): () => void {
-  const source = new EventSource(withToken(`/campaigns/${id}/events`));
+  const source = new EventSource(
+    withToken(`/campaigns/${id}/events`, { after: String(afterSeq) }),
+  );
   source.addEventListener("step", (message) => {
     let parsed: unknown;
     try {

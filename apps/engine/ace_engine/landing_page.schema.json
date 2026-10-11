@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Landing page",
+  "description": "The landing page contract: what the landing page writer returns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["headline", "subheadline", "body", "call_to_action"],
+  "properties": {
+    "headline": { "type": "string", "minLength": 1 },
+    "subheadline": { "type": "string" },
+    "body": { "type": "string", "minLength": 1 },
+    "call_to_action": { "type": "string", "minLength": 1, "maxLength": 100 }
+  }
+}

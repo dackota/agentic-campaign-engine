@@ -6,12 +6,14 @@ import {
   getMe,
   listCampaigns,
   previewUrl,
+  retryCampaign,
   SignedOutError,
   type Campaign,
   type EmailDraft,
   type Me,
   type RunEvent,
 } from "./api";
+import { Builder } from "./Builder";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
@@ -27,6 +29,7 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
   sending: "Sending",
   sent: "Sent",
   failed: "Failed",
+  retrying: "Retrying",
   finished: "Finished",
 };
 
@@ -93,6 +96,11 @@ function CampaignList({ campaigns, onOpen }: CampaignListProps) {
       </ul>
     </section>
   );
+}
+
+/** Owners run campaigns, so they retry the step that stopped one. The API enforces the same. */
+function canRetry(me: Me, campaign: Campaign): boolean {
+  return campaign.status === "failed" && me.roles.includes("owner");
 }
 
 /** Approvers approve; nobody approves a campaign they created. The API enforces the same. */
@@ -190,7 +198,7 @@ function useCampaignRun(
   refresh: () => Promise<void>,
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const { steps, reset } = useRunEvents(campaign?.id, setCampaign, setError);
+  const { steps, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
 
   async function attempt(task: () => Promise<void>) {
     setError(null);
@@ -219,6 +227,12 @@ function useCampaignRun(
     approve: (id: string) =>
       attempt(async () => {
         await pollWhileSending(await approveCampaign(id), setCampaign);
+        await refresh();
+      }),
+    retry: (id: string) =>
+      attempt(async () => {
+        setCampaign(await retryCampaign(id));
+        resume();
         await refresh();
       }),
   };
@@ -282,14 +296,20 @@ interface RunViewProps {
   campaign: Campaign;
   steps: Record<string, RunEvent>;
   onApprove: (id: string) => void;
+  onRetry: (id: string) => void;
 }
 
-function RunView({ me, campaign, steps, onApprove }: RunViewProps) {
+function RunView({ me, campaign, steps, onApprove, onRetry }: RunViewProps) {
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
       <RunSteps dag={campaign.steps} events={steps} />
       {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
+      {canRetry(me, campaign) && (
+        <button type="button" onClick={() => onRetry(campaign.id)}>
+          Retry step
+        </button>
+      )}
       {campaign.draft && <DraftView draft={campaign.draft} />}
       {campaign.draft && <EmailPreview id={campaign.id} />}
       {hasStatus && (
@@ -301,6 +321,11 @@ function RunView({ me, campaign, steps, onApprove }: RunViewProps) {
         <button type="button" onClick={() => onApprove(campaign.id)}>
           Approve
         </button>
+      )}
+      {campaign.workflow_version !== null && (
+        <p>
+          Workflow: <span data-testid="workflow-version">{`${campaign.workflow} version ${campaign.workflow_version}`}</span>
+        </p>
       )}
       {campaign.receipt && (
         <p>
@@ -321,11 +346,46 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const fail: Fail = (e) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e)));
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
+  const [view, setView] = useState<"campaigns" | "builder">("campaigns");
 
   return (
     <main>
       <SignedInBar email={me.email} onSignOut={onSignOut} />
-      <CampaignList campaigns={campaigns} onOpen={(id) => void run.open(id)} />
+      <nav>
+        <button type="button" onClick={() => setView("campaigns")}>
+          Campaigns
+        </button>{" "}
+        <button type="button" onClick={() => setView("builder")}>
+          Workflow builder
+        </button>
+      </nav>
+      {view === "builder" ? (
+        <Builder />
+      ) : (
+        <Campaigns
+          me={me}
+          error={error}
+          list={campaigns}
+          run={run}
+        />
+      )}
+    </main>
+  );
+}
+
+type CampaignRun = ReturnType<typeof useCampaignRun>;
+
+interface CampaignsProps {
+  me: Me;
+  error: string | null;
+  list: Campaign[];
+  run: CampaignRun;
+}
+
+function Campaigns({ me, error, list, run }: CampaignsProps) {
+  return (
+    <>
+      <CampaignList campaigns={list} onOpen={(id) => void run.open(id)} />
       <NewCampaignForm onCreate={(report, workflow) => void run.create(report, workflow)} />
       {error && <p role="alert">{error}</p>}
       {run.campaign && (
@@ -334,8 +394,9 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           campaign={run.campaign}
           steps={run.steps}
           onApprove={(id) => void run.approve(id)}
+          onRetry={(id) => void run.retry(id)}
         />
       )}
-    </main>
+    </>
   );
 }

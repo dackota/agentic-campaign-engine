@@ -8,11 +8,26 @@ export type StepKind = (typeof StepKindValues)[number];
 /** Lower-case letters, digits, and underscores, starting with a letter. */
 export type StepId = string;
 
+/** How a failing step is retried before it stops the run. */
+export interface RetryPolicy {
+  /** How many times the step runs before it gives up, the first attempt included. */
+  maximum_attempts?: number;
+  /** How long to wait before the first retry; each later wait doubles. */
+  initial_interval_seconds?: number;
+}
+
 export interface WorkflowStep {
   id: StepId;
   kind: StepKind;
   /** How long a wait step waits. Only wait steps have it, and they must. */
   duration_seconds?: number;
+  /** How long one attempt of the step may run before it counts as failed. */
+  timeout_seconds?: number;
+  retry?: RetryPolicy;
+  /** How many times the step runs before the run fails. Defaults to the step kind's own limit. */
+  max_attempts?: number;
+  /** How many review rounds the step may loop through before it stops. Zero means no review loop. */
+  review_rounds?: number;
 }
 
 /** The step `to` starts only after the step `from` has succeeded. */

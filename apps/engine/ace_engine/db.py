@@ -1,6 +1,7 @@
 """Campaign storage in Postgres."""
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
 
@@ -14,6 +15,7 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     create_engine,
+    func,
     select,
 )
 from sqlalchemy.engine import Engine
@@ -24,6 +26,8 @@ AWAITING_APPROVAL = "awaiting_approval"
 SENDING = "sending"
 SENT = "sent"
 FAILED = "failed"
+# A failed run the owner asked to retry: it re-runs the step that stopped it.
+RETRYING = "retrying"
 # A run whose workflow has no publish step ends here.
 FINISHED = "finished"
 
@@ -33,6 +37,8 @@ EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
 STEP_SUCCEEDED = "succeeded"
 STEP_FAILED = "failed"
+# A failed run the owner asked to retry: it re-runs the step that stopped it.
+RETRYING = "retrying"
 
 
 class Base(DeclarativeBase):
@@ -84,6 +90,24 @@ class RunEvent(Base):
     step: Mapped[str] = mapped_column(String(40))
     status: Mapped[str] = mapped_column(String(20))
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # The kagent Session the step talked to; None for steps that talk to no agent.
+    session: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepOutput(Base):
+    """What an agent step produced, with the session it ran in."""
+
+    __tablename__ = "step_outputs"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    session: Mapped[str] = mapped_column(String(200))
+    output: Mapped[Any] = mapped_column(JSON)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -106,10 +130,67 @@ class Activity(Base):
     )
 
 
+class Receipt(Base):
+    """What a publish target gave back for a campaign: its id and a link, once per target."""
+
+    __tablename__ = "receipts"
+    __table_args__ = (UniqueConstraint("campaign_id", "target"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    target: Mapped[str] = mapped_column(String(40))
+    receipt_id: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(Text)
+
+
+class TaskStatusEvent(Base):
+    """One status webhook for a campaign's task, recorded once per (source, event id)."""
+
+    __tablename__ = "task_status_events"
+    __table_args__ = (UniqueConstraint("source", "event_id"),)
+
+    seq: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    source: Mapped[str] = mapped_column(String(40))
+    event_id: Mapped[str] = mapped_column(String(200))
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"), index=True)
+    task_id: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(40))
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 def add_event(
-    session: Session, campaign_id: uuid.UUID, step: str, status: str, reason: str | None = None
+    session: Session,
+    campaign_id: uuid.UUID,
+    step: str,
+    status: str,
+    reason: str | None = None,
 ) -> None:
     session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason))
+
+
+def add_agent_event(
+    session: Session,
+    campaign_id: uuid.UUID,
+    step: str,
+    status: str,
+    agent_session: str | None,
+) -> None:
+    """A run event for an agent step, tagged with the agent session that ran it."""
+    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session))
+
+
+def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
+    """What the campaign's agent steps produced, in the order they finished."""
+    with Session(engine) as session:
+        return list(
+            session.scalars(
+                select(StepOutput)
+                .where(StepOutput.campaign_id == campaign_id)
+                .order_by(StepOutput.created_at, StepOutput.step)
+            )
+        )
 
 
 def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list[RunEvent]:
@@ -123,10 +204,53 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
         )
 
 
-def list_campaigns(engine: Engine) -> list[Campaign]:
+def save_receipt(
+    engine: Engine, campaign_id: uuid.UUID, target: str, receipt_id: str, url: str
+) -> None:
+    """Keep the target's receipt for the campaign; a retried publish writes it only once."""
+    with Session(engine) as session, session.begin():
+        found = session.scalar(
+            select(Receipt).where(Receipt.campaign_id == campaign_id, Receipt.target == target)
+        )
+        if found is None:
+            session.add(
+                Receipt(campaign_id=campaign_id, target=target, receipt_id=receipt_id, url=url)
+            )
+        else:
+            found.receipt_id, found.url = receipt_id, url
+
+
+def receipts_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[Receipt]]:
+    """The receipts of these campaigns, in one query, oldest first."""
+    found: dict[uuid.UUID, list[Receipt]] = {}
+    rows = session.scalars(
+        select(Receipt).where(Receipt.campaign_id.in_(campaign_ids)).order_by(Receipt.seq)
+    )
+    for row in rows:
+        found.setdefault(row.campaign_id, []).append(row)
+    return found
+
+
+def task_statuses(session: Session, campaign_ids: Collection[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """The latest task status of each of these campaigns that has one, in one query."""
+    latest = (
+        select(func.max(TaskStatusEvent.seq))
+        .where(TaskStatusEvent.campaign_id.in_(campaign_ids))
+        .group_by(TaskStatusEvent.campaign_id)
+    )
+    rows = session.execute(
+        select(TaskStatusEvent.campaign_id, TaskStatusEvent.status).where(
+            TaskStatusEvent.seq.in_(latest)
+        )
+    )
+    return {campaign_id: status for campaign_id, status in rows}
+
+
+def list_campaigns(session: Session) -> list[Campaign]:
     """Every campaign, newest first."""
-    with Session(engine) as session:
-        return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
+    return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
 
 
 def make_engine(database_url: str) -> Engine:
