@@ -1,0 +1,50 @@
+import { expect, test } from "@playwright/test";
+import { accessTokenOf, signIn } from "./fixtures/sign-in";
+
+const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
+
+// "[agent:usage-IN-OUT]" makes the scripted agent report that usage on every reply. At the
+// default list price ($3 and $15 per million tokens), 1200 in and 300 out cost $0.0081.
+test("the run view shows tokens and cost per step and in total", async ({ page }) => {
+  await signIn(page);
+  await page.getByLabel("Threat report").fill(`[agent:usage-1200-300]\n${REPORT}\n${Date.now()}`);
+  await page.getByRole("button", { name: "Create campaign" }).click();
+
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
+  // The email draft step makes two replies: the A/B variants.
+  await expect(page.getByTestId("step-cost-email_draft")).toHaveText("3,000 tokens, $0.0162");
+  await expect(page.getByTestId("run-cost")).toHaveText("3,000 tokens, $0.0162");
+});
+
+test("a run paused at its budget resumes when the owner raises it", async ({
+  page,
+  request,
+}) => {
+  const name = `e2e-budget-${Date.now()}`;
+  await signIn(page);
+  const saved = await request.post(`/api/workflows/${name}/versions`, {
+    headers: { authorization: `Bearer ${await accessTokenOf(page)}` },
+    data: {
+      steps: [
+        { id: "first", kind: "agent" },
+        { id: "second", kind: "agent" },
+      ],
+      edges: [{ from: "first", to: "second" }],
+    },
+  });
+  expect(saved.status()).toBe(201);
+
+  await page.getByLabel("Threat report").fill(`[agent:usage-1000-500]\n${REPORT}\n${name}`);
+  await page.getByLabel("Workflow").fill(name);
+  await page.getByLabel("Budget (USD)").fill("0.01");
+  await page.getByRole("button", { name: "Create campaign" }).click();
+
+  await expect(page.getByTestId("run-status")).toHaveText("Paused at budget");
+  await expect(page.getByTestId("step-second")).toContainText("pending");
+  await page.getByLabel("New budget (USD)").fill("1");
+  await page.getByRole("button", { name: "Raise budget" }).click();
+
+  await expect(page.getByTestId("run-status")).toHaveText("Finished");
+  await expect(page.getByTestId("step-second")).toContainText("succeeded");
+  await expect(page.getByTestId("run-cost")).toHaveText("6,000 tokens, $0.0420");
+});
