@@ -162,16 +162,20 @@ def add_event(
     step: str,
     status: str,
     reason: str | None = None,
-    agent_session: str | None = None,
 ) -> None:
+    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason))
+
+
+def add_agent_event(
+    session: Session,
+    campaign_id: uuid.UUID,
+    step: str,
+    status: str,
+    agent_session: str | None,
+) -> None:
+    """A run event for an agent step, tagged with the agent session that ran it."""
     session.add(
-        RunEvent(
-            campaign_id=campaign_id,
-            step=step,
-            status=status,
-            reason=reason,
-            session=agent_session,
-        )
+        RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session)
     )
 
 

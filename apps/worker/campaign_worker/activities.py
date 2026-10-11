@@ -42,7 +42,11 @@ class Activities:
         agent_session: str | None = None,
     ) -> None:
         with Session(self._engine) as session, session.begin():
-            db.add_event(session, uuid.UUID(campaign_id), step, status, reason, agent_session)
+            if agent_session is None:
+                db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
+            else:
+                # Agent steps carry a session and never a reason.
+                db.add_agent_event(session, uuid.UUID(campaign_id), step, status, agent_session)
 
     @activity.defn
     async def run_agent_step(
@@ -96,9 +100,7 @@ class Activities:
             )
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
-            db.add_event(
-                session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session=agent_session
-            )
+            db.add_agent_event(session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session)
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:
