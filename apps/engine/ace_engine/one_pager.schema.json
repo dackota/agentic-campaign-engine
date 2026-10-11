@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "One-pager",
+  "description": "The one-pager contract: what the one-pager writer returns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["title", "summary", "bullets"],
+  "properties": {
+    "title": { "type": "string", "minLength": 1 },
+    "summary": { "type": "string", "minLength": 1 },
+    "bullets": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } }
+  }
+}

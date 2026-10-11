@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from typing import Any
+from xml.etree import ElementTree
 
 import httpx
 
@@ -184,6 +185,48 @@ def events_until(api: httpx.Client, campaign_id: str, final_status: str) -> list
     while (events[-1]["step"], events[-1]["status"]) != ("run", final_status):
         events += read_events(api, campaign_id, last_event_id=events[-1]["seq"])
     return events
+
+
+# The fake CMS and the fake S3 store, read from the outside through their own REST APIs.
+CONTENT_HTTP_TIMEOUT_SECONDS = 10
+CMS_PAGES_PATH = "/api/pages"
+S3_NAMESPACE = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+
+
+def cms_pages(stack: Stack) -> list[dict[str, Any]]:
+    response = httpx.get(f"{stack.cms_url}{CMS_PAGES_PATH}", timeout=CONTENT_HTTP_TIMEOUT_SECONDS)
+    assert response.status_code == 200, response.text
+    pages: list[dict[str, Any]] = response.json()["data"]
+    return pages
+
+
+def cms_page(stack: Stack, campaign_id: str) -> dict[str, Any]:
+    """The campaign's landing page, read back through the CMS's own API."""
+    response = httpx.get(
+        f"{stack.cms_url}{CMS_PAGES_PATH}/{campaign_id}", timeout=CONTENT_HTTP_TIMEOUT_SECONDS
+    )
+    assert response.status_code == 200, response.text
+    page: dict[str, Any] = response.json()["data"]
+    return page
+
+
+def bucket_keys(stack: Stack, prefix: str = "") -> list[str]:
+    """The object keys in the bucket under `prefix`, listed through S3's ListObjectsV2."""
+    response = httpx.get(
+        f"{stack.s3_url}/{stack.s3_bucket}",
+        params={"list-type": "2", "prefix": prefix},
+        timeout=CONTENT_HTTP_TIMEOUT_SECONDS,
+    )
+    assert response.status_code == 200, response.text
+    root = ElementTree.fromstring(response.text)
+    return [k.text or "" for k in root.iter(f"{S3_NAMESPACE}Key")]
+
+
+def receipts(api: httpx.Client, campaign_id: str) -> list[dict[str, Any]]:
+    response = api.get(f"/campaigns/{campaign_id}")
+    assert response.status_code == 200, response.text
+    items: list[dict[str, Any]] = response.json()["receipts"]
+    return items
 
 
 # The fake Workfront, read from the outside through its own REST API.

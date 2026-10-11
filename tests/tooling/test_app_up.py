@@ -10,7 +10,7 @@ from tests.tooling.platform_stubs import run_make as _run
 TILTFILE = ROOT / "Tiltfile"
 APP_STEP = ROOT / "platform/app.sh"
 REGISTRY_HOST = "localhost:62546"  # from the docker stub's `docker port`
-COMPONENTS = ("api", "worker", "fake-marketo", "web", "postgres", "temporal")
+COMPONENTS = ("api", "worker", "fake-marketo", "fake-cms", "fake-s3", "web", "postgres", "temporal")
 
 
 def _code(path: Path) -> str:

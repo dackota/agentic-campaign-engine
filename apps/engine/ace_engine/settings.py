@@ -55,10 +55,38 @@ class Settings:
     workfront_webhook_secret: str = field(default="", repr=False)
     agent_timeout_seconds: float = 30.0
     marketo_timeout_seconds: float = 30.0
+    notify_timeout_seconds: float = 10.0
     # The OIDC provider (Dex) the Campaign API trusts, and the client id tokens are for.
     # The worker never checks tokens, so it leaves them unset.
     oidc_issuer: str = ""
     oidc_client_id: str = "ace-web"
+    # The CMS that gets the landing page and the S3 store that gets the assets. Both are
+    # in-cluster stand-ins that need no credentials; a blank URL skips that target.
+    cms_url: str = ""
+    s3_url: str = ""
+    s3_bucket: str = "ace-assets"
+    content_timeout_seconds: float = 30.0
+    # Slack and Google Docs are off unless their credentials are set. The tokens come from
+    # the environment or a secret, never from code, and stay out of the repr.
+    slack_token: str = field(default="", repr=False)
+    slack_channel: str = ""
+    slack_url: str = "https://slack.com/api"
+    google_client_id: str = ""
+    google_client_secret: str = field(default="", repr=False)
+    google_refresh_token: str = field(default="", repr=False)
+    google_token_url: str = "https://oauth2.googleapis.com/token"
+    google_docs_url: str = "https://docs.googleapis.com"
+
+    @property
+    def slack_enabled(self) -> bool:
+        return bool(self.slack_token.strip() and self.slack_channel.strip())
+
+    @property
+    def google_enabled(self) -> bool:
+        return all(
+            v.strip()
+            for v in (self.google_client_id, self.google_client_secret, self.google_refresh_token)
+        )
 
     def __post_init__(self) -> None:
         # Fail when the worker starts, not on the first send after an approval.

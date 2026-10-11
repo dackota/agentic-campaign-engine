@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Social posts",
+  "description": "The social contract: what the social writer returns.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["posts"],
+  "properties": {
+    "posts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["channel", "text"],
+        "properties": {
+          "channel": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      }
+    }
+  }
+}

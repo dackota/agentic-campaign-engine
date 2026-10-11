@@ -38,7 +38,12 @@ from campaign_api.webhook_routes import (
     register_webhook_routes,
     register_workfront_routes,
 )
-from campaign_api.workflows import NAME_PATTERN, latest_version, register_workflow_routes
+from campaign_api.workflows import (
+    NAME_PATTERN,
+    latest_version,
+    register_workflow_routes,
+    seed_default_workflow,
+)
 
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
@@ -256,6 +261,7 @@ def _sse(event: db.RunEvent) -> str:
         "step": event.step,
         "status": event.status,
         "reason": event.reason,
+        "session": event.session,
     }
     return f"id: {event.seq}\nevent: step\ndata: {json.dumps(data)}\n\n"
 
@@ -292,6 +298,24 @@ def _add_event_routes(app: FastAPI) -> None:
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
+
+
+class StepOutputOut(BaseModel):
+    step: str
+    session: str
+    output: Any
+
+
+def _add_step_routes(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/steps")
+    async def campaign_steps(
+        campaign_id: uuid.UUID, request: Request, user: CurrentUser
+    ) -> list[StepOutputOut]:
+        authorize(user, Action.READ)
+        engine = request.app.state.engine
+        await _found(engine, campaign_id)
+        rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
+        return [StepOutputOut(step=r.step, session=r.session, output=r.output) for r in rows]
 
 
 def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
@@ -372,6 +396,7 @@ def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.engine = db.make_engine(settings.database_url)
+        await run_in_threadpool(seed_default_workflow, app.state.engine)
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
             settings.temporal_address, namespace=settings.temporal_namespace
@@ -389,6 +414,7 @@ def create_app(settings: Settings) -> FastAPI:
     _register_approval_route(app)
     _register_retry_route(app)
     _add_event_routes(app)
+    _add_step_routes(app)
     _add_activity_routes(app, settings)
     _add_preview_route(app)
     register_workflow_routes(app)
