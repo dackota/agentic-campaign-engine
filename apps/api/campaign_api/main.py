@@ -7,7 +7,7 @@ role rules."""
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
@@ -22,8 +22,9 @@ from ace_engine.settings import (
 )
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
+from render_service import assets
 from render_service.email import EmailTooLarge, render_email
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
@@ -348,6 +349,37 @@ def _add_preview_route(app: FastAPI) -> None:
         return HTMLResponse(html)
 
 
+PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+# Preview kind -> (steps whose output it renders, renderer, content type).
+ASSET_KINDS: dict[str, tuple[tuple[str, ...], Callable[..., str | bytes], str]] = {
+    "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
+    "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
+    "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
+    "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
+}
+
+
+def _add_asset_preview_route(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/preview/{kind}")
+    async def preview_asset(
+        campaign_id: uuid.UUID, kind: str, request: Request, user: BrowserUser
+    ) -> Response:
+        """The brand-rendered one-pager (PDF), deck (PPTX), landing page (HTML), or graphic
+        (SVG), made from what the campaign's writer steps produced."""
+        authorize(user, Action.READ)
+        if kind not in ASSET_KINDS:
+            raise HTTPException(status_code=404, detail="unknown asset kind")
+        engine = request.app.state.engine
+        await _found(engine, campaign_id)
+        needed, render, media_type = ASSET_KINDS[kind]
+        rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
+        outputs = {r.step: r.output for r in rows}
+        if not all(step in outputs for step in needed):
+            raise HTTPException(status_code=409, detail=f"campaign has no {kind} content yet")
+        content = await run_in_threadpool(render, *(outputs[step] for step in needed))
+        return Response(content, media_type=media_type)
+
+
 def _add_campaign_routes(app: FastAPI) -> None:
     @app.get("/me")
     def me(user: CurrentUser) -> Me:
@@ -417,6 +449,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_step_routes(app)
     _add_activity_routes(app, settings)
     _add_preview_route(app)
+    _add_asset_preview_route(app)
     register_workflow_routes(app)
 
     return app
