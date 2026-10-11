@@ -21,6 +21,8 @@ GOOD_DRAFT = {
 AWAITING = "awaiting_approval"
 FAILED = "failed"
 SENT = "sent"
+FINISHED = "finished"
+RETRYING = "retrying"
 # Demo users from platform/dex/config.yaml.
 OWNER = "dg-owner@demo.example"
 APPROVER = "dg-approver@demo.example"
@@ -53,6 +55,11 @@ def until_status(api: httpx.Client, campaign_id: str, *wanted: str) -> dict[str,
 def settle(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
     """Wait until drafting ends: the run waits for approval or has failed."""
     return until_status(api, campaign_id, AWAITING, FAILED)
+
+
+def retry_step(api: httpx.Client, campaign_id: str) -> httpx.Response:
+    """Ask the run to retry the step that stopped it: the app's retry-step action."""
+    return api.post(f"/campaigns/{campaign_id}/retry")
 
 
 def workflow_name(prefix: str = "wf") -> str:
@@ -162,3 +169,12 @@ def signed_headers(secret: str, body: bytes, timestamp: int | None = None) -> di
         SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
         "Content-Type": "application/json",
     }
+
+
+def events_until(api: httpx.Client, campaign_id: str, final_status: str) -> list[dict[str, Any]]:
+    """Every run event up to the run event `final_status`. The stream closes at each final
+    state (waiting for approval, failed), so read on from the last event until it comes."""
+    events = read_events(api, campaign_id)
+    while (events[-1]["step"], events[-1]["status"]) != ("run", final_status):
+        events += read_events(api, campaign_id, last_event_id=events[-1]["seq"])
+    return events
