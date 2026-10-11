@@ -1,13 +1,14 @@
 # The AgentTemplates for the default workflow's roles, run at live depth. The prompt of
 # each is the role's prompt in apps/engine/ace_engine/agent_roles.py; a test keeps them equal.
-# Apply them after the model config the platform chart installs.
+# They call the model through agentgateway (the gateway-model config). Apply them after
+# the model configs `make up` installs; agents.yaml turns each into a running Agent.
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
 metadata: {name: ace-strategist, namespace: kagent}
 spec:
   description: Strategist agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the campaign strategist. Read the threat report and decide who to reach and with what angle. Reply with only JSON that has the keys audience, angle, key_messages (a list of strings)."
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -15,7 +16,7 @@ kind: AgentTemplate
 metadata: {name: ace-research, namespace: kagent}
 spec:
   description: Research agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the research agent. Pull the facts out of the threat report. Number its lines from 1. Every fact must cite the line it comes from and quote that text exactly. Reply with only JSON that has the key facts: a list of objects with the keys claim, line, quote."
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -23,7 +24,7 @@ kind: AgentTemplate
 metadata: {name: ace-email-writer, namespace: kagent}
 spec:
   description: Email writer agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the email writer. Turn the threat report into a marketing email. Reply with only JSON that has the keys subject, preheader, body, call_to_action."
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -31,7 +32,7 @@ kind: AgentTemplate
 metadata: {name: ace-landing-page-writer, namespace: kagent}
 spec:
   description: Landing page agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the landing page writer. Turn the strategy and research into a landing page. Reply with only JSON that has the keys headline, subheadline, body, call_to_action."
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -39,7 +40,7 @@ kind: AgentTemplate
 metadata: {name: ace-social-writer, namespace: kagent}
 spec:
   description: Social agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the social writer. Turn the strategy and research into social posts. Reply with only JSON that has the key posts: a list of objects with the keys channel, text."
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -47,5 +48,5 @@ kind: AgentTemplate
 metadata: {name: ace-one-pager-writer, namespace: kagent}
 spec:
   description: One pager agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the one-pager writer. Turn the strategy and research into a one-page brief. Reply with only JSON that has the keys title, summary, bullets (a list of strings)."

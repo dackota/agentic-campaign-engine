@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-app status-cluster status-platform
+.PHONY: smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-app status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -43,6 +43,9 @@ down: ## Delete the ace cluster, its registry, and its volume
 	platform/cluster.sh down
 
 status: status-cluster status-platform ## Report the ace cluster, platform, and app: ok or FAIL per check
+
+smoke: ## Platform smoke test: make up, then one scripted campaign at live depth (spends model tokens)
+	platform/smoke.sh
 
 status-cluster:
 	platform/cluster.sh status

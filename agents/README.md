@@ -6,7 +6,16 @@ Home for this part. Later tickets fill it.
 
 One AgentTemplate per role of the default workflow "Threat report to campaign":
 strategist, research, email writer, landing page writer, social writer, and one-pager
-writer. At fast depth the scripted agent plays them all. The system prompt in each
-template is the role's prompt in `apps/engine/ace_engine/agent_roles.py`, and a test keeps
-the two equal. The model config name is the platform's; check it before the live run
-(owed to the S3 live-depth ticket).
+writer. The system prompt in each template is the role's prompt in
+`apps/engine/ace_engine/agent_roles.py`, and a test keeps the two equal. Each template uses
+the `gateway-model` config, so every model call goes through agentgateway.
+
+## agents.yaml
+
+One Agent per template on the Go harness (`spike-harness`, installed by the S0 spike
+scripts). `make up` applies both files. The Agent's name is the last part of its A2A URL,
+`http://kagent-controller.kagent.svc.cluster.local:8083/agents/kagent/<name>`, and the worker
+picks it by the role's template name.
+
+At fast depth the scripted agent (`tests/harness/scripted_agent.py`) plays every role and
+speaks the same A2A contract as kagent's controller.

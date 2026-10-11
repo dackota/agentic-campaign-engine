@@ -19,8 +19,9 @@ api:
   oidcIssuer: http://dex.ace.localhost:15656/dex
   oidcClientId: ace-web
 
-# fast: the worker calls the agent at worker.agentUrl. The run modes are in SPEC.md.
-depth: fast
+# live: the worker calls the real kagent Agents under worker.agentUrl (one per role, by name).
+# The run modes are in SPEC.md.
+depth: live
 
 # One image for the API, the worker, and the fake Marketo (apps/python.Dockerfile).
 python:
@@ -32,9 +33,8 @@ python:
   reload: false
 
 worker:
-  # Placeholder: no agent answers here, so a run fails with a named agent reason.
-  # #29 replaces this default with a real kagent agent's A2A URL.
-  agentUrl: http://agent-not-wired.invalid
+  # The kagent controller serves each Agent at <this>/<agent name> (wired by #29).
+  agentUrl: http://kagent-controller.kagent.svc.cluster.local:8083/agents/kagent
 
 marketo:
   serviceName: fake-marketo

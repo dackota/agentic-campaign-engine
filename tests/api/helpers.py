@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -27,7 +28,8 @@ RETRYING = "retrying"
 # Demo users from platform/dex/config.yaml.
 OWNER = "dg-owner@demo.example"
 APPROVER = "dg-approver@demo.example"
-POLL_SECONDS = 30
+LIVE_POLL_SECONDS = 300  # a real model takes seconds per reply, and the default workflow asks six
+POLL_SECONDS = LIVE_POLL_SECONDS if os.environ.get("ACE_DEPTH") == "live" else 30
 POLL_INTERVAL_SECONDS = 0.2
 STREAM_TIMEOUT_SECONDS = 30
 

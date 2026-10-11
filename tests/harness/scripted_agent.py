@@ -1,7 +1,10 @@
-"""A scripted agent for fast depth: an A2A JSON-RPC (`message/send`) stand-in.
+"""A scripted agent for fast depth: a stand-in for kagent 1.x's A2A JSON-RPC endpoint.
 
-kagent 1.x itself serves gRPC A2A (see docs/sources.md); live depth will need a gRPC
-client. Fast depth only needs the message shape, so this speaks JSON-RPC over HTTP.
+It speaks the contract the kagent controller serves at /agents/<namespace>/<agent>, as
+seen on k3d-ace: `SendMessage` with an `A2A-Version: 1.0` header, role `ROLE_USER`, parts
+that hold only `text`, a reply in `result.task` (state `TASK_STATE_COMPLETED`, text in
+`artifacts[].parts[]`, tokens in the artifact's `kagent.dev/a2a/usage`), and a session
+(contextId) that only the agent issues: a message that names another one is refused.
 
 By default it plays the role whose prompt opens the message (strategist, research, a
 writer), or the email writer when none matches: it reads the threat report out of the
@@ -22,6 +25,14 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 JSONRPC_METHOD_NOT_FOUND = -32601
+JSONRPC_PERMISSION_DENIED = -31403
+JSONRPC_INVALID_REQUEST = -32600
+SEND_METHOD = "SendMessage"
+VERSION_HEADER = "A2A-Version"
+SUPPORTED_VERSION = "1.0"
+COMPLETED = "TASK_STATE_COMPLETED"
+USAGE_KEY = "kagent.dev/a2a/usage"
+CHARS_PER_TOKEN = 4
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
 SOCIAL_POST_CHARS = 280
@@ -50,6 +61,7 @@ class ScriptedAgent:
         self._modes: dict[str, str] = {}
         self._failed: dict[str, int] = {}
         self._message_ids: list[str] = []
+        self._sessions: set[str] = set()
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
@@ -87,6 +99,16 @@ class ScriptedAgent:
         is_writer = CONTEXT_MARKER in text
         return json.dumps(default_reply(text)), mode == SLOW_MARKER or is_writer
 
+    def _owns(self, context_id: str) -> bool:
+        with self._lock:
+            return context_id in self._sessions
+
+    def _open_session(self) -> str:
+        context_id = str(uuid.uuid4())
+        with self._lock:
+            self._sessions.add(context_id)
+        return context_id
+
     def _build_app(self) -> FastAPI:
         app = FastAPI()
 
@@ -97,45 +119,48 @@ class ScriptedAgent:
         @app.post("/")
         async def rpc(request: Request) -> JSONResponse:
             body = await request.json()
-            if body.get("method") != "message/send":
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_METHOD_NOT_FOUND, "message": "method not found"},
-                    }
-                )
+            if request.headers.get(VERSION_HEADER) != SUPPORTED_VERSION:
+                return _error(body, JSONRPC_INVALID_REQUEST, "unsupported A2A version")
+            if body.get("method") != SEND_METHOD:
+                return _error(body, JSONRPC_METHOD_NOT_FOUND, "method not found")
             message = body["params"]["message"]
-            text = "".join(p.get("text", "") for p in message["parts"] if p.get("kind") == "text")
-            context_id = message.get("contextId") or str(uuid.uuid4())
+            text = "".join(p.get("text", "") for p in message["parts"])
+            requested = message.get("contextId")
+            if requested is not None and not self._owns(requested):
+                return _error(body, JSONRPC_PERMISSION_DENIED, "permission denied")
+            context_id = requested or self._open_session()
             if self._is_down(text, str(message.get("messageId", ""))):
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_AGENT_DOWN, "message": "agent unavailable"},
-                    }
-                )
+                return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
             reply, is_slow = self._next_reply(text, context_id)
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
                 )
+            artifact: dict[str, Any] = {
+                "artifactId": str(uuid.uuid4()),
+                "parts": [{"text": reply}],
+                "metadata": {
+                    USAGE_KEY: {
+                        "promptTokenCount": len(text) // CHARS_PER_TOKEN,
+                        "candidatesTokenCount": len(reply) // CHARS_PER_TOKEN,
+                    }
+                },
+            }
             task: dict[str, Any] = {
-                "kind": "task",
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
-                "status": {"state": "completed"},
-                "artifacts": [
-                    {
-                        "artifactId": str(uuid.uuid4()),
-                        "parts": [{"kind": "text", "text": reply}],
-                    }
-                ],
+                "status": {"state": COMPLETED},
+                "artifacts": [artifact],
             }
-            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": task})
+            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
         return app
+
+
+def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
+    return JSONResponse(
+        {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
+    )
 
 
 def _report_of(message_text: str) -> str:

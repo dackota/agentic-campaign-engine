@@ -7,7 +7,7 @@ from typing import Any
 import httpx
 from ace_engine import dag as graph
 from ace_engine import db, invoker
-from ace_engine.agent_roles import message_for, role_for
+from ace_engine.agent_roles import agent_url_for, message_for, role_for
 from ace_engine.contracts import citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
@@ -66,7 +66,7 @@ class Activities:
                     (
                         await invoker.invoke(
                             client,
-                            self._settings.agent_url,
+                            agent_url_for(self._settings.agent_url, self._settings.depth, role),
                             session_key=session_key(campaign_id, step_id, variant),
                             prompt=message_for(role, report, context, variant),
                             schema=role.reply_schema,
