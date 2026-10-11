@@ -99,6 +99,8 @@ class CampaignOut(BaseModel):
     workflow: str | None
     workflow_version: int | None
     steps: list[dict[str, Any]]
+    # The DAG's edges, so the run view can draw the graph.
+    edges: list[dict[str, str]] = Field(default_factory=list)
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
     ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
@@ -131,6 +133,7 @@ class CampaignOut(BaseModel):
                 {**s, "idempotency_key": graph.step_key(str(c.id), s["id"])}
                 for s in graph.ordered(c.dag)
             ],
+            edges=list(c.dag.get("edges", [])),
             engagement=engagement or {},
             ab_result=AbResultOut.of(decide(engagement or {})),
         )
@@ -278,6 +281,7 @@ def _sse(event: db.RunEvent) -> str:
         "status": event.status,
         "reason": event.reason,
         "session": event.session,
+        "tokens": event.tokens,
     }
     return f"id: {event.seq}\nevent: step\ndata: {json.dumps(data)}\n\n"
 

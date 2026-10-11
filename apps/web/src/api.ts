@@ -1,5 +1,5 @@
 import { accessToken } from "./auth";
-import type { WorkflowStep } from "./workflow.gen";
+import type { WorkflowEdge, WorkflowStep } from "./workflow.gen";
 
 export interface EmailDraft {
   subject: string;
@@ -40,6 +40,8 @@ export interface Campaign {
   workflow_version: number | null;
   /** The pinned workflow's steps, in run order. */
   steps: WorkflowStep[];
+  /** The pinned workflow's edges, for drawing the graph. */
+  edges: WorkflowEdge[];
   ab_result: AbResult;
 }
 
@@ -76,6 +78,7 @@ function isCampaign(value: unknown): value is Campaign {
     (c.workflow_version === null || typeof c.workflow_version === "number") &&
     Array.isArray(c.steps) &&
     c.steps.every(isStep) &&
+    Array.isArray(c.edges) &&
     isAbResult(c.ab_result)
   );
 }
@@ -171,6 +174,8 @@ export interface RunEvent {
   step: string;
   status: string;
   reason: string | null;
+  /** The tokens an agent step used, on its succeeded event. */
+  tokens: number | null;
 }
 
 const RUN_STEP = "run";
@@ -187,7 +192,8 @@ function isRunEvent(value: unknown): value is RunEvent {
     typeof e.seq === "number" &&
     typeof e.step === "string" &&
     typeof e.status === "string" &&
-    (e.reason === null || typeof e.reason === "string")
+    (e.reason === null || typeof e.reason === "string") &&
+    (e.tokens === null || typeof e.tokens === "number")
   );
 }
 

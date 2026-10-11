@@ -31,6 +31,18 @@ def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
 
 
+def tokens_of(usage: dict[str, Any] | None) -> int:
+    """The tokens one agent reply used, from the usage the agent reports: its total when it
+    gives one, else input plus output. Zero when it reports nothing."""
+    if not usage:
+        return 0
+    for total in ("total_tokens", "totalTokens", "totalTokenCount"):
+        if isinstance(usage.get(total), int):
+            return int(usage[total])
+    parts = ("input_tokens", "output_tokens", "promptTokenCount", "candidatesTokenCount")
+    return sum(v for k in parts if isinstance(v := usage.get(k), int))
+
+
 class Activities:
     def __init__(self, settings: Settings, engine: Engine) -> None:
         self._settings = settings
@@ -62,22 +74,22 @@ class Activities:
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                replies = [
-                    (
-                        await invoker.invoke(
-                            client,
-                            self._settings.agent_url,
-                            session_key=session_key(campaign_id, step_id, variant),
-                            prompt=message_for(role, report, context, variant),
-                            schema=role.reply_schema,
-                        )
-                    ).output
+                invocations = [
+                    await invoker.invoke(
+                        client,
+                        self._settings.agent_url,
+                        session_key=session_key(campaign_id, step_id, variant),
+                        prompt=message_for(role, report, context, variant),
+                        schema=role.reply_schema,
+                    )
                     for variant in range(role.replies)
                 ]
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        replies = [i.output for i in invocations]
+        tokens = sum(tokens_of(i.usage) for i in invocations)
         output: Any = replies if role.replies > 1 else replies[0]
         if role.checks_citations:
             problems = citation_problems(output, report)
@@ -87,7 +99,7 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
-        return {"output": output, "session": session}
+        return {"output": output, "session": session, "tokens": tokens}
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
@@ -103,7 +115,14 @@ class Activities:
             )
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
-            db.add_agent_event(session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session)
+            db.add_agent_event(
+                session,
+                campaign.id,
+                step_id,
+                db.STEP_SUCCEEDED,
+                agent_session,
+                result.get("tokens") or None,
+            )
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:
