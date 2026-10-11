@@ -21,6 +21,8 @@ import { RunGraph } from "./RunGraphView";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
+// The simulated audience keeps engaging after the send; watch for the A/B call this long.
+const AB_WATCH_POLLS = 120;
 
 const STATUS_LABELS: Record<Campaign["status"], string> = {
   drafting: "Drafting",
@@ -39,6 +41,16 @@ async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void
     await new Promise((resolve) => setTimeout(resolve, POLL_MS));
     current = await getCampaign(current.id);
     onUpdate(current);
+  }
+}
+
+/** Re-read a sent campaign until the A/B test calls a winner, or the watch runs out. */
+async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promise<void> {
+  for (let i = 0; i < AB_WATCH_POLLS; i++) {
+    await new Promise((resolve) => setTimeout(resolve, POLL_MS));
+    const current = await getCampaign(id);
+    onUpdate(current);
+    if (current.ab_result.status === "winner") return;
   }
 }
 
@@ -218,6 +230,11 @@ function useCampaignRun(
       attempt(async () => {
         await pollWhileSending(await approveCampaign(id), setCampaign);
         await refresh();
+        // Not awaited: the page stays usable while the audience engages. A failed read
+        // only stops the watch; the shown result stays as last read.
+        void watchAbResult(id, (next) =>
+          setCampaign((shown) => (shown?.id === id ? next : shown)),
+        ).catch(() => undefined);
       }),
     retry: (id: string) =>
       attempt(async () => {

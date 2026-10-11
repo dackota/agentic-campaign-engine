@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 from tests.api.helpers import DAY_SPEED, send_campaign
+from tests.harness.stack import Stack
 
 SLOW_SPEED = 1.0
 SEED = 1  # a seed whose audience opens variant A far more than B
@@ -21,7 +22,7 @@ def ab_result(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
 
 
 def test_no_decision_yet_before_the_audience_engages(
-    stack: Any, api: httpx.Client, approver: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     stack.marketo_audience(seed=SEED, time_speed=SLOW_SPEED)
 
@@ -35,7 +36,7 @@ def test_no_decision_yet_before_the_audience_engages(
 
 
 def test_a_winner_with_confidence_after_enough_events(
-    stack: Any, api: httpx.Client, approver: httpx.Client
+    stack: Stack, api: httpx.Client, approver: httpx.Client
 ) -> None:
     stack.marketo_audience(seed=SEED, time_speed=DAY_SPEED)
     campaign_id = send_campaign(api, approver)
