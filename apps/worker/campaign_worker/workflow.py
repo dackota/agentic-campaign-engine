@@ -28,6 +28,12 @@ SEND_RETRY = RetryPolicy(maximum_attempts=5)
 NO_RETRY = RetryPolicy(maximum_attempts=1)
 
 
+def _retry(step: dict[str, Any], default: RetryPolicy) -> RetryPolicy:
+    """The step's own retry limit when the workflow sets one, else the kind's default."""
+    attempts = step.get("max_attempts")
+    return RetryPolicy(maximum_attempts=attempts) if attempts else default
+
+
 class StepFailed(Exception):
     def __init__(self, step_id: str, reason: str) -> None:
         super().__init__(reason)
@@ -121,14 +127,14 @@ class CampaignWorkflow:
     ) -> None:
         step_id, kind = step["id"], step["kind"]
         if kind == graph.AGENT:
-            await self._agent(campaign_id, report, step_id)
+            await self._agent(campaign_id, report, step)
         elif kind == graph.APPROVAL:
             await self._db("open_approval", campaign_id)
             await self._announce("announce_approval", campaign_id)
             await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
             await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
         elif kind == graph.PUBLISH:
-            await self._publish(campaign_id, dag, step_id)
+            await self._publish(campaign_id, dag, step)
         elif kind == graph.WAIT:
             await self._db("mark_step", campaign_id, step_id, STEP_STARTED)
             await workflow.sleep(timedelta(seconds=step["duration_seconds"]))
@@ -140,20 +146,22 @@ class CampaignWorkflow:
         else:
             raise StepFailed(step_id, f"step {step_id!r} has an unknown kind {kind!r}")
 
-    async def _agent(self, campaign_id: str, report: str, step_id: str) -> None:
+    async def _agent(self, campaign_id: str, report: str, step: dict[str, Any]) -> None:
+        step_id = step["id"]
         try:
             drafts = await workflow.execute_activity(
                 "write_email_draft",
                 args=[campaign_id, report, step_id],
                 start_to_close_timeout=AGENT_STEP_TIMEOUT,
-                retry_policy=AGENT_RETRY,
+                retry_policy=_retry(step, AGENT_RETRY),
             )
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
         await self._db("save_agent_output", campaign_id, step_id, drafts)
         self._outputs[step_id] = drafts
 
-    async def _publish(self, campaign_id: str, dag: dict[str, Any], step_id: str) -> None:
+    async def _publish(self, campaign_id: str, dag: dict[str, Any], step: dict[str, Any]) -> None:
+        step_id = step["id"]
         source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)
         if source is None:
             raise StepFailed(step_id, f"publish step {step_id!r} has no agent step before it")
@@ -161,6 +169,15 @@ class CampaignWorkflow:
         try:
             receipt = await workflow.execute_activity(
                 "send_email",
+                args=[campaign_id, self._outputs[source]],
+                start_to_close_timeout=SEND_STEP_TIMEOUT,
+                retry_policy=_retry(step, SEND_RETRY),
+            )
+        except ActivityError as exc:
+            raise StepFailed(step_id, _reason(exc)) from exc
+        try:
+            await workflow.execute_activity(
+                "publish_content",
                 args=[campaign_id, self._outputs[source]],
                 start_to_close_timeout=SEND_STEP_TIMEOUT,
                 retry_policy=SEND_RETRY,

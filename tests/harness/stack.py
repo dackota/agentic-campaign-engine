@@ -1,6 +1,6 @@
 """Seam 1 harness: real Postgres, Dex with the demo users, Temporal's time-skipping test
-server, the scripted A2A agent, the worker, and the Campaign API, started together on
-free local ports.
+server, the scripted A2A agent, the fake Marketo, the fake Workfront, the worker, and the
+Campaign API, started together on free local ports.
 
 One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. Live depth
 is wired in a later ticket, so starting a live stack raises.
@@ -13,7 +13,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import uvicorn
@@ -59,6 +59,10 @@ class Stack:
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
+        self.cms_port = free_port()
+        self.s3_port = free_port()
+        self.s3_bucket = "ace-assets"
+        self.workfront_port = free_port()
         self.dex = Dex(dex_port or free_port(), web_origin)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
@@ -73,6 +77,9 @@ class Stack:
         self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
         self.marketo_client_secret = secrets.token_urlsafe(24)
         self.marketo_webhook_secret = secrets.token_urlsafe(24)
+        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
+        self.workfront_client_secret = secrets.token_urlsafe(24)
+        self.workfront_webhook_secret = secrets.token_urlsafe(24)
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -108,6 +115,24 @@ class Stack:
         """Every document the Google stand-in holds, as a JSON list."""
         return f"{self.google_url}/_documents"
 
+    @property
+    def cms_url(self) -> str:
+        return f"http://127.0.0.1:{self.cms_port}"
+
+    @property
+    def s3_url(self) -> str:
+        return f"http://127.0.0.1:{self.s3_port}"
+
+    def drop_next_content_replies(self) -> None:
+        """Make the fake CMS and the fake S3 store keep the next write, then answer 503."""
+        for url in (self.cms_url, self.s3_url):
+            response = httpx.put(f"{url}/_fault", json={"drop_next_reply": True}, timeout=10)
+            assert response.status_code == 204, response.text
+
+    @property
+    def workfront_url(self) -> str:
+        return f"http://127.0.0.1:{self.workfront_port}"
+
     def marketo_malformed_reply(self, is_malformed: bool) -> None:
         """Make the fake Marketo answer sends with a reply that has no receipt id."""
         self.marketo_fault(malformed_reply=is_malformed)
@@ -128,6 +153,25 @@ class Stack:
             timeout=10,
         )
         assert response.status_code == 204, response.text
+
+    def marketo_audience(self, *, seed: int, time_speed: float) -> None:
+        """Set the simulated audience's seed and its time speed (simulated seconds per
+        real second) for the sends that follow."""
+        response = httpx.put(
+            f"{self.marketo_url}/_audience",
+            json={"seed": seed, "time_speed": time_speed},
+            timeout=10,
+        )
+        assert response.status_code == 204, response.text
+
+    def marketo_planned_events(self, campaign_id: str) -> list[dict[str, Any]]:
+        """Every open and click the fake planned for this campaign, in simulated order."""
+        response = httpx.get(
+            f"{self.marketo_url}/_audience/events", params={"externalId": campaign_id}, timeout=10
+        )
+        assert response.status_code == 200, response.text
+        events: list[dict[str, Any]] = response.json()
+        return events
 
     def restart_worker(self) -> None:
         """Stop the worker and start a fresh one; the workflow resumes by replay."""
@@ -197,11 +241,18 @@ class Stack:
                 temporal_namespace=env.client.namespace,
                 agent_url=f"http://127.0.0.1:{agent_port}",
                 marketo_url=self.marketo_url,
+                cms_url=self.cms_url,
+                s3_url=self.s3_url,
+                s3_bucket=self.s3_bucket,
                 oidc_issuer=self.dex.issuer,
                 oidc_client_id=CLIENT_ID,
                 marketo_client_id=self.marketo_client_id,
                 marketo_client_secret=self.marketo_client_secret,
                 marketo_webhook_secret=self.marketo_webhook_secret,
+                workfront_url=self.workfront_url,
+                workfront_client_id=self.workfront_client_id,
+                workfront_client_secret=self.workfront_client_secret,
+                workfront_webhook_secret=self.workfront_webhook_secret,
             )
             if self.integrations:
                 settings = dataclasses.replace(
@@ -228,8 +279,12 @@ class Stack:
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
+        from fake_cms.app import create_app as create_cms
         from fake_marketo.app import MarketoConfig
         from fake_marketo.app import create_app as create_marketo
+        from fake_s3.app import create_app as create_s3
+        from fake_workfront.app import WorkfrontConfig
+        from fake_workfront.app import create_app as create_workfront
 
         marketo = MarketoConfig(
             client_id=self.marketo_client_id,
@@ -237,9 +292,18 @@ class Stack:
             webhook_url=f"{self.api_url}/webhooks/marketo",
             webhook_secret=self.marketo_webhook_secret,
         )
+        workfront = WorkfrontConfig(
+            client_id=self.workfront_client_id,
+            client_secret=self.workfront_client_secret,
+            webhook_url=f"{self.api_url}/webhooks/workfront",
+            webhook_secret=self.workfront_webhook_secret,
+        )
         apps: list[tuple[FastAPI, int]] = [
             (self.agent.app, agent_port),
             (create_marketo(marketo), self.marketo_port),
+            (create_cms(), self.cms_port),
+            (create_s3(), self.s3_port),
+            (create_workfront(workfront), self.workfront_port),
             (create_app(settings), self.api_port),
         ]
         if self.integrations:

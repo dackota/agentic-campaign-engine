@@ -14,7 +14,9 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from campaign_worker import notify, publisher
+from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
+from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
 EMAIL_PROMPT = (
@@ -108,11 +110,20 @@ class Activities:
 
     @activity.defn
     async def send_email(self, campaign_id: str, drafts: list[dict[str, Any]]) -> str:
-        """Publish the approved A/B emails; the receipt id of the Marketo send."""
+        """Publish the approved A/B emails and the campaign's task; the receipt id of the
+        Marketo send. Every target's receipt is stored for the campaign."""
         campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        adapters: list[publisher.Adapter] = [MarketoAdapter(self._settings)]
+        if self._settings.has_workfront:
+            adapters.append(WorkfrontAdapter(self._settings))
         async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
-            receipts = await publisher.publish(client, [MarketoAdapter(self._settings)], campaign)
+            receipts = await publisher.publish(client, adapters, campaign)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
         return receipts[0].receipt_id
+
+    def _save_receipts(self, campaign_id: str, receipts: list[publisher.Receipt]) -> None:
+        for r in receipts:
+            db.save_receipt(self._engine, uuid.UUID(campaign_id), r.target, r.receipt_id, r.url)
 
     @activity.defn
     async def announce_approval(self, campaign_id: str) -> None:
@@ -161,3 +172,14 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.receipt = receipt
             db.add_event(session, campaign.id, step_id, db.STEP_SUCCEEDED)
+
+    @activity.defn
+    async def publish_content(self, campaign_id: str, drafts: list[dict[str, Any]]) -> None:
+        """Publish the landing page to the CMS and the email assets to the S3 bucket, and
+        keep one receipt per item. Every write is idempotent, so a retry adds nothing."""
+        campaign = publisher.ApprovedCampaign(campaign_id=campaign_id, emails=tuple(drafts))
+        adapters = content_adapters(self._settings, campaign.emails)
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await publisher.publish(client, adapters, campaign)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)

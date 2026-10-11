@@ -30,6 +30,10 @@ FULL_ENV = {
     "ACE_MARKETO_CLIENT_ID": "ace-demo",
     "ACE_MARKETO_CLIENT_SECRET": CLIENT_SECRET,
     "ACE_MARKETO_WEBHOOK_SECRET": WEBHOOK_SECRET,
+    "ACE_WORKFRONT_URL": "http://fake-workfront:8000",
+    "ACE_WORKFRONT_CLIENT_ID": "ace-wf",
+    "ACE_WORKFRONT_CLIENT_SECRET": "sentinel-wf-client-secret-5a1e",
+    "ACE_WORKFRONT_WEBHOOK_SECRET": "sentinel-wf-webhook-secret-2f8d",
     "ACE_AGENT_TIMEOUT_SECONDS": "12.5",
     "ACE_MARKETO_TIMEOUT_SECONDS": "7",
     "ACE_OIDC_ISSUER": "http://dex.example/dex",
@@ -43,6 +47,10 @@ FULL_ENV = {
     "ACE_GOOGLE_REFRESH_TOKEN": "sentinel-google-refresh-52aa",
     "ACE_GOOGLE_TOKEN_URL": "http://fake-google:8000/token",
     "ACE_GOOGLE_DOCS_URL": "http://fake-google:8000",
+    "ACE_CMS_URL": "http://fake-cms:8000",
+    "ACE_S3_URL": "http://fake-s3:8000",
+    "ACE_S3_BUCKET": "other-bucket",
+    "ACE_CONTENT_TIMEOUT_SECONDS": "9",
 }
 
 
@@ -76,6 +84,10 @@ def test_api_loader_reads_every_settings_field() -> None:
         marketo_client_id="ace-demo",
         marketo_client_secret=CLIENT_SECRET,
         marketo_webhook_secret=WEBHOOK_SECRET,
+        workfront_url="http://fake-workfront:8000",
+        workfront_client_id="ace-wf",
+        workfront_client_secret="sentinel-wf-client-secret-5a1e",
+        workfront_webhook_secret="sentinel-wf-webhook-secret-2f8d",
         agent_timeout_seconds=12.5,
         marketo_timeout_seconds=7.0,
         oidc_issuer="http://dex.example/dex",
@@ -89,6 +101,10 @@ def test_api_loader_reads_every_settings_field() -> None:
         google_refresh_token="sentinel-google-refresh-52aa",
         google_token_url="http://fake-google:8000/token",
         google_docs_url="http://fake-google:8000",
+        cms_url="http://fake-cms:8000",
+        s3_url="http://fake-s3:8000",
+        s3_bucket="other-bucket",
+        content_timeout_seconds=9.0,
     )
     # Every field differs from its default above, so a field the loader skipped would show.
     for f in dataclasses.fields(Settings):

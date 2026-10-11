@@ -6,6 +6,7 @@ import json
 import time
 import uuid
 from typing import Any
+from xml.etree import ElementTree
 
 import httpx
 
@@ -160,5 +161,103 @@ def signed_headers(secret: str, body: bytes, timestamp: int | None = None) -> di
     return {
         TIMESTAMP_HEADER: stamp,
         SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
+        "Content-Type": "application/json",
+    }
+
+
+# The fake CMS and the fake S3 store, read from the outside through their own REST APIs.
+CONTENT_HTTP_TIMEOUT_SECONDS = 10
+CMS_PAGES_PATH = "/api/pages"
+S3_NAMESPACE = "{http://s3.amazonaws.com/doc/2006-03-01/}"
+
+
+def cms_pages(stack: Stack) -> list[dict[str, Any]]:
+    response = httpx.get(f"{stack.cms_url}{CMS_PAGES_PATH}", timeout=CONTENT_HTTP_TIMEOUT_SECONDS)
+    assert response.status_code == 200, response.text
+    pages: list[dict[str, Any]] = response.json()["data"]
+    return pages
+
+
+def cms_page(stack: Stack, campaign_id: str) -> dict[str, Any]:
+    """The campaign's landing page, read back through the CMS's own API."""
+    response = httpx.get(
+        f"{stack.cms_url}{CMS_PAGES_PATH}/{campaign_id}", timeout=CONTENT_HTTP_TIMEOUT_SECONDS
+    )
+    assert response.status_code == 200, response.text
+    page: dict[str, Any] = response.json()["data"]
+    return page
+
+
+def bucket_keys(stack: Stack, prefix: str = "") -> list[str]:
+    """The object keys in the bucket under `prefix`, listed through S3's ListObjectsV2."""
+    response = httpx.get(
+        f"{stack.s3_url}/{stack.s3_bucket}",
+        params={"list-type": "2", "prefix": prefix},
+        timeout=CONTENT_HTTP_TIMEOUT_SECONDS,
+    )
+    assert response.status_code == 200, response.text
+    root = ElementTree.fromstring(response.text)
+    return [k.text or "" for k in root.iter(f"{S3_NAMESPACE}Key")]
+
+
+def receipts(api: httpx.Client, campaign_id: str) -> list[dict[str, Any]]:
+    response = api.get(f"/campaigns/{campaign_id}")
+    assert response.status_code == 200, response.text
+    items: list[dict[str, Any]] = response.json()["receipts"]
+    return items
+
+
+# The fake Workfront, read from the outside through its own REST API.
+WORKFRONT_TOKEN_PATH = "/oauth2/token"
+WORKFRONT_API = "/attask/api/v15.0"
+WORKFRONT_WEBHOOK_PATH = "/webhooks/workfront"
+WORKFRONT_SIGNATURE_HEADER = "X-Workfront-Signature"
+WORKFRONT_TIMESTAMP_HEADER = "X-Workfront-Timestamp"
+WORKFRONT_TARGET = "workfront"
+
+
+def workfront_token(url: str, client_id: str, client_secret: str) -> httpx.Response:
+    return httpx.post(
+        f"{url}{WORKFRONT_TOKEN_PATH}",
+        data={
+            "grant_type": "client_credentials",
+            "client_id": client_id,
+            "client_secret": client_secret,
+        },
+        timeout=MARKETO_HTTP_TIMEOUT_SECONDS,
+    )
+
+
+def workfront_client(stack: Stack) -> httpx.Client:
+    """A client for the fake Workfront that carries a fresh bearer token."""
+    token = workfront_token(
+        stack.workfront_url, stack.workfront_client_id, stack.workfront_client_secret
+    )
+    assert token.status_code == 200, token.text
+    return httpx.Client(
+        base_url=f"{stack.workfront_url}{WORKFRONT_API}",
+        headers={"Authorization": f"Bearer {token.json()['access_token']}"},
+        timeout=MARKETO_HTTP_TIMEOUT_SECONDS,
+    )
+
+
+def workfront_tasks(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
+    """The tasks the fake Workfront holds for this campaign."""
+    with workfront_client(stack) as client:
+        response = client.get("/task/search", params={"externalID": campaign_id})
+    assert response.status_code == 200, response.text
+    tasks: list[dict[str, Any]] = response.json()["data"]
+    return tasks
+
+
+def workfront_signed_headers(
+    secret: str, body: bytes, timestamp: int | None = None
+) -> dict[str, str]:
+    """Headers that sign `body` the way the fake Workfront signs its status webhooks."""
+    stamp = str(int(time.time()) if timestamp is None else timestamp)
+    digest = hmac.new(secret.encode(), stamp.encode() + b"." + body, hashlib.sha256)
+    return {
+        WORKFRONT_TIMESTAMP_HEADER: stamp,
+        WORKFRONT_SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
         "Content-Type": "application/json",
     }

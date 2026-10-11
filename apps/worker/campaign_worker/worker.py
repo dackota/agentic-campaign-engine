@@ -34,6 +34,7 @@ def build_worker(
             activities.mark_sent,
             activities.announce_approval,
             activities.announce_published,
+            activities.publish_content,
         ],
         activity_executor=executor,
         max_cached_workflows=max_cached_workflows,
