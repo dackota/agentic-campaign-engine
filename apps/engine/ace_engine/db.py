@@ -98,6 +98,8 @@ class RunEvent(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # The kagent Session the step talked to; None for steps that talk to no agent.
     session: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # The tokens an agent step used, on its succeeded event; None everywhere else.
+    tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -201,9 +203,19 @@ def add_agent_event(
     step: str,
     status: str,
     agent_session: str | None,
+    tokens: int | None = None,
 ) -> None:
-    """A run event for an agent step, tagged with the agent session that ran it."""
-    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, session=agent_session))
+    """A run event for an agent step, tagged with the agent session that ran it and,
+    once it has succeeded, the tokens it used."""
+    session.add(
+        RunEvent(
+            campaign_id=campaign_id,
+            step=step,
+            status=status,
+            session=agent_session,
+            tokens=tokens,
+        )
+    )
 
 
 def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:

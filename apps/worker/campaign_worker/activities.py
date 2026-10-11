@@ -126,7 +126,14 @@ class Activities:
             )
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
-            db.add_agent_event(session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session)
+            db.add_agent_event(
+                session,
+                campaign.id,
+                step_id,
+                db.STEP_SUCCEEDED,
+                agent_session,
+                usage.total_tokens or None,
+            )
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:

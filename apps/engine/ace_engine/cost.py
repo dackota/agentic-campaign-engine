@@ -74,9 +74,10 @@ class Usage:
 
 
 NO_USAGE = Usage(model=UNREPORTED_MODEL, input_tokens=0, output_tokens=0)
-# OpenAI-style names are read too, since kagent passes the gateway's numbers through.
-_INPUT_KEYS = ("input_tokens", "prompt_tokens")
-_OUTPUT_KEYS = ("output_tokens", "completion_tokens")
+# OpenAI-style names are read too, since kagent passes the gateway's numbers through, and
+# the Google ADK names kagent's Python harness reports.
+_INPUT_KEYS = ("input_tokens", "prompt_tokens", "promptTokenCount")
+_OUTPUT_KEYS = ("output_tokens", "completion_tokens", "candidatesTokenCount")
 
 
 def _count(raw: dict[str, Any], keys: tuple[str, ...]) -> int | None:

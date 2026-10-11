@@ -19,12 +19,10 @@ import {
 import { Builder } from "./Builder";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
+import { RunGraph } from "./RunGraphView";
 import { useRunEvents } from "./useRunEvents";
-import type { WorkflowStep } from "./workflow.gen";
 
 const POLL_MS = 500;
-
-const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
 const STATUS_LABELS: Record<Campaign["status"], string> = {
   drafting: "Drafting",
@@ -44,8 +42,6 @@ function costText(usage: Usage): string {
   return `${usage.total_tokens.toLocaleString("en-US")} tokens, $${usage.cost_usd.toFixed(COST_DECIMALS)}`;
 }
 
-const PENDING = "pending";
-
 async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void): Promise<void> {
   let current = first;
   onUpdate(current);
@@ -56,38 +52,22 @@ async function pollWhileSending(first: Campaign, onUpdate: (c: Campaign) => void
   }
 }
 
-interface RunStepsProps {
-  dag: WorkflowStep[];
-  events: Record<string, RunEvent>;
-  cost: CampaignCost;
-}
-
-/** The pinned workflow's steps in run order, each with its latest status and, for a model
- * step that ran, its tokens and cost; then the run's total. */
-function RunSteps({ dag, events, cost }: RunStepsProps) {
-  const costs = new Map(cost.steps.map((s) => [s.step, s]));
+/** Tokens and cost of each model step that ran, then the run's total. */
+function RunCost({ cost }: { cost: CampaignCost }) {
   return (
-    <>
-      <ul aria-label="Run steps">
-        {dag.map((step) => {
-          const stepCost = costs.get(step.id);
-          return (
-            <li key={step.id} data-testid={`step-${step.id}`}>
-              {STEP_LABELS[step.id] ?? step.id}: {events[step.id]?.status ?? PENDING}
-              {stepCost && (
-                <>
-                  {" "}
-                  (<span data-testid={`step-cost-${step.id}`}>{costText(stepCost)}</span>)
-                </>
-              )}
-            </li>
-          );
-        })}
+    <section aria-label="Run cost">
+      <ul>
+        {cost.steps.map((s) => (
+          <li key={s.step}>
+            {s.step}:{" "}
+            <span data-testid={`step-cost-${s.step}`}>{costText(s)}</span>
+          </li>
+        ))}
       </ul>
       <p>
         Cost: <span data-testid="run-cost">{costText(cost)}</span>
       </p>
-    </>
+    </section>
   );
 }
 
@@ -250,7 +230,7 @@ function useCampaignRun(
   refresh: () => Promise<void>,
 ) {
   const [campaign, setCampaign] = useState<Campaign | null>(null);
-  const { steps, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
+  const { events, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
   const attempt = (task: () => Promise<void>) => attemptAction(task, setError, fail);
 
   async function show(next: Promise<Campaign>) {
@@ -261,7 +241,7 @@ function useCampaignRun(
 
   return {
     campaign,
-    steps,
+    events,
     open: (id: string) => attempt(() => show(getCampaign(id))),
     create: (report: string, workflow: string, budgetUsd: number | null) =>
       attempt(async () => {
@@ -393,17 +373,18 @@ function RaiseBudgetForm({ onRaise }: RaiseBudgetFormProps) {
 interface RunViewProps {
   me: Me;
   campaign: Campaign;
-  steps: Record<string, RunEvent>;
+  events: RunEvent[];
   onApprove: (id: string) => void;
   onRetry: (id: string) => void;
   onRaiseBudget: (id: string, budgetUsd: number) => void;
 }
 
-function RunView({ me, campaign, steps, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
+function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
-      <RunSteps dag={campaign.steps} events={steps} cost={campaign.cost} />
+      <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
+      <RunCost cost={campaign.cost} />
       {campaign.budget_usd !== null && (
         <p>
           Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>
@@ -502,7 +483,7 @@ function Campaigns({ me, error, list, run }: CampaignsProps) {
         <RunView
           me={me}
           campaign={run.campaign}
-          steps={run.steps}
+          events={run.events}
           onApprove={(id) => void run.approve(id)}
           onRetry={(id) => void run.retry(id)}
           onRaiseBudget={(id, budgetUsd) => void run.raiseBudget(id, budgetUsd)}
