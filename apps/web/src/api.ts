@@ -64,7 +64,7 @@ function isCampaign(value: unknown): value is Campaign {
 /** Thrown on a 401, so the screen can send the user back to sign in. */
 export class SignedOutError extends Error {}
 
-async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
+export async function fetchJson(path: string, init?: RequestInit): Promise<unknown> {
   const headers = new Headers(init?.headers);
   const token = accessToken();
   if (token) headers.set("authorization", `Bearer ${token}`);

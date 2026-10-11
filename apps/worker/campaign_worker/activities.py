@@ -16,6 +16,7 @@ from temporalio.exceptions import ApplicationError
 
 from campaign_worker import publisher
 from campaign_worker.marketo import MarketoAdapter
+from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
 EMAIL_PROMPT = (
@@ -116,15 +117,24 @@ class Activities:
         drafts: list[dict[str, Any]],
         step_id: str = publisher.PUBLISH_STEP,
     ) -> str:
-        """Publish the approved A/B emails; the receipt id of the Marketo send."""
+        """Publish the approved A/B emails and the campaign's task; the receipt id of the
+        Marketo send. Every target's receipt is stored for the campaign."""
         campaign = publisher.ApprovedCampaign(
             campaign_id=campaign_id,
             emails=tuple(drafts),
             step_key=graph.step_key(campaign_id, step_id),
         )
+        adapters: list[publisher.Adapter] = [MarketoAdapter(self._settings)]
+        if self._settings.has_workfront:
+            adapters.append(WorkfrontAdapter(self._settings))
         async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
-            receipts = await publisher.publish(client, [MarketoAdapter(self._settings)], campaign)
+            receipts = await publisher.publish(client, adapters, campaign)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
         return receipts[0].receipt_id
+
+    def _save_receipts(self, campaign_id: str, receipts: list[publisher.Receipt]) -> None:
+        for r in receipts:
+            db.save_receipt(self._engine, uuid.UUID(campaign_id), r.target, r.receipt_id, r.url)
 
     @activity.defn
     def mark_sent(self, campaign_id: str, step_id: str, receipt: str) -> None:

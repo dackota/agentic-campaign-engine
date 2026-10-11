@@ -50,9 +50,12 @@ DEFAULT_POLICIES = {
 
 
 def step_policy(step: dict[str, Any]) -> StepPolicy:
-    """The step's retry policy and timeout from the DAG, the kind's default where unset."""
+    """The step's retry policy and timeout from the DAG, the kind's default where unset.
+    The attempt limit comes from `retry.maximum_attempts`, else the builder's
+    `max_attempts`, else the kind's default."""
     default = DEFAULT_POLICIES[step["kind"]]
     retry = step.get("retry", {})
+    attempts = retry.get("maximum_attempts") or step.get("max_attempts")
     interval = retry.get("initial_interval_seconds")
     return StepPolicy(
         timeout=(
@@ -60,7 +63,7 @@ def step_policy(step: dict[str, Any]) -> StepPolicy:
             if "timeout_seconds" in step
             else default.timeout
         ),
-        maximum_attempts=retry.get("maximum_attempts", default.maximum_attempts),
+        maximum_attempts=attempts or default.maximum_attempts,
         initial_interval=(
             timedelta(seconds=interval) if interval is not None else default.initial_interval
         ),

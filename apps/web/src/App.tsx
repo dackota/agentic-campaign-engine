@@ -13,6 +13,7 @@ import {
   type Me,
   type RunEvent,
 } from "./api";
+import { Builder } from "./Builder";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { useRunEvents } from "./useRunEvents";
@@ -321,6 +322,11 @@ function RunView({ me, campaign, steps, onApprove, onRetry }: RunViewProps) {
           Approve
         </button>
       )}
+      {campaign.workflow_version !== null && (
+        <p>
+          Workflow: <span data-testid="workflow-version">{`${campaign.workflow} version ${campaign.workflow_version}`}</span>
+        </p>
+      )}
       {campaign.receipt && (
         <p>
           Receipt: <code data-testid="receipt">{campaign.receipt}</code>
@@ -340,11 +346,46 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const fail: Fail = (e) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e)));
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
+  const [view, setView] = useState<"campaigns" | "builder">("campaigns");
 
   return (
     <main>
       <SignedInBar email={me.email} onSignOut={onSignOut} />
-      <CampaignList campaigns={campaigns} onOpen={(id) => void run.open(id)} />
+      <nav>
+        <button type="button" onClick={() => setView("campaigns")}>
+          Campaigns
+        </button>{" "}
+        <button type="button" onClick={() => setView("builder")}>
+          Workflow builder
+        </button>
+      </nav>
+      {view === "builder" ? (
+        <Builder />
+      ) : (
+        <Campaigns
+          me={me}
+          error={error}
+          list={campaigns}
+          run={run}
+        />
+      )}
+    </main>
+  );
+}
+
+type CampaignRun = ReturnType<typeof useCampaignRun>;
+
+interface CampaignsProps {
+  me: Me;
+  error: string | null;
+  list: Campaign[];
+  run: CampaignRun;
+}
+
+function Campaigns({ me, error, list, run }: CampaignsProps) {
+  return (
+    <>
+      <CampaignList campaigns={list} onOpen={(id) => void run.open(id)} />
       <NewCampaignForm onCreate={(report, workflow) => void run.create(report, workflow)} />
       {error && <p role="alert">{error}</p>}
       {run.campaign && (
@@ -356,6 +397,6 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           onRetry={(id) => void run.retry(id)}
         />
       )}
-    </main>
+    </>
   );
 }

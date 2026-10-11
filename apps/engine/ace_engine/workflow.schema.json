@@ -67,7 +67,19 @@
           "minimum": 1,
           "maximum": 86400
         },
-        "retry": { "$ref": "#/$defs/RetryPolicy" }
+        "retry": { "$ref": "#/$defs/RetryPolicy" },
+        "max_attempts": {
+          "description": "How many times the step runs before the run fails. Defaults to the step kind's own limit.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10
+        },
+        "review_rounds": {
+          "description": "How many review rounds the step may loop through before it stops. Zero means no review loop.",
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5
+        }
       },
       "if": { "properties": { "kind": { "const": "wait" } }, "required": ["kind"] },
       "then": { "required": ["duration_seconds"] },
