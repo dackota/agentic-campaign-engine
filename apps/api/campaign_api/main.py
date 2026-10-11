@@ -7,8 +7,9 @@ role rules."""
 import asyncio
 import json
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
+from types import MappingProxyType
 from typing import Annotated, Any
 
 from ace_engine import dag as graph
@@ -351,12 +352,16 @@ def _add_preview_route(app: FastAPI) -> None:
 
 PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
 # Preview kind -> (steps whose output it renders, renderer, content type).
-ASSET_KINDS: dict[str, tuple[tuple[str, ...], Callable[..., str | bytes], str]] = {
-    "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
-    "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
-    "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
-    "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
-}
+_ASSET_KINDS: Mapping[str, tuple[tuple[str, ...], Callable[..., str | bytes], str]] = (
+    MappingProxyType(
+        {
+            "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
+            "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
+            "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
+            "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
+        }
+    )
+)
 
 
 def _add_asset_preview_route(app: FastAPI) -> None:
@@ -367,16 +372,21 @@ def _add_asset_preview_route(app: FastAPI) -> None:
         """The brand-rendered one-pager (PDF), deck (PPTX), landing page (HTML), or graphic
         (SVG), made from what the campaign's writer steps produced."""
         authorize(user, Action.READ)
-        if kind not in ASSET_KINDS:
+        if kind not in _ASSET_KINDS:
             raise HTTPException(status_code=404, detail="unknown asset kind")
         engine = request.app.state.engine
         await _found(engine, campaign_id)
-        needed, render, media_type = ASSET_KINDS[kind]
+        needed, render, media_type = _ASSET_KINDS[kind]
         rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
         outputs = {r.step: r.output for r in rows}
         if not all(step in outputs for step in needed):
             raise HTTPException(status_code=409, detail=f"campaign has no {kind} content yet")
-        content = await run_in_threadpool(render, *(outputs[step] for step in needed))
+        try:
+            content = await run_in_threadpool(render, *(outputs[step] for step in needed))
+        except (KeyError, TypeError) as e:
+            raise HTTPException(
+                status_code=422, detail=f"stored {kind} content is malformed"
+            ) from e
         return Response(content, media_type=media_type)
 
 

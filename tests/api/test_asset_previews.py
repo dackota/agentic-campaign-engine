@@ -13,7 +13,15 @@ from ace_engine.default_workflow import DEFAULT_WORKFLOW_NAME
 from pptx import Presentation
 from pypdf import PdfReader
 
-from tests.api.helpers import AWAITING, create_on, until_status
+from tests.api.conftest import SignIn
+from tests.api.helpers import (
+    AWAITING,
+    DRAFT_APPROVE_PUBLISH,
+    create_on,
+    save_workflow,
+    until_status,
+    workflow_name,
+)
 from tests.harness.stack import Stack
 
 SNAPSHOTS = Path(__file__).parent / "snapshots"
@@ -27,7 +35,7 @@ def _pdf_text(content: bytes) -> str:
 def _pptx_text(content: bytes) -> str:
     deck = Presentation(io.BytesIO(content))
     return "\n---\n".join(
-        "\n".join(s.text_frame.text for s in slide.shapes if s.has_text_frame)
+        "\n".join(s.text_frame.text.replace("\v", "\n") for s in slide.shapes if s.has_text_frame)
         for slide in deck.slides
     )
 
@@ -99,8 +107,18 @@ def test_preview_409_when_run_has_no_output(stack: Stack, api: httpx.Client) -> 
 
 
 def _no_writer_workflow(api: httpx.Client) -> str:
-    from tests.api.helpers import DRAFT_APPROVE_PUBLISH, save_workflow, workflow_name
-
     name = workflow_name()
     save_workflow(api, name, DRAFT_APPROVE_PUBLISH)
     return name
+
+
+OTHER_TEAM_USER = "pm-owner@demo.example"
+
+
+@pytest.mark.parametrize("kind", KINDS)
+def test_preview_hidden_from_another_team(
+    sign_in: SignIn, campaign: dict[str, Any], kind: str
+) -> None:
+    other = sign_in(OTHER_TEAM_USER)
+
+    assert _preview(other, campaign["id"], kind).status_code == 404

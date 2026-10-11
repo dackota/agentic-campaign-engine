@@ -15,11 +15,12 @@ from typing import Any
 
 from pptx import Presentation
 from pptx.dml.color import RGBColor
+from pptx.presentation import Presentation as PresentationType
 from pptx.util import Inches, Pt
 from reportlab.lib.colors import HexColor
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.platypus import ListFlowable, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Flowable, ListFlowable, Paragraph, SimpleDocTemplate, Spacer
 
 BRAND_NAME = "Agentic Campaign Engine"
 BRAND_COLOR = "#0b5fff"
@@ -112,7 +113,7 @@ def render_one_pager_pdf(one_pager: Mapping[str, Any]) -> bytes:
         leading=PDF_LEADING,
         textColor=HexColor(TEXT_COLOR),
     )
-    story: list[Any] = [
+    story: list[Flowable] = [
         Paragraph(escape(_clean(one_pager["title"])), title_style),
         Spacer(1, PDF_SPACE),
         Paragraph(escape(_clean(one_pager["summary"])), body_style),
@@ -128,12 +129,12 @@ def render_one_pager_pdf(one_pager: Mapping[str, Any]) -> bytes:
     return buffer.getvalue()
 
 
-def _slide(deck: Any, title: str, lines: Sequence[str]) -> None:
+def _slide(deck: PresentationType, title: str, lines: Sequence[str]) -> None:
     slide = deck.slides.add_slide(deck.slide_layouts[5])  # title only
     slide.shapes.title.text = title
     for run in slide.shapes.title.text_frame.paragraphs[0].runs:
         run.font.size = Pt(DECK_TITLE_PT)
-        run.font.color.rgb = RGBColor(*BRAND_RGB)  # type: ignore[no-untyped-call]
+        run.font.color.rgb = RGBColor(*BRAND_RGB)  # type: ignore[no-untyped-call]  # python-pptx ships no stub for RGBColor()
     if lines:
         box = slide.shapes.add_textbox(Inches(1), Inches(2.5), Inches(8), Inches(4))
         box.text_frame.word_wrap = True
@@ -177,6 +178,10 @@ def render_deck_pptx(one_pager: Mapping[str, Any], landing_page: Mapping[str, An
     return _fixed_zip(buffer.getvalue())
 
 
+def _with_breaks(paragraph: str) -> str:
+    return "<br>".join(escape(line) for line in paragraph.split("\n"))
+
+
 def render_landing_page_html(landing_page: Mapping[str, Any]) -> str:
     """Render the landing page contract (headline, subheadline, body, call_to_action) as
     brand HTML. Every field is escaped."""
@@ -184,7 +189,7 @@ def render_landing_page_html(landing_page: Mapping[str, Any]) -> str:
     return _LANDING_TEMPLATE.format(
         headline=escape(_clean(landing_page["headline"])),
         subheadline=escape(_clean(landing_page["subheadline"])),
-        paragraphs="\n".join(f"<p>{escape(p).replace(chr(10), '<br>')}</p>" for p in parts),
+        paragraphs="\n".join(f"<p>{_with_breaks(p)}</p>" for p in parts),
         cta=escape(_clean(landing_page["call_to_action"])),
         brand=escape(BRAND_NAME),
         color=BRAND_COLOR,

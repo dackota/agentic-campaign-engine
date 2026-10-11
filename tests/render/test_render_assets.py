@@ -68,9 +68,13 @@ def test_landing_page_html_has_content() -> None:
     assert "Line two." in html and "Read more" in html
 
 
-@pytest.mark.parametrize("hostile", [HOSTILE, "", "x" * 50_000, "\x00\x07 ünïcode ☃"])
-def test_landing_page_html_escapes_hostile_text(hostile: str) -> None:
-    html = render_landing_page_html({**LANDING, "headline": hostile or "h", "body": hostile or "b"})
+HOSTILE_TEXTS = [HOSTILE, "", "x" * 50_000, "\x00\x07 ünïcode ☃"]
+
+
+@pytest.mark.parametrize("field", ["headline", "subheadline", "body", "call_to_action"])
+@pytest.mark.parametrize("hostile", HOSTILE_TEXTS)
+def test_landing_page_html_escapes_hostile_text(field: str, hostile: str) -> None:
+    html = render_landing_page_html({**LANDING, field: hostile})
 
     assert "<script>" not in html
     assert "<img" not in html
