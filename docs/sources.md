@@ -44,7 +44,7 @@ page before you rely on a row.
 |---|---|
 | [Substrate README](https://github.com/kagent-dev/substrate/blob/main/README.md) | Maps many actors onto few worker pods. gVisor and microVM sandboxes. Pre-1.0, no compatibility promise. Supports the latest Kubernetes and the one before |
 
-| [kagent BYO page, A2A wire protocol](https://kagent.dev/docs/kagent/1.x/agents/bring-your-own-agent/) | Checked live 2026-10-09. kagent 1.x speaks gRPC A2A (`lf.a2a.v1.A2AService`) on port 80; JSON-RPC alone is never reached. Our fast-depth scripted agent speaks A2A JSON-RPC `message/send` over HTTP as a stand-in. Live depth (a later ticket) needs a gRPC client |
+| [kagent BYO page, A2A wire protocol](https://kagent.dev/docs/kagent/1.x/agents/bring-your-own-agent/) | Checked live 2026-10-09. kagent 1.x speaks gRPC A2A (`lf.a2a.v1.A2AService`) on port 80; JSON-RPC alone is never reached. The kagent controller also serves A2A 1.0 JSON-RPC over HTTP at `/agents/<namespace>/<agent>`: method `SendMessage`, header `A2A-Version: 1.0`, role `ROLE_USER`, text-only parts, reply in `result.task`, and a session (contextId) that only the agent issues. Checked live on k3d-ace in #29; the invoker and the scripted agent speak this, so no gRPC client is needed |
 
 ## Cluster
 
