@@ -29,6 +29,8 @@ def build_worker(
             activities.mark_step,
             activities.open_approval,
             activities.mark_failed,
+            activities.pause_for_budget,
+            activities.resume_after_budget,
             activities.finish_run,
             activities.send_email,
             activities.mark_sent,

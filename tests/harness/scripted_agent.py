@@ -41,8 +41,16 @@ VARIANT_B_PHRASE = "variant B"
 WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
-# What every scripted reply reports it used, as kagent reports usage in task metadata.
-SCRIPTED_USAGE = {"input_tokens": 120, "output_tokens": 45}
+# Every reply carries token usage on the A2A task, the way the ADR in
+# docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
+# sets the numbers for each reply on that report; the default applies otherwise.
+SCRIPTED_MODEL = "scripted-model"
+USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
+# "[agent:usage-total-N]" reports only a total, as some harnesses do (Google ADK's
+# totalTokenCount with no split).
+TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
+DEFAULT_INPUT_TOKENS = 1000
+DEFAULT_OUTPUT_TOKENS = 500
 
 
 class ScriptedAgent:
@@ -128,7 +136,7 @@ class ScriptedAgent:
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
                 "status": {"state": "completed"},
-                "metadata": {"usage": SCRIPTED_USAGE},
+                "metadata": {"usage": scripted_usage(text)},
                 "artifacts": [
                     {
                         "artifactId": str(uuid.uuid4()),
@@ -139,6 +147,20 @@ class ScriptedAgent:
             return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": task})
 
         return app
+
+
+def scripted_usage(message_text: str) -> dict[str, Any]:
+    """The token usage a reply reports: the report's usage marker, else the default."""
+    total = TOTAL_USAGE_MARKER.search(message_text)
+    if total:
+        return {"model": SCRIPTED_MODEL, "totalTokenCount": int(total.group(1))}
+    found = USAGE_MARKER.search(message_text)
+    input_tokens, output_tokens = (
+        (int(found.group(1)), int(found.group(2)))
+        if found
+        else (DEFAULT_INPUT_TOKENS, DEFAULT_OUTPUT_TOKENS)
+    )
+    return {"model": SCRIPTED_MODEL, "input_tokens": input_tokens, "output_tokens": output_tokens}
 
 
 def _report_of(message_text: str) -> str:

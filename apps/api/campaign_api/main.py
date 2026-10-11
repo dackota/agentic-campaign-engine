@@ -11,10 +11,11 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
+from ace_engine import cost, db
 from ace_engine import dag as graph
-from ace_engine import db
 from ace_engine.settings import (
     APPROVE_SIGNAL,
+    RAISE_BUDGET_SIGNAL,
     RETRY_SIGNAL,
     TASK_QUEUE,
     WORKFLOW_NAME,
@@ -31,6 +32,7 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
+from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.webhook_routes import (
     ActivityOut,
     activities,
@@ -47,7 +49,9 @@ from campaign_api.workflows import (
 
 MAX_REPORT_CHARS = 100_000
 EVENT_POLL_SECONDS = 0.1
-FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED}
+FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED, db.BUDGET_PAUSED}
+# A run in one of these has ended; no signal reaches it.
+ENDED_STATES = {db.SENT, db.FINISHED}
 Report = Annotated[
     str, StringConstraints(strip_whitespace=False, min_length=1, max_length=MAX_REPORT_CHARS)
 ]
@@ -57,6 +61,8 @@ class NewCampaign(BaseModel):
     report: Report
     # The saved workflow to run, at its latest version; None runs the default workflow.
     workflow: str | None = Field(default=None, pattern=NAME_PATTERN)
+    # What the run may spend on models, in dollars; None is no limit.
+    budget_usd: BudgetUsd | None = None
 
     def model_post_init(self, _context: Any) -> None:
         if not self.report.strip():
@@ -89,6 +95,9 @@ class CampaignOut(BaseModel):
     edges: list[dict[str, str]] = Field(default_factory=list)
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    budget_usd: float | None = None
+    # Tokens and cost per agent step and in total.
+    cost: CostOut = Field(default_factory=CostOut)
 
     @classmethod
     def of(
@@ -97,6 +106,7 @@ class CampaignOut(BaseModel):
         receipts: list[db.Receipt],
         task_status: str | None,
         engagement: dict[str, dict[str, int]] | None = None,
+        usage: list[db.StepUsage] | None = None,
     ) -> "CampaignOut":
         return cls(
             id=c.id,
@@ -120,6 +130,8 @@ class CampaignOut(BaseModel):
             ],
             edges=list(c.dag.get("edges", [])),
             engagement=engagement or {},
+            budget_usd=budget_usd(c),
+            cost=CostOut.of(usage or []),
         )
 
 
@@ -143,7 +155,11 @@ def _list(engine: Engine) -> list[CampaignOut]:
         ids = [c.id for c in campaigns]
         receipts = db.receipts_by_campaign(session, ids)
         statuses = db.task_statuses(session, ids)
-        return [CampaignOut.of(c, receipts.get(c.id, []), statuses.get(c.id)) for c in campaigns]
+        usage = db.usage_by_campaign(session, ids)
+        return [
+            CampaignOut.of(c, receipts.get(c.id, []), statuses.get(c.id), usage=usage.get(c.id, []))
+            for c in campaigns
+        ]
 
 
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
@@ -203,6 +219,7 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
             receipts.get(campaign_id, []),
             statuses.get(campaign_id),
             engagement_by_variant(session, campaign_id),
+            db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
         )
 
 
@@ -254,6 +271,38 @@ def _register_retry_route(app: FastAPI) -> None:
             await handle.signal(RETRY_SIGNAL)
         except Exception:
             await run_in_threadpool(_undo_retry, engine, campaign_id, campaign.failure_reason)
+            raise
+        return await _found(engine, campaign_id)
+
+
+def _register_budget_route(app: FastAPI) -> None:
+    @app.post("/campaigns/{campaign_id}/budget")
+    async def raise_budget(
+        campaign_id: uuid.UUID, body: NewBudget, request: Request, user: CurrentUser
+    ) -> CampaignOut:
+        """Set a new budget; a run paused at its budget goes on. The new budget must be
+        above what the campaign has spent, or the run would pause again at once."""
+        engine = request.app.state.engine
+        campaign = await _found(engine, campaign_id)
+        authorize(user, Action.CREATE)
+        if campaign.status in ENDED_STATES:
+            raise HTTPException(status_code=409, detail="the run has ended")
+        change = await run_in_threadpool(
+            set_budget, engine, campaign_id, cost.to_micros(body.budget_usd)
+        )
+        if change.too_low_for is not None:
+            spent = cost.to_dollars(change.too_low_for)
+            raise HTTPException(
+                status_code=422, detail=f"the budget must be above the ${spent:.4f} spent"
+            )
+        try:
+            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
+            await handle.signal(RAISE_BUDGET_SIGNAL)
+        except Exception:
+            if change.was_paused:
+                await run_in_threadpool(
+                    _set_status, engine, campaign_id, db.DRAFTING, db.BUDGET_PAUSED
+                )
             raise
         return await _found(engine, campaign_id)
 
@@ -378,6 +427,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
             workflow_name=name,
             workflow_version=version,
             dag=dag,
+            budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
         )
         created = await run_in_threadpool(_insert, engine, campaign)
         await request.app.state.temporal.start_workflow(
@@ -417,6 +467,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_campaign_routes(app)
     _register_approval_route(app)
     _register_retry_route(app)
+    _register_budget_route(app)
     _add_event_routes(app)
     _add_step_routes(app)
     _add_activity_routes(app, settings)
