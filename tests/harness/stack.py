@@ -12,7 +12,7 @@ import socket
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 import uvicorn
@@ -49,6 +49,7 @@ class Stack:
         api_port: int | None = None,
         dex_port: int | None = None,
         web_origin: str = "http://127.0.0.1:5173",
+        integrations: bool = False,
     ) -> None:
         from ace_engine.settings import Depth
 
@@ -57,6 +58,15 @@ class Stack:
         self.api_port = api_port or free_port()
         self.marketo_port = free_port()
         self.dex = Dex(dex_port or free_port(), web_origin)
+        # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
+        self.integrations = integrations
+        self.slack_port = free_port()
+        self.google_port = free_port()
+        self.slack_channel = "#ace-demo"
+        self.slack_token = f"xoxb-{secrets.token_urlsafe(18)}"
+        self.google_client_id = f"gid-{secrets.token_hex(4)}"
+        self.google_client_secret = secrets.token_urlsafe(24)
+        self.google_refresh_token = secrets.token_urlsafe(24)
         # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
         self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
         self.marketo_client_secret = secrets.token_urlsafe(24)
@@ -77,6 +87,24 @@ class Stack:
     @property
     def marketo_url(self) -> str:
         return f"http://127.0.0.1:{self.marketo_port}"
+
+    @property
+    def slack_url(self) -> str:
+        return f"http://127.0.0.1:{self.slack_port}"
+
+    @property
+    def google_url(self) -> str:
+        return f"http://127.0.0.1:{self.google_port}"
+
+    @property
+    def slack_messages_url(self) -> str:
+        """Every message the Slack stand-in received, as a JSON list."""
+        return f"{self.slack_url}/_messages"
+
+    @property
+    def google_documents_url(self) -> str:
+        """Every document the Google stand-in holds, as a JSON list."""
+        return f"{self.google_url}/_documents"
 
     def marketo_malformed_reply(self, is_malformed: bool) -> None:
         """Make the fake Marketo answer sends with a reply that has no receipt id."""
@@ -172,6 +200,7 @@ class Stack:
                 marketo_client_id=self.marketo_client_id,
                 marketo_client_secret=self.marketo_client_secret,
                 marketo_webhook_secret=self.marketo_webhook_secret,
+                **self._integration_settings(),
             )
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
@@ -184,6 +213,20 @@ class Stack:
         finally:
             await env.shutdown()
 
+    def _integration_settings(self) -> dict[str, Any]:
+        if not self.integrations:
+            return {}
+        return {
+            "slack_token": self.slack_token,
+            "slack_channel": self.slack_channel,
+            "slack_url": self.slack_url,
+            "google_client_id": self.google_client_id,
+            "google_client_secret": self.google_client_secret,
+            "google_refresh_token": self.google_refresh_token,
+            "google_token_url": f"{self.google_url}/token",
+            "google_docs_url": self.google_url,
+        }
+
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
         from fake_marketo.app import MarketoConfig
@@ -195,11 +238,26 @@ class Stack:
             webhook_url=f"{self.api_url}/webhooks/marketo",
             webhook_secret=self.marketo_webhook_secret,
         )
-        apps = [
+        apps: list[tuple[Any, int]] = [
             (self.agent.app, agent_port),
             (create_marketo(marketo), self.marketo_port),
             (create_app(settings), self.api_port),
         ]
+        if self.integrations:
+            from fake_google.app import GoogleConfig
+            from fake_google.app import create_app as create_google
+            from fake_slack.app import SlackConfig
+            from fake_slack.app import create_app as create_slack
+
+            google = GoogleConfig(
+                client_id=self.google_client_id,
+                client_secret=self.google_client_secret,
+                refresh_token=self.google_refresh_token,
+            )
+            apps += [
+                (create_slack(SlackConfig(token=self.slack_token)), self.slack_port),
+                (create_google(google), self.google_port),
+            ]
         return [
             uvicorn.Server(uvicorn.Config(app, port=port, host="127.0.0.1", log_level="warning"))
             for app, port in apps

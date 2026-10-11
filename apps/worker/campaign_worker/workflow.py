@@ -21,8 +21,10 @@ with workflow.unsafe.imports_passed_through():
 AGENT_STEP_TIMEOUT = timedelta(minutes=5)
 DB_STEP_TIMEOUT = timedelta(seconds=30)
 SEND_STEP_TIMEOUT = timedelta(minutes=1)
+NOTIFY_TIMEOUT = timedelta(seconds=30)
 AGENT_RETRY = RetryPolicy(maximum_attempts=3)
 SEND_RETRY = RetryPolicy(maximum_attempts=5)
+NO_RETRY = RetryPolicy(maximum_attempts=1)
 
 
 class StepFailed(Exception):
@@ -92,6 +94,18 @@ class CampaignWorkflow:
             activity, args=list(args), start_to_close_timeout=DB_STEP_TIMEOUT
         )
 
+    async def _announce(self, activity: str, *args: Any) -> None:
+        """Slack and Google notices: one try, and a failure never fails the run."""
+        try:
+            await workflow.execute_activity(
+                activity,
+                args=list(args),
+                start_to_close_timeout=NOTIFY_TIMEOUT,
+                retry_policy=NO_RETRY,
+            )
+        except ActivityError:
+            workflow.logger.warning("%s failed; the run goes on", activity)
+
     async def _step(
         self,
         campaign_id: str,
@@ -105,6 +119,7 @@ class CampaignWorkflow:
             await self._agent(campaign_id, report, step_id)
         elif kind == graph.APPROVAL:
             await self._db("open_approval", campaign_id)
+            await self._announce("announce_approval", campaign_id)
             await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
             await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
         elif kind == graph.PUBLISH:
@@ -148,6 +163,7 @@ class CampaignWorkflow:
         except ActivityError as exc:
             raise StepFailed(step_id, _reason(exc)) from exc
         await self._db("mark_sent", campaign_id, step_id, receipt)
+        await self._announce("announce_published", campaign_id, receipt)
 
     async def _fail(self, campaign_id: str, failure: StepFailed) -> None:
         await self._db("mark_failed", campaign_id, failure.step_id, failure.reason)

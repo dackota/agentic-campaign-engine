@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import publisher
+from campaign_worker import notify, publisher
 from campaign_worker.marketo import MarketoAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
@@ -113,6 +113,43 @@ class Activities:
         async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
             receipts = await publisher.publish(client, [MarketoAdapter(self._settings)], campaign)
         return receipts[0].receipt_id
+
+    @activity.defn
+    async def announce_approval(self, campaign_id: str) -> None:
+        """Export the brief and drafts to a Google Doc and ask for approval in Slack. Each
+        does nothing when its credentials are not set, and neither fails the run."""
+        if not (self._settings.slack_enabled or self._settings.google_enabled):
+            return
+        report, drafts = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
+        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+            doc_url = await notify.export_to_google_doc(
+                client,
+                self._settings,
+                f"Campaign {campaign_id}",
+                notify.doc_text(report, drafts),
+            )
+            text = f"Campaign {campaign_id} needs approval: {notify.first_line(report)}"
+            await notify.post_to_slack(
+                client, self._settings, f"{text}\n{doc_url}" if doc_url else text
+            )
+
+    @activity.defn
+    async def announce_published(self, campaign_id: str, receipt: str) -> None:
+        """Tell Slack the campaign was sent. Does nothing when Slack is not set up."""
+        if not self._settings.slack_enabled:
+            return
+        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+            await notify.post_to_slack(
+                client,
+                self._settings,
+                f"Campaign {campaign_id} sent. Marketo receipt: {receipt}",
+            )
+
+    def _brief_and_drafts(self, campaign_id: str) -> tuple[str, list[dict[str, Any]]]:
+        with Session(self._engine) as session:
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            drafts = [d for d in (campaign.draft, campaign.variant_b) if d]
+            return campaign.report, drafts
 
     @activity.defn
     def mark_sent(self, campaign_id: str, step_id: str, receipt: str) -> None:
