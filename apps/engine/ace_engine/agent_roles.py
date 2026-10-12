@@ -2,6 +2,7 @@
 returns), a system prompt, and an AgentTemplate of the same name in agents/templates.yaml
 that runs it at live depth. At fast depth the scripted agent plays every role."""
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
@@ -34,6 +35,9 @@ DESIGN_PROMPT = (
     "from what it prints, so use no outside file, package or font and put no script in the "
     f"SVG. {_JSON_ONLY} the key program: your script as one string."
 )
+# A team's Agents live in the namespace `team-<team>`; the whole name is a DNS label.
+TEAM_NAMESPACE_PREFIX = "team-"
+TEAM_NAME = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,56}[a-z0-9])?")
 
 
 @dataclass(frozen=True)
@@ -159,10 +163,22 @@ def message_for(role: Role, report: str, context: dict[str, Any], variant: int =
     return "\n\n".join(parts) + f"\n\n{REPORT_MARKER}\n{report}"
 
 
-def agent_url_for(base_url: str, depth: Depth, role: Role) -> str:
+def team_namespace(team: str) -> str:
+    """The Kubernetes namespace of a team's Agents: `team-<team>`. A team that would not
+    make a namespace name is refused, so it can never point a URL at another namespace."""
+    if not TEAM_NAME.fullmatch(team):
+        raise ValueError(f"team {team!r} is not a namespace name (lowercase letters, digits, -)")
+    return f"{TEAM_NAMESPACE_PREFIX}{team}"
+
+
+def agent_url_for(base_url: str, depth: Depth, role: Role, team: str | None = None) -> str:
     """Where to send a role's messages. At live depth each role is its own kagent Agent,
-    named like its template, under the controller's base URL; at fast depth the scripted
-    agent plays every role at the one URL."""
-    if depth is Depth.LIVE:
-        return f"{base_url.rstrip('/')}/{role.template}"
-    return base_url
+    named like its template, under the controller's base URL
+    (`<controller>/agents/<namespace>`); with `team` the Agent is the one in the team's own
+    namespace. At fast depth the scripted agent plays every role at the one URL."""
+    if depth is not Depth.LIVE:
+        return base_url
+    base = base_url.rstrip("/")
+    if team is not None:
+        base = f"{base.rsplit('/', 1)[0]}/{team_namespace(team)}"
+    return f"{base}/{role.template}"
