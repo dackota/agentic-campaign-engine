@@ -19,8 +19,8 @@ SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-120}"
 SMOKE_RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 TWIN="spike-agent-mock"
 AGENT="spike-agent"
-# The default workflow's six role Agents (agents/agents.yaml).
-ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer agent/ace-design-agent"
+# The default workflow's role Agents (agents/agents.yaml).
+ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer agent/ace-design-agent agent/ace-brand-reviewer"
 HARNESS="spike-harness"
 # The teams in Dex; each runs the role Agents in its own namespace team-<team> (agents/teams).
 TEAMS="demand-gen product-marketing"

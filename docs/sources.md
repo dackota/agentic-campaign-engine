@@ -88,7 +88,7 @@ Written on 2026-10-12 from the CRD shapes already in `agents/`; no kagent docs p
 | Source | What it told us |
 |---|---|
 | Unchecked live: `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
-| Unchecked live: `kubectl explain agenttemplates.spec.tools --recursive --api-version=api.kagent.dev/v1alpha3` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {apiGroup, kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use |
+| Checked live 2026-10-12: `kubectl --context k3d-ace explain agenttemplate.spec.tools.mcp.server` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use. The server takes no `apiGroup`: a CRD rule rejects it (`apiGroup must be omitted`) |
 | MCP spec 2025-03-26, Streamable HTTP | A client POSTs JSON-RPC to one endpoint and may take a plain JSON reply; a notification gets 202. Tool annotations carry `readOnlyHint` |
 
 ## Prompt caching
