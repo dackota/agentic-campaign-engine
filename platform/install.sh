@@ -20,7 +20,7 @@ SMOKE_RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 TWIN="spike-agent-mock"
 AGENT="spike-agent"
 # The default workflow's six role Agents (agents/agents.yaml).
-ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer"
+ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer agent/ace-design-agent"
 HARNESS="spike-harness"
 CA_POOLS_ATE="actor-id-jwt-pool actor-id-ca-pool egress-mitm-ca-pool"
 CA_POOLS_PODCERT="service-dns-ca-pool pod-identity-ca-pool"

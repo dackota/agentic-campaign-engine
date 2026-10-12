@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import notify, publisher
+from campaign_worker import cards, notify, publisher
 from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
@@ -245,6 +245,15 @@ class Activities:
                 session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session
             )
             event.tokens = usage.total_tokens or None
+
+    @activity.defn
+    async def save_cards(self, campaign_id: str, output: dict[str, Any]) -> None:
+        """Save the design agent's cards to the asset library and keep a receipt for each.
+        The agent only makes the cards; the engine stores them."""
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await cards.save_cards(client, self._settings, campaign_id, output)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:

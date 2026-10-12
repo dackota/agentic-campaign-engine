@@ -54,6 +54,18 @@ WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
 SERVICE = "scripted-agent"
+# The design step's answer: the same two cards for every report.
+FIXED_CARDS = tuple(
+    {
+        "name": f"social-card-{n}.svg",
+        "svg": (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">'
+            f'<rect width="1200" height="630" fill="#0b5fff"/><text x="80" y="330" '
+            f'fill="#fff" font-size="56">Scripted card {n}</text></svg>'
+        ),
+    }
+    for n in (1, 2)
+)
 TOOL_NAME = "read_report"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
@@ -240,6 +252,8 @@ def default_reply(message_text: str) -> Any:
                 "summary": report[:BODY_REPORT_CHARS],
                 "bullets": [_first_line(report)],
             }
+        case "design":
+            return {"cards": list(FIXED_CARDS)}
         case _:
             return default_draft(message_text)
 

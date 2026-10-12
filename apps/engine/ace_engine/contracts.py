@@ -30,6 +30,7 @@ RESEARCH_SCHEMA = _contract("research")
 LANDING_PAGE_SCHEMA = _contract("landing_page")
 SOCIAL_POSTS_SCHEMA = _contract("social_posts")
 ONE_PAGER_SCHEMA = _contract("one_pager")
+DESIGN_CARDS_SCHEMA = _contract("design_cards")
 
 
 def violations(instance: object, schema: dict[str, Any]) -> list[str]:
