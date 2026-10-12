@@ -114,24 +114,12 @@ class ScriptedAgent:
         async def rpc(request: Request) -> JSONResponse:
             body = await request.json()
             if body.get("method") != "message/send":
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_METHOD_NOT_FOUND, "message": "method not found"},
-                    }
-                )
+                return _rpc_error(body.get("id"), JSONRPC_METHOD_NOT_FOUND, "method not found")
             message = body["params"]["message"]
             text = "".join(p.get("text", "") for p in message["parts"] if p.get("kind") == "text")
             context_id = message.get("contextId") or str(uuid.uuid4())
             if self._is_down(text, str(message.get("messageId", ""))):
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_AGENT_DOWN, "message": "agent unavailable"},
-                    }
-                )
+                return _rpc_error(body.get("id"), JSONRPC_AGENT_DOWN, "agent unavailable")
             reply, is_slow = self._next_reply(text, context_id)
             _export_tool_and_model_spans()
             if is_slow:
@@ -154,6 +142,12 @@ class ScriptedAgent:
             return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": task})
 
         return app
+
+
+def _rpc_error(request_id: Any, code: int, message: str) -> JSONResponse:
+    return JSONResponse(
+        {"jsonrpc": "2.0", "id": request_id, "error": {"code": code, "message": message}}
+    )
 
 
 def _export_tool_and_model_spans() -> None:
