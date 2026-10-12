@@ -354,14 +354,13 @@ def rejection_count(engine: Engine, campaign_id: uuid.UUID, step: str) -> int:
         )
 
 
-def waiting_campaigns(session: Session, team: str, excluding_creator: str) -> list[Campaign]:
-    """The team's campaigns that wait for approval, oldest first, left out the ones the
-    named user created (nobody approves their own)."""
+def waiting_campaigns(session: Session, excluding_creator: str) -> list[Campaign]:
+    """The campaigns that wait for approval, oldest first, left out the ones the named user
+    created (nobody approves their own). Row-level security limits them to the user's team."""
     return list(
         session.scalars(
             select(Campaign)
             .where(
-                Campaign.team == team,
                 Campaign.status == AWAITING_APPROVAL,
                 Campaign.created_by != excluding_creator,
             )

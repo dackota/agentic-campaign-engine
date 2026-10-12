@@ -3,14 +3,14 @@ approver's decision on each one.
 
 Approving every asset of a campaign approves the campaign and it sends. Rejecting one with a
 comment sends that asset back to the writer Session that made it; the rest stay as they
-are. The team filter is applied here, on every read and every decision."""
+are. Row-level security is the only team filter: another team's campaign is not visible here."""
 
 import json
 import uuid
 from dataclasses import dataclass
 from typing import Annotated, Any, Literal
 
-from ace_engine import assets, db, telemetry
+from ace_engine import assets, db, row_security, telemetry
 from ace_engine.settings import APPROVE_SIGNAL, REJECT_ASSET_SIGNAL
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
@@ -90,7 +90,7 @@ def _title(report: str) -> str:
 
 def _inbox(engine: Engine, user: User) -> list[AssetOut]:
     with Session(engine) as session:
-        waiting = db.waiting_campaigns(session, user.team or "", user.subject)
+        waiting = db.waiting_campaigns(session, user.subject)
         ids = [c.id for c in waiting]
         all_outputs = db.outputs_by_campaign(session, ids)
         all_approved = db.approved_by_campaign(session, ids)
@@ -124,7 +124,7 @@ def _decide(engine: Engine, user: User, asked: AssetDecision) -> Decided:
     campaign_id, step, comment = asked.campaign_id, asked.step, asked.comment
     with Session(engine) as session, session.begin():
         campaign = session.get(db.Campaign, campaign_id, with_for_update=True)
-        if campaign is None or campaign.team != user.team:
+        if campaign is None:
             raise HTTPException(status_code=404, detail="campaign not found")
         authorize(user, Action.APPROVE, created_by=campaign.created_by)
         if step not in assets.asset_steps(campaign.dag):
@@ -175,7 +175,8 @@ async def _signal(temporal: Client, asked: AssetDecision) -> None:
 
 async def _decision(request: Request, user: User, asked: AssetDecision) -> DecisionOut:
     engine = request.app.state.engine
-    decided = await run_in_threadpool(_decide, engine, user, asked)
+    team_engine = row_security.for_team(engine, user.team)
+    decided = await run_in_threadpool(_decide, team_engine, user, asked)
     if decided.should_signal:
         try:
             await _signal(request.app.state.temporal, asked)
@@ -195,7 +196,8 @@ def register_inbox_routes(app: FastAPI) -> None:
     @app.get("/inbox")
     async def inbox(request: Request, user: CurrentUser) -> list[AssetOut]:
         authorize(user, Action.APPROVE)
-        return await run_in_threadpool(_inbox, request.app.state.engine, user)
+        engine = row_security.for_team(request.app.state.engine, user.team)
+        return await run_in_threadpool(_inbox, engine, user)
 
     @app.post("/campaigns/{campaign_id}/assets/{step}/approve")
     async def approve_asset(
