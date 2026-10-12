@@ -43,7 +43,7 @@ actor_state() {
 # shellcheck disable=SC2310  # checked: jq returns 1 on failure, then curl's status is the function's
 first="$(send "The code word is $FACT. Remember it.")" || fail "first message failed"
 ctx="$(echo "$first" | jq -r '.result.task.contextId')"
-[ -n "$ctx" ] && [ "$ctx" != null ] || fail "no contextId in: $first"
+{ [ -n "$ctx" ] && [ "$ctx" != null ]; } || fail "no contextId in: $first"
 echo "session: session-$ctx"
 
 state=""

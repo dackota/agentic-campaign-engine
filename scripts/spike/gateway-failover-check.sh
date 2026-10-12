@@ -129,7 +129,7 @@ for team in team-a team-b; do
   in_sum="$(team_sum "$team" input_tokens || true)"
   # shellcheck disable=SC2310  # wrapper: one pipeline, so with pipefail its status is the pipeline's
   out_sum="$(team_sum "$team" output_tokens || true)"
-  [ "${in_sum:-0}" -gt 0 ] && [ "${out_sum:-0}" -gt 0 ] || fail "no tokens logged for $team"
+  { [ "${in_sum:-0}" -gt 0 ] && [ "${out_sum:-0}" -gt 0 ]; } || fail "no tokens logged for $team"
   echo "tokens $team: input=$in_sum output=$out_sum"
 done
 echo "ok tokens per team in the gateway log"

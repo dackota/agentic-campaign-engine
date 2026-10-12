@@ -52,7 +52,7 @@ line="$(k logs -n "$GW_NS" deploy/agentgateway-proxy --since-time="$since" | gre
 [ -n "$line" ] || fail "no llm request line in gateway log"
 in_tok="$(grep -o 'gen_ai.usage.input_tokens=[0-9]*' <<<"$line" | cut -d= -f2 || true)"
 out_tok="$(grep -o 'gen_ai.usage.output_tokens=[0-9]*' <<<"$line" | cut -d= -f2 || true)"
-[ "${in_tok:-0}" -gt 0 ] && [ "${out_tok:-0}" -gt 0 ] || fail "no tokens in gateway log: $line"
+{ [ "${in_tok:-0}" -gt 0 ] && [ "${out_tok:-0}" -gt 0 ]; } || fail "no tokens in gateway log: $line"
 grep -q 'http.status=200' <<<"$line" || fail "gateway call was not 200: $line"
 echo "ok tokens per call: input=$in_tok output=$out_tok"
 echo "gateway log: $line"
@@ -61,7 +61,7 @@ echo "gateway log: $line"
 ua="$(grep -o 'user_agent="[^"]*"' <<<"$line" || true)"
 sess="$(grep -o 'opencode_session="[^"]*"' <<<"$line" || true)"
 [[ "$ua" == user_agent=\"agentic-campaign-engine/* ]] || fail "user-agent not ours: $ua"
-[ -n "$sess" ] && [ "$sess" != 'opencode_session="none"' ] || fail "no x-opencode-session header: $sess"
+{ [ -n "$sess" ] && [ "$sess" != 'opencode_session="none"' ]; } || fail "no x-opencode-session header: $sess"
 echo "ok headers: $ua $sess"
 
 # 4. No agent pod holds a provider key. Pods in $GW_NS are the gateway, not agents.
