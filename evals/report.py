@@ -16,6 +16,8 @@ def _asset_lines(asset: "AssetResult") -> list[str]:
 
 def _report_lines(result: "ReportResult") -> list[str]:
     lines = [f"{'PASS' if result.passed else 'FAIL'} {result.id} (campaign {result.status})"]
+    if result.error:
+        lines.append(f"  error: {result.error}")
     for fact, found in result.key_facts.items():
         lines.append(f"  {'found' if found else 'missing'}: {fact}")
     for asset in ([result.research] if result.research else []) + result.assets:

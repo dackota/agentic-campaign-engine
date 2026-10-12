@@ -7,6 +7,7 @@ import httpx
 import pytest
 
 from evals.golden import GoldenReport
+from evals.report import render
 from evals.runner import main, run_golden
 from tests.api.helpers import OWNER
 from tests.harness.stack import Stack
@@ -62,3 +63,65 @@ def test_cli_writes_the_report_file(
     assert code in (0, 1)
     assert "email_writer" in text
     assert "reports failed" in text
+
+
+def _mock_api(handler: "httpx.MockTransport") -> httpx.Client:
+    return httpx.Client(base_url="http://api.test", transport=handler)
+
+
+def test_asset_step_missing_from_the_output_is_a_visible_failure() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"id": "c1"})
+        if request.url.path.endswith("/steps"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"step": s, "output": {"text": "Edge routers are exposed."}}
+                    for s in ("email_writer", "landing_page", "social")
+                ],
+            )
+        return httpx.Response(200, json={"status": "awaiting_approval"})
+
+    [result] = run_golden(_mock_api(httpx.MockTransport(respond)), [SAFE], timeout=5)
+
+    [missing] = [a for a in result.assets if a.step == "one_pager"]
+    assert [(c.check, c.passed, c.detail) for c in missing.checks] == [
+        ("output_present", False, "no output for one_pager")
+    ]
+    assert not result.passed
+    assert "FAIL output_present: no output for one_pager" in render([result])
+
+
+def test_http_error_for_one_report_is_a_fail_row_and_the_run_goes_on() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            body = request.content.decode()
+            if "100%" in body:
+                return httpx.Response(500, json={"detail": "boom"})
+            return httpx.Response(200, json={"id": "c1"})
+        if request.url.path.endswith("/steps"):
+            return httpx.Response(200, json=[])
+        return httpx.Response(200, json={"status": "awaiting_approval"})
+
+    results = run_golden(_mock_api(httpx.MockTransport(respond)), [PLANTED, SAFE], timeout=5)
+
+    assert [r.id for r in results] == ["planted", "safe"]
+    assert not results[0].passed
+    assert "500" in results[0].error
+    text = render(results)
+    assert "FAIL planted" in text
+    assert "error:" in text
+
+
+def test_limit_below_one_is_a_usage_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACE_API_TOKEN", "t")
+    with pytest.raises(SystemExit) as exc:
+        main(["--api-url", "http://api.test", "--limit", "0"])
+    assert exc.value.code == 2
+
+
+def test_main_returns_one_when_no_report_ran(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("ACE_API_TOKEN", "t")
+    monkeypatch.setattr("evals.runner.load_golden", lambda: [])
+    assert main(["--api-url", "http://api.test"]) == 1

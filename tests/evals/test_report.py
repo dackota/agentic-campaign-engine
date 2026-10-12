@@ -26,3 +26,14 @@ def test_report_lists_key_facts_and_check_results_per_asset() -> None:
     assert "found '100%'" in text
     assert "PASS length" in text
     assert "1 of 1 reports failed" in text
+
+
+def test_report_with_fewer_than_four_asset_steps_does_not_pass() -> None:
+    result = ReportResult(
+        id="r",
+        status="awaiting_approval",
+        key_facts={},
+        assets=[AssetResult("email_writer", [CheckResult("length", True, "")])],
+    )
+
+    assert not result.passed

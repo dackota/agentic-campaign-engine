@@ -47,13 +47,15 @@ class ReportResult:
     key_facts: dict[str, bool]
     assets: list[AssetResult]
     research: AssetResult | None = field(default=None)
+    error: str = ""
 
     @property
     def passed(self) -> bool:
         everything = self.assets + ([self.research] if self.research else [])
         return (
-            self.status == AWAITING
-            and bool(self.assets)
+            not self.error
+            and self.status == AWAITING
+            and {a.step for a in self.assets} >= set(ASSET_STEPS)
             and all(self.key_facts.values())
             and all(a.passed for a in everything)
         )
@@ -83,12 +85,14 @@ def _outputs(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
     return {row["step"]: row["output"] for row in response.json()}
 
 
+def _grade_step(entry: GoldenReport, step: str, outputs: dict[str, Any]) -> AssetResult:
+    if step not in outputs:
+        return AssetResult(step, [CheckResult("output_present", False, f"no output for {step}")])
+    return AssetResult(step, check_asset(step, outputs[step], entry.report))
+
+
 def _grade(entry: GoldenReport, status: str, outputs: dict[str, Any]) -> ReportResult:
-    assets = [
-        AssetResult(step, check_asset(step, outputs[step], entry.report))
-        for step in ASSET_STEPS
-        if step in outputs
-    ]
+    assets = [_grade_step(entry, step, outputs) for step in ASSET_STEPS]
     research = (
         AssetResult(RESEARCH_STEP, check_asset(RESEARCH_STEP, outputs[RESEARCH_STEP], entry.report))
         if RESEARCH_STEP in outputs
@@ -106,14 +110,19 @@ def run_golden(
 ) -> list[ReportResult]:
     """Create one campaign per golden report, wait for it to draft, and grade it."""
     wait = _timeout_seconds() if timeout is None else timeout
-    results = []
-    for entry in golden:
+    return [_run_one(api, entry, wait) for entry in golden]
+
+
+def _run_one(api: httpx.Client, entry: GoldenReport, wait: float) -> ReportResult:
+    """One report's run; an HTTP failure becomes a failed result, not an aborted run."""
+    try:
         created = api.post("/campaigns", json={"report": entry.report, "workflow": WORKFLOW})
         created.raise_for_status()
         campaign_id = created.json()["id"]
         status = _wait(api, campaign_id, wait)
-        results.append(_grade(entry, status, _outputs(api, campaign_id)))
-    return results
+        return _grade(entry, status, _outputs(api, campaign_id))
+    except httpx.HTTPError as err:
+        return ReportResult(entry.id, "error", {}, [], error=str(err))
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -125,6 +134,8 @@ def main(argv: list[str] | None = None) -> int:
     token = os.environ.get(TOKEN_ENV)
     if not args.api_url or not token:
         parser.error(f"give --api-url (or {URL_ENV}) and set {TOKEN_ENV}")
+    if args.limit is not None and args.limit < 1:
+        parser.error("--limit must be at least 1")
     golden = load_golden()[: args.limit]
     with httpx.Client(
         base_url=args.api_url,
@@ -136,4 +147,4 @@ def main(argv: list[str] | None = None) -> int:
     if args.out:
         args.out.write_text(text)
     sys.stdout.write(text)
-    return 0 if all(r.passed for r in results) else 1
+    return 0 if results and all(r.passed for r in results) else 1
