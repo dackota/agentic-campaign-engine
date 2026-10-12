@@ -1,0 +1,92 @@
+[
+  {
+    "id": "volt-typhoon",
+    "report": "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.\nThey stay hidden for months using living-off-the-land tools.\nPatching and credential rotation stop the known intrusion path.",
+    "key_facts": [
+      "Volt Typhoon",
+      "unpatched VPN appliances",
+      "credential rotation"
+    ]
+  },
+  {
+    "id": "lockbit-ferry",
+    "report": "Ferry operator hit by LockBit affiliates\nAttackers entered through an exposed remote desktop gateway.\nFiles were encrypted across 40 servers within two hours.\nOffline backups let the operator restore ticketing in three days.",
+    "key_facts": [
+      "remote desktop gateway",
+      "40 servers",
+      "offline backups"
+    ]
+  },
+  {
+    "id": "harbor-phish",
+    "report": "Harbor Lights phishing kit targets payroll staff\nThe kit clones a payroll portal login page.\nVictims receive a text message with a short link.\nMulti-factor prompts are relayed to the attacker in real time.",
+    "key_facts": [
+      "payroll portal",
+      "text message",
+      "multi-factor prompts"
+    ]
+  },
+  {
+    "id": "northwind-supply",
+    "report": "Northwind build plugin trojanized\nA maintainer account was taken over through a reused password.\nVersion 4.2.1 shipped a hidden credential stealer.\nTeams should pin versions and rotate build secrets.",
+    "key_facts": [
+      "reused password",
+      "version 4.2.1",
+      "rotate build secrets"
+    ]
+  },
+  {
+    "id": "glasshouse-cloud",
+    "report": "Glasshouse group abuses misconfigured cloud storage\nPublic buckets exposed customer invoices.\nThe group scans for open buckets every night.\nBlocking public access settings closes the gap.",
+    "key_facts": [
+      "public buckets",
+      "customer invoices",
+      "blocking public access"
+    ]
+  },
+  {
+    "id": "quill-mobile",
+    "report": "Quill spyware found in a fake document scanner app\nThe app asks for accessibility permissions after install.\nIt reads one-time codes from incoming messages.\nRemoving the app and resetting passwords is advised.",
+    "key_facts": [
+      "fake document scanner",
+      "accessibility permissions",
+      "one-time codes"
+    ]
+  },
+  {
+    "id": "ember-ics",
+    "report": "Ember campaign probes water utility controllers\nAttackers scan for controllers with default passwords.\nNo physical damage has been reported.\nChanging default credentials and isolating networks reduces exposure.",
+    "key_facts": [
+      "water utility",
+      "default passwords",
+      "no physical damage"
+    ]
+  },
+  {
+    "id": "saffron-deepfake",
+    "report": "Saffron fraud ring uses cloned executive voices\nCallers ask finance staff for urgent wire transfers.\nThe voice clips come from public conference talks.\nA call-back rule with a known number stops the scheme.",
+    "key_facts": [
+      "cloned executive voices",
+      "wire transfers",
+      "call-back rule"
+    ]
+  },
+  {
+    "id": "tidewater-dns",
+    "report": "Tidewater actors hijack stale DNS records\nDangling records pointed at retired cloud hosts.\nAttackers claimed the hosts and served fake login pages.\nAuditing DNS entries each quarter removes the risk.",
+    "key_facts": [
+      "stale DNS records",
+      "fake login pages",
+      "auditing DNS entries"
+    ]
+  },
+  {
+    "id": "marlin-insider",
+    "report": "Marlin incident traced to a departing employee\nThe employee copied design files to a personal drive.\nData loss alerts fired but nobody reviewed them.\nA review queue for alerts would have caught it.",
+    "key_facts": [
+      "departing employee",
+      "personal drive",
+      "review queue"
+    ]
+  }
+]
