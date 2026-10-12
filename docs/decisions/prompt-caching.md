@@ -15,7 +15,7 @@ on the chat-completions endpoint, and OpenCode's page documents no `cache_contro
 
 ## Measured effect (live, k3d-ace, 2026-10-12)
 
-`scripts/measure_prompt_cache.py` sends the email writer Agent long prompts (about 5,800
+`scripts/measure_prompt_cache.py` sends the email writer Agent long prompts (about 5,300 to 6,000
 input tokens) over A2A, through kagent and agentgateway to OpenCode Go (`glm-5.3-flash`), and
 reads the token counts from the gateway's access log
 (`gen_ai.usage.cache_read.input_tokens`). Three prompts that share no prefix, then one
@@ -23,14 +23,17 @@ prompt sent four times:
 
 | Group | Input tokens | Served from cache |
 |---|---|---|
-| 3 unique prompts | 5,995 / 5,755 / 5,995 | 0 / 0 / 0 |
-| same prompt, 1st send | 5,755 | 0 |
-| same prompt, 2nd to 4th send | 5,755 each | 5,440 each (94.5%) |
+| 3 unique prompts | 5,995 / 5,875 / 5,875 | 0 / 0 / 0 |
+| same prompt, 1st send | 5,275 | 0 |
+| same prompt, 2nd to 4th send | 5,275 each | 4,352 each (82.5%) |
 
 An earlier two-call probe of a 3,115-token prompt read 2,176 cached tokens (70%) on the
-second call. The first send fills the cache; every send after it reads about 94% of the
-prompt from it. Time to first token did not improve in a way these few calls can show
-(0.76 to 1.70 s cold, 0.92 to 1.70 s repeated), so no latency gain is claimed.
+second call. The first send fills the cache; every send after it reads most of the
+prompt from it: 82.5% in this run. The share varies from run to run (an earlier run read
+5,440 of 5,755, 94.5%), so read it as "most of the prompt", not a fixed rate. Time to first
+token did not improve in a way these few calls can show (0.98 to 1.06 s cold, 0.75 to 1.51 s
+repeated), so no latency gain is claimed. The saved output of this run is
+`.scratch/ace/proof/52-r1/live-prompt-cache.stdout.txt`.
 
 ## Consequences
 

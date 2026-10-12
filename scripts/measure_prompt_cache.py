@@ -92,7 +92,8 @@ def main(url: str) -> None:
     started = datetime.now(UTC)
     for n in range(CALLS_PER_GROUP):
         send(url, prompt(f"cold-{uuid.uuid4().hex}-{n}"))
-    cold_end = len(gateway_calls(started)) if time.sleep(SETTLE_SECONDS) is None else 0
+    time.sleep(SETTLE_SECONDS)
+    cold_end = len(gateway_calls(started))
     repeated = prompt(f"warm-{uuid.uuid4().hex}")
     for _ in range(CALLS_PER_GROUP + 1):
         send(url, repeated)

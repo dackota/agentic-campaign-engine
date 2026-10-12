@@ -34,6 +34,17 @@ def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
 
 
+def _cache_hit_result(hit: step_cache.CachedStep, session: str) -> dict[str, Any]:
+    """The activity result for a saved output: no tokens, so no cost."""
+    usage = cost.Usage(model=hit.model, input_tokens=0, output_tokens=0)
+    return {
+        "output": hit.output,
+        "session": session,
+        "usage": usage.as_dict(),
+        "cache_hit": True,
+    }
+
+
 @dataclass(frozen=True)
 class StepCacheLookup:
     """One step's cache and its key."""
@@ -97,32 +108,22 @@ class Activities:
         session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
+        job = ReviewJob(campaign_id, step_id, report, role, context)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
-            cache = await self._open_cache(
-                client, campaign_id, role, context, review_rounds, report
-            )
-            if cache is not None and (hit := await asyncio.to_thread(cache.lookup)) is not None:
-                # A saved result costs nothing, so a spent budget does not stop it.
-                await asyncio.to_thread(
-                    self._record, campaign_id, step_id, db.STEP_STARTED, None, session
-                )
-                usage = cost.Usage(model=hit.model, input_tokens=0, output_tokens=0)
-                return {
-                    "output": hit.output,
-                    "session": session,
-                    "usage": usage.as_dict(),
-                    "cache_hit": True,
-                }
-            if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+            cache = await self._open_cache(client, job, review_rounds)
+            hit = await asyncio.to_thread(cache.lookup) if cache is not None else None
+            # A saved result costs nothing, so a spent budget does not stop it.
+            if hit is None and await asyncio.to_thread(self._is_budget_spent, campaign_id):
                 raise ApplicationError(
                     "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
                 )
             await asyncio.to_thread(
                 self._record, campaign_id, step_id, db.STEP_STARTED, None, session
             )
+            if hit is not None:
+                return _cache_hit_result(hit, session)
             is_flagged = False
             try:
-                job = ReviewJob(campaign_id, step_id, report, role, context)
                 with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
                     output, usage, writer_sessions = await self._writer_outputs(client, job)
                     if review_rounds > 0:
@@ -141,35 +142,36 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
-        # An output the reviewer still flags is left for a human, never saved for reuse.
-        if cache is not None and not is_flagged:
-            await asyncio.to_thread(cache.save, output, usage.model)
+        await self._save_unless_flagged(cache, output, usage, is_flagged)
         return {"output": output, "session": session, "usage": usage.as_dict()}
 
+    @staticmethod
+    async def _save_unless_flagged(
+        cache: StepCacheLookup | None, output: AgentOutput, usage: cost.Usage, is_flagged: bool
+    ) -> None:
+        """Save a clean output for reuse. One the reviewer still flags is left for a human."""
+        if cache is not None and not is_flagged:
+            await asyncio.to_thread(cache.save, output, usage.model)
+
     async def _open_cache(
-        self,
-        client: httpx.AsyncClient,
-        campaign_id: str,
-        role: Role,
-        context: dict[str, Any],
-        review_rounds: int,
-        report: str,
+        self, client: httpx.AsyncClient, job: ReviewJob, review_rounds: int
     ) -> StepCacheLookup | None:
         """The step's cache entry, or None when the campaign did not opt in or the agent's
         revision cannot be read (such a step always runs)."""
-        team = await asyncio.to_thread(self._cache_team, campaign_id)
+        team = await asyncio.to_thread(self._cache_team, job.campaign_id)
         if team is None:
             return None
-        urls = [agent_url_for(self._settings.agent_url, self._settings.depth, role)]
+        urls = [agent_url_for(self._settings.agent_url, self._settings.depth, job.role)]
         if review_rounds > 0:
             urls.append(self._settings.agent_url)
         revisions = [await step_cache.agent_revision(client, url) for url in urls]
-        if any(r is None for r in revisions):
+        digests = [r for r in revisions if r is not None]
+        if len(digests) < len(revisions):
             return None
         key = step_cache.CacheKey(
-            step_type=role.template,
-            agent_digest=":".join(r for r in revisions if r is not None),
-            input_hash=step_cache.input_hash(report, context, review_rounds),
+            step_type=job.role.template,
+            agent_digest=":".join(digests),
+            input_hash=step_cache.input_hash(job.report, job.context, review_rounds),
         )
         return StepCacheLookup(step_cache.StepCache(self._engine, team), key)
 
