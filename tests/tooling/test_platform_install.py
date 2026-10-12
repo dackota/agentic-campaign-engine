@@ -641,3 +641,29 @@ def test_spike_install_creates_only_the_missing_ca_pool(tmp_path: Path) -> None:
     assert code == 0
     created = _pool_creations(calls)
     assert len(created) == 1 and "--name=actor-id-ca-pool " in created[0] + " "
+
+
+def _list(script: Path, name: str) -> list[str]:
+    # A word list is either a quoted string, NAME="a b", or a bash array, NAME=(a b).
+    match = re.search(rf'^{name}=(?:"([^"]*)"|\(([^)]*)\))', script.read_text(), re.MULTILINE)
+    assert match, name
+    return (match.group(1) or match.group(2)).split()
+
+
+def test_status_checks_workfront_fake_and_mcp_deployments() -> None:
+    deployments = _list(STATUS, "APP_DEPLOYMENTS")
+
+    for name in (
+        "fake-workfront",
+        "ace-mcp-workfront",
+        "ace-mcp-marketo",
+        "ace-mcp-cms",
+        "ace-mcp-assets",
+    ):
+        assert name in deployments
+
+
+def test_install_and_status_list_the_brand_reviewer_agent() -> None:
+    assert "agent/ace-brand-reviewer" in _list(INSTALL, "ROLE_AGENTS")
+    assert "ace-brand-reviewer" in _list(STATUS, "ROLE_AGENTS")
+    assert "ace-brand-reviewer" in _list(STATUS, "AGENTS")

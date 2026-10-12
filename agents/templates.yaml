@@ -25,7 +25,7 @@ spec:
   # write tool: tests/tooling/test_mcp_tools.py checks it.
   tools:
     - mcp:
-        server: {apiGroup: api.kagent.dev, kind: RemoteMCPServer, name: ace-mcp-workfront}
+        server: {kind: RemoteMCPServer, name: ace-mcp-workfront}
         tools: [get_project, search_projects, get_task, search_tasks]
 ---
 apiVersion: api.kagent.dev/v1alpha3

@@ -32,7 +32,7 @@ def templates() -> list[dict[str, Any]]:
 def binding(server: str, tools: list[str]) -> dict[str, Any]:
     return {
         "mcp": {
-            "server": {"apiGroup": "api.kagent.dev", "kind": "RemoteMCPServer", "name": server},
+            "server": {"kind": "RemoteMCPServer", "name": server},
             "tools": tools,
         }
     }
@@ -125,3 +125,37 @@ def test_invoker_reads_the_tools_an_agent_called_off_the_task() -> None:
             )
 
     assert asyncio.run(run()).tool_calls == ("get_project",)
+
+
+def api_group_problems(docs: list[dict[str, Any]]) -> list[str]:
+    """The live kagent CRD rejects apiGroup on spec.tools[].mcp.server."""
+    return [
+        d["metadata"]["name"]
+        for d in docs
+        for tool in d["spec"].get("tools") or []
+        if "apiGroup" in tool.get("mcp", {}).get("server", {})
+    ]
+
+
+def test_no_agent_template_sets_api_group_on_an_mcp_server() -> None:
+    assert api_group_problems(templates()) == []
+
+
+def test_api_group_check_fails_on_a_planted_api_group() -> None:
+    bad = copy.deepcopy(templates())
+    research = next(t for t in bad if t["metadata"]["name"] == RESEARCH)
+    research["spec"]["tools"][0]["mcp"]["server"]["apiGroup"] = "api.kagent.dev"
+
+    assert api_group_problems(bad) == [RESEARCH]
+
+
+def test_sources_row_for_template_tools_has_no_api_group_and_is_checked_live() -> None:
+    rows = [
+        line
+        for line in (ROOT / "docs/sources.md").read_text().splitlines()
+        if "agenttemplate" in line and "spec.tools" in line
+    ]
+
+    assert len(rows) == 1
+    assert "{apiGroup" not in rows[0] and "apiGroup," not in rows[0]
+    assert "Unchecked live" not in rows[0] and "2026-10-12" in rows[0]
