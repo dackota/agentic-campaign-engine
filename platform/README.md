@@ -26,9 +26,9 @@ Home for this part. Later tickets fill it.
   pinned in `docs/pinned-versions.md`), then calls `scripts/spike/install.sh` (Substrate and
   kagent) and `scripts/spike/gateway-install.sh` (agentgateway and the model key Secrets), always
   with `KCTX=k3d-ace`. The first is skipped on a re-run when both releases and the CA pool
-  Secrets exist; the second runs every time. It then applies the mock model and
-  `mock-agent.yaml` (a twin of `spike-agent` on the mock model), waits for both Agents, and
-  smokes the twin over A2A: no paid model call. `install.sh check-env` stops `make up` first
+  Secrets exist; the second runs every time. It then applies the mock model,
+  `mock-agent.yaml` (a twin of `spike-agent` on the mock model), and the six role Agents of
+  `agents/` (AgentTemplates on the gateway model), waits for all of them, and smokes the twin over A2A: no paid model call. `install.sh check-env` stops `make up` first
   when `OPENCODE_KEY` is missing or empty in `.env`; it never prints a value.
 - `status.sh` (the platform half of `make status`) prints `ok` or `FAIL` per Helm release,
   controller rollout, and Agent Ready condition.
@@ -62,3 +62,20 @@ Home for this part. Later tickets fill it.
   `kube-system` (`dex/coredns-custom.yaml`), which rewrites the host to the Dex Service. The
   step restarts CoreDNS and waits on the rollout so the rewrite is live. A second run is safe.
 - `status.sh` adds a Dex line: the discovery document must answer at the issuer and name it.
+
+## Smoke test
+
+- `smoke.sh` backs `make smoke`, the platform smoke test: `make up`, then the happy-path
+  Campaign API test at live depth (`ACE_DEPTH=live`), which sends one campaign through the
+  real kagent email writer and the gateway to the fake Marketo. It spends model tokens.
+
+## Traces (`make up FULL=1`)
+
+- `make up FULL=1` runs `observability.sh` between the platform and the app. It applies
+  `manifests/observability/collector.yaml` (namespace `observability`: an OpenTelemetry collector
+  on OTLP ports 4317 and 4318, and `grafana/otel-lgtm`), sets kagent's `otel.traces` to the
+  collector, and applies a gateway tracing policy. The app chart gets `otel.endpoint`, so the API,
+  worker, and fakes export too.
+- See Grafana: `kubectl --context k3d-ace -n observability port-forward svc/lgtm 3000:3000`, then
+  Explore, Tempo, and the campaign's id as the trace id (hex, no dashes).
+- Without `FULL=1` nothing is installed and no service exports.

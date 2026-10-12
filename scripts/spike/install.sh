@@ -18,11 +18,24 @@ helm --kube-context "$KCTX" upgrade --install substrate \
   --version "$SUBSTRATE_VERSION" -n ate-system \
   -f "$(dirname "$0")/../../manifests/spike/substrate-values.yaml"
 
-ate admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool --secret-namespace=podcertificate-controller-system
-ate admin make-ca-pool --ca-id=1 --name=pod-identity-ca-pool --secret-namespace=podcertificate-controller-system
-ate admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
-ate admin make-ca-pool --ca-id=1 --name=actor-id-ca-pool --secret-namespace=ate-system
-ate admin make-ca-pool --ca-id=1 --name=egress-mitm-ca-pool --secret-namespace=ate-system --key-type=ECDSAP256
+# make-ca-pool and make-jwt-pool fail when the pool Secret exists, so a re-run creates only the
+# missing pools. The check reads the Secret's name only, never its data.
+ensure_pool() { # <ca|jwt> <name> <secret-namespace> [extra args]
+  local kind="$1" name="$2" namespace="$3" id_flag="--ca-id=1"
+  [ "$kind" = jwt ] && id_flag="--key-id=1"
+  shift 3
+  if k get secret "$name" -n "$namespace" -o name >/dev/null 2>&1; then
+    echo "$name exists, skipping"
+  else
+    ate admin "make-$kind-pool" "$id_flag" --name="$name" --secret-namespace="$namespace" "$@"
+  fi
+}
+
+ensure_pool ca service-dns-ca-pool podcertificate-controller-system
+ensure_pool ca pod-identity-ca-pool podcertificate-controller-system
+ensure_pool jwt actor-id-jwt-pool ate-system
+ensure_pool ca actor-id-ca-pool ate-system
+ensure_pool ca egress-mitm-ca-pool ate-system --key-type=ECDSAP256
 
 root="$(k get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode \
   | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
@@ -48,8 +61,18 @@ helm --kube-context "$KCTX" upgrade --install kagent-crds \
   oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
   --version "$KAGENT_VERSION" -n kagent --create-namespace --wait
 
+# `make up FULL=1` sets ACE_OTEL_ENDPOINT: kagent's controller and agents export traces to the
+# collector (kagent 1.x docs, Observability > Tracing: the shared endpoint is the collector's
+# root, and gains /v1/traces on http/protobuf).
+otel_args=()
+if [ -n "${ACE_OTEL_ENDPOINT:-}" ]; then
+  otel_args=(--set otel.traces.enabled=true --set "otel.exporter.otlp.endpoint=$ACE_OTEL_ENDPOINT"
+    --set otel.exporter.otlp.protocol=http/protobuf)
+fi
+
 helm --kube-context "$KCTX" upgrade --install kagent \
   oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   --version "$KAGENT_VERSION" -n kagent --timeout 10m \
   -f "$(dirname "$0")/../../manifests/spike/kagent-values.yaml" \
-  --set substrateWorkerPool.workerImage="$WORKER_IMAGE"
+  --set substrateWorkerPool.workerImage="$WORKER_IMAGE" \
+  ${otel_args[@]+"${otel_args[@]}"}

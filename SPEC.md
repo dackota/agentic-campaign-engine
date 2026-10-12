@@ -121,7 +121,7 @@ flowchart TB
 | Agent runtime | Sandboxed, snapshotted agent sessions | Agent Substrate (gVisor) |
 | LLM gateway | Holds keys, fails over, rate limits per team, logs tokens | agentgateway |
 | Integrations | Marketing stack stand-ins, each with REST, OAuth2, webhooks, MCP | Python, FastAPI, MCP SDK |
-| Render | Email HTML, PDF, PPTX, SVG from brand templates | MJML, Playwright, python-pptx |
+| Render | Email HTML, PDF, PPTX, SVG from brand templates | MJML, reportlab (PDF), python-pptx |
 | Data | App data, learnings vectors, metrics | One Postgres with pgvector, row-level security per team |
 | Login | OIDC with demo users in 2 teams | Dex |
 | Observability | Traces, metrics, logs, alerts (FULL mode) | OpenTelemetry, grafana/otel-lgtm |

@@ -25,3 +25,4 @@ spec:
           # The worker checks no tokens: no OIDC settings.
           env:
             {{- include "ace.engineEnv" . | nindent 12 }}
+            {{- include "ace.otelEnv" (list . "campaign-worker") | nindent 12 }}

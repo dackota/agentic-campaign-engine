@@ -26,6 +26,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 import httpx
+from ace_engine import telemetry
 from ace_engine.env import from_env
 from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -138,6 +139,7 @@ def _matching(
 def create_app(config: WorkfrontConfig) -> FastAPI:
     store = _Store()
     app = FastAPI()
+    telemetry.instrument_app(app, "fake-workfront")
 
     def bearer(request: Request) -> None:
         scheme, _, token = request.headers.get("Authorization", "").partition(" ")

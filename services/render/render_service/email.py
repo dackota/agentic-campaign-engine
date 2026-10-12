@@ -6,6 +6,7 @@ Pure and deterministic: the same draft gives the same bytes. MJML inlines the CS
 from collections.abc import Mapping
 from html import escape
 
+from ace_engine import telemetry
 from mjml import mjml2html
 
 MAX_EMAIL_BYTES = 100_000  # Gmail clips messages past about 102 KB
@@ -23,6 +24,7 @@ TEXT_LINE_HEIGHT = "1.5"
 TITLE_SIZE = "24px"
 LOGO_WIDTH = "160px"
 NEWLINE = "\n"
+SERVICE = "render"
 
 _TEMPLATE = """<mjml>
   <mj-head>
@@ -66,7 +68,13 @@ def render_email(draft: Mapping[str, str]) -> str:
     """Render an email draft (subject, preheader, body, call_to_action) to brand HTML.
 
     Raises EmailTooLarge when the body or the rendered email is over MAX_EMAIL_BYTES.
+    Exports a span in the caller's trace; the render service runs inside its callers.
     """
+    with telemetry.span(SERVICE, "render_email"):
+        return _render(draft)
+
+
+def _render(draft: Mapping[str, str]) -> str:
     # Refuse before MJML parses an oversized input; the output is larger than the input.
     if len(draft["body"].encode()) > MAX_EMAIL_BYTES:
         raise EmailTooLarge(f"email body is over {MAX_EMAIL_BYTES} bytes")

@@ -31,6 +31,7 @@ from typing import Any
 from urllib.parse import parse_qs
 
 import httpx
+from ace_engine import telemetry
 from ace_engine.env import from_env
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
@@ -186,6 +187,7 @@ async def _credentials(request: Request) -> dict[str, str]:
 def create_app(config: MarketoConfig) -> FastAPI:
     store = _Store()
     app = FastAPI()
+    telemetry.instrument_app(app, "fake-marketo")
 
     def bearer(request: Request) -> None:
         scheme, _, token = request.headers.get("Authorization", "").partition(" ")

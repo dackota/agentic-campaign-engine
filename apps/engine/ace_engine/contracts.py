@@ -11,6 +11,9 @@ _DIR = Path(__file__).parent
 # scripted agent reads it back out from there.
 REPORT_MARKER = "THREAT REPORT:"
 
+# What an agent step produces: one reply, or a list of them for a role that replies more than once.
+AgentOutput = dict[str, Any] | list[dict[str, Any]]
+
 
 def _load(name: str) -> dict[str, Any]:
     loaded: dict[str, Any] = json.loads((_DIR / name).read_text())

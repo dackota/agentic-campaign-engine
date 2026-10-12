@@ -2,21 +2,30 @@
 server, the scripted A2A agent, the fake Marketo, the fake Workfront, the worker, and the
 Campaign API, started together on free local ports.
 
-One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. Live depth
-is wired in a later ticket, so starting a live stack raises.
+One setting (`ACE_DEPTH`, read by `Depth.from_env`) picks fast or live depth. At live
+depth the same stack runs on this machine, but the worker calls the real kagent Agents on
+the `k3d-ace` cluster through a `kubectl port-forward` to the kagent controller, so the
+model calls go through agentgateway. The cluster must be up (`make up`).
 """
 
 import asyncio
 import dataclasses
 import secrets
 import socket
+import subprocess
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
 
 import httpx
 import uvicorn
+from ace_engine.settings import Depth
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
@@ -36,6 +45,45 @@ WORKER_THREADS = 8
 NO_WORKFLOW_CACHE = 0
 STARTUP_POLLS = 600
 STARTUP_POLL_SECONDS = 0.1
+KAGENT_CONTEXT = "k3d-ace"
+KAGENT_NAMESPACE = "kagent"
+KAGENT_CONTROLLER_PORT = 8083
+# The controller serves each Agent under /agents/<namespace>/<agent>.
+KAGENT_AGENTS_PATH = f"/agents/{KAGENT_NAMESPACE}"
+KAGENT_READY_AGENT = "ace-email-writer"
+KAGENT_READY_SECONDS = 60
+KAGENT_PROBE_TIMEOUT_SECONDS = 5
+KAGENT_PROBE_INTERVAL_SECONDS = 1
+# A real model takes seconds per reply, where the scripted agent takes none.
+LIVE_AGENT_TIMEOUT_SECONDS = 180.0
+
+
+def kagent_port_forward_command(local_port: int) -> list[str]:
+    """The command that opens the kagent controller on a local port. It names the `ace`
+    cluster's context, never the active one."""
+    return [
+        "kubectl",
+        "--context",
+        KAGENT_CONTEXT,
+        "port-forward",
+        "-n",
+        KAGENT_NAMESPACE,
+        "svc/kagent-controller",
+        f"{local_port}:{KAGENT_CONTROLLER_PORT}",
+    ]
+
+
+_SPAN_EXPORTER = InMemorySpanExporter()
+
+
+def _install_span_exporter() -> InMemorySpanExporter:
+    """The test exporter, set as the process's tracer provider the first time a stack is built
+    (OpenTelemetry allows one provider per process)."""
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
+        trace.set_tracer_provider(provider)
+    return _SPAN_EXPORTER
 
 
 def free_port() -> int:
@@ -52,13 +100,14 @@ class Stack:
         dex_port: int | None = None,
         web_origin: str = "http://127.0.0.1:5173",
         integrations: bool = False,
+        marketo_port: int | None = None,
     ) -> None:
-        from ace_engine.settings import Depth
-
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
+        # Every service runs in this process, so one in-memory exporter holds every span.
+        self.spans = _install_span_exporter()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
-        self.marketo_port = free_port()
+        self.marketo_port = marketo_port or free_port()
         self.cms_port = free_port()
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"
@@ -88,6 +137,8 @@ class Stack:
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
         self._postgres: PostgresContainer | None = None
+        self._port_forward: subprocess.Popen[bytes] | None = None
+        self._kagent_url = ""
 
     @property
     def api_url(self) -> str:
@@ -182,10 +233,8 @@ class Stack:
             raise RuntimeError("worker did not restart")
 
     def start(self) -> "Stack":
-        from ace_engine.settings import Depth
-
         if self.depth is Depth.LIVE:
-            raise NotImplementedError("live depth is wired in a later ticket")
+            self._open_kagent()
         self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg")
         self._postgres.start()
         self.dex.start()
@@ -196,7 +245,36 @@ class Stack:
             raise RuntimeError(f"stack did not start: {self._error!r}")
         return self
 
+    def _open_kagent(self) -> None:
+        """Forward the kagent controller to a local port and wait until the email writer
+        Agent answers for its card."""
+        port = free_port()
+        self._port_forward = subprocess.Popen(
+            kagent_port_forward_command(port),
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+        self._kagent_url = f"http://127.0.0.1:{port}{KAGENT_AGENTS_PATH}"
+        card = f"{self._kagent_url}/{KAGENT_READY_AGENT}/.well-known/agent-card.json"
+        deadline = time.monotonic() + KAGENT_READY_SECONDS
+        while time.monotonic() < deadline:
+            try:
+                if httpx.get(card, timeout=KAGENT_PROBE_TIMEOUT_SECONDS).status_code == 200:
+                    return
+            except httpx.HTTPError:
+                pass
+            time.sleep(KAGENT_PROBE_INTERVAL_SECONDS)
+        self._close_kagent()
+        raise RuntimeError(f"kagent Agent {KAGENT_READY_AGENT} not reachable on {KAGENT_CONTEXT}")
+
+    def _close_kagent(self) -> None:
+        if self._port_forward is not None:
+            self._port_forward.terminate()
+            self._port_forward.wait(timeout=STOP_TIMEOUT_SECONDS)
+            self._port_forward = None
+
     def stop(self) -> None:
+        self._close_kagent()
         if self._loop is not None and self._stop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)
         if self._thread is not None:
@@ -225,47 +303,19 @@ class Stack:
             self._ready.set()
 
     async def _main(self) -> None:
-        from ace_engine.settings import Settings
 
         assert self._postgres is not None
         self._loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
         self._restart_requested = asyncio.Event()
         agent_port = free_port()
-        env = await WorkflowEnvironment.start_time_skipping()
+        from ace_engine import telemetry
+
+        env = await WorkflowEnvironment.start_time_skipping(
+            interceptors=telemetry.temporal_interceptors()
+        )
         try:
-            settings = Settings(
-                depth=self.depth,
-                database_url=self._postgres.get_connection_url(),
-                temporal_address=env.client.service_client.config.target_host,
-                temporal_namespace=env.client.namespace,
-                agent_url=f"http://127.0.0.1:{agent_port}",
-                marketo_url=self.marketo_url,
-                cms_url=self.cms_url,
-                s3_url=self.s3_url,
-                s3_bucket=self.s3_bucket,
-                oidc_issuer=self.dex.issuer,
-                oidc_client_id=CLIENT_ID,
-                marketo_client_id=self.marketo_client_id,
-                marketo_client_secret=self.marketo_client_secret,
-                marketo_webhook_secret=self.marketo_webhook_secret,
-                workfront_url=self.workfront_url,
-                workfront_client_id=self.workfront_client_id,
-                workfront_client_secret=self.workfront_client_secret,
-                workfront_webhook_secret=self.workfront_webhook_secret,
-            )
-            if self.integrations:
-                settings = dataclasses.replace(
-                    settings,
-                    slack_token=self.slack_token,
-                    slack_channel=self.slack_channel,
-                    slack_url=self.slack_url,
-                    google_client_id=self.google_client_id,
-                    google_client_secret=self.google_client_secret,
-                    google_refresh_token=self.google_refresh_token,
-                    google_token_url=f"{self.google_url}/token",
-                    google_docs_url=self.google_url,
-                )
+            settings = self._settings(env, agent_port)
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
             with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
@@ -276,6 +326,48 @@ class Stack:
             await asyncio.gather(*tasks)
         finally:
             await env.shutdown()
+
+    def _settings(self, env: WorkflowEnvironment, agent_port: int) -> "Settings":
+        from ace_engine.settings import Settings
+
+        assert self._postgres is not None
+        is_live = self.depth is Depth.LIVE
+        settings = Settings(
+            depth=self.depth,
+            database_url=self._postgres.get_connection_url(),
+            temporal_address=env.client.service_client.config.target_host,
+            temporal_namespace=env.client.namespace,
+            agent_url=self._kagent_url if is_live else f"http://127.0.0.1:{agent_port}",
+            agent_timeout_seconds=(
+                LIVE_AGENT_TIMEOUT_SECONDS if is_live else Settings.agent_timeout_seconds
+            ),
+            marketo_url=self.marketo_url,
+            cms_url=self.cms_url,
+            s3_url=self.s3_url,
+            s3_bucket=self.s3_bucket,
+            oidc_issuer=self.dex.issuer,
+            oidc_client_id=CLIENT_ID,
+            marketo_client_id=self.marketo_client_id,
+            marketo_client_secret=self.marketo_client_secret,
+            marketo_webhook_secret=self.marketo_webhook_secret,
+            workfront_url=self.workfront_url,
+            workfront_client_id=self.workfront_client_id,
+            workfront_client_secret=self.workfront_client_secret,
+            workfront_webhook_secret=self.workfront_webhook_secret,
+        )
+        if self.integrations:
+            settings = dataclasses.replace(
+                settings,
+                slack_token=self.slack_token,
+                slack_channel=self.slack_channel,
+                slack_url=self.slack_url,
+                google_client_id=self.google_client_id,
+                google_client_secret=self.google_client_secret,
+                google_refresh_token=self.google_refresh_token,
+                google_token_url=f"{self.google_url}/token",
+                google_docs_url=self.google_url,
+            )
+        return settings
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app

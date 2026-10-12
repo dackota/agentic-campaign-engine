@@ -52,6 +52,7 @@ run() {
     --namespace "$NAMESPACE" --create-namespace \
     --set "web.image.repository=$CLUSTER_REGISTRY/ace-web" --set "web.image.tag=$web_tag" \
     --set "python.image.repository=$CLUSTER_REGISTRY/ace-python" --set "python.image.tag=$python_tag" \
+    ${ACE_OTEL_ENDPOINT:+--set "otel.endpoint=$ACE_OTEL_ENDPOINT"} \
     --wait --timeout "$ROLLOUT_TIMEOUT"
   echo "app is up: release $RELEASE in $NAMESPACE (web $web_tag, python $python_tag)"
 }

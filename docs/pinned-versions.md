@@ -89,3 +89,12 @@ SHA and asks it for this cosign release. The checksums are from the release's
 |---|---|---|
 | cosign | `v3.1.3` | linux-amd64 SHA-256 `4629c757b7618056f8ddd7e2625ae9fdd94c0372a65049520bc7d9df9efc7f71`, darwin-arm64 SHA-256 `5cf948c2f4dfe59687bdd0b8523709067383e03982cc543475c8a7dc70e92a76` |
 | cosign installer action (`sigstore/cosign-installer`) | v4.1.2 | commit `6f9f17788090df1f26f669e9d70d6ae9567deba6` |
+
+## `make up FULL=1`: traces
+
+Index digests read with `docker buildx imagetools inspect` on 2026-10-11.
+
+| Part | Version | Digest |
+|---|---|---|
+| OpenTelemetry collector (`otel/opentelemetry-collector-contrib`) | 0.162.0 | `sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6` |
+| Grafana, Tempo, Loki, Mimir in one pod (`grafana/otel-lgtm`) | 0.36.0 | index `sha256:57c04cbd8e7022f32bb84c4ac005d79baf8b08e2c5be44facf11f5f1f9944ba2` |

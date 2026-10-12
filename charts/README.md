@@ -16,8 +16,8 @@ fake Marketo, Postgres, and the Temporal dev server (SQLite on a volume).
   values file. Read its identity with `-o jsonpath='{.metadata.uid}'`, never its data.
 - `python.reload` (set by `make dev`) runs each Python process under a file watcher, so a
   saved `.py` file that Tilt syncs into the pod restarts the process.
-- `worker.agentUrl` is a placeholder until #29 points the worker at a real agent; until
-  then a run fails with a named agent reason.
+- `worker.agentUrl` is the kagent controller's A2A base URL. At `depth: live` the worker
+  adds the role's agent name (`ace-email-writer`, ...) to it. `make up` installs those Agents.
 - Platform pieces (Dex, CoreDNS override, Substrate, kagent, agentgateway) stay in
   `platform/`, not here. The API trusts the issuer in `platform/oidc-issuer.txt`
   (`api.oidcIssuer`; a test checks they match).

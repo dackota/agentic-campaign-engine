@@ -3,6 +3,7 @@
 import hashlib
 import hmac
 import json
+import os
 import time
 import uuid
 from typing import Any
@@ -27,7 +28,8 @@ RETRYING = "retrying"
 # Demo users from platform/dex/config.yaml.
 OWNER = "dg-owner@demo.example"
 APPROVER = "dg-approver@demo.example"
-POLL_SECONDS = 30
+LIVE_POLL_SECONDS = 300  # a real model takes seconds per reply, and the default workflow asks six
+POLL_SECONDS = LIVE_POLL_SECONDS if os.environ.get("ACE_DEPTH") == "live" else 30
 POLL_INTERVAL_SECONDS = 0.2
 STREAM_TIMEOUT_SECONDS = 30
 
@@ -283,3 +285,15 @@ def workfront_signed_headers(
         WORKFRONT_SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
         "Content-Type": "application/json",
     }
+
+
+DAY_SPEED = 100_000.0  # simulated audience seconds per real second: days in seconds
+
+
+def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
+    """Create a campaign, let it draft, approve it, and wait until it is sent."""
+    campaign_id: str = create(api)["id"]
+    settle(api, campaign_id)
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    until_status(api, campaign_id, SENT)
+    return campaign_id

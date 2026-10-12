@@ -44,7 +44,8 @@ page before you rely on a row.
 |---|---|
 | [Substrate README](https://github.com/kagent-dev/substrate/blob/main/README.md) | Maps many actors onto few worker pods. gVisor and microVM sandboxes. Pre-1.0, no compatibility promise. Supports the latest Kubernetes and the one before |
 
-| [kagent BYO page, A2A wire protocol](https://kagent.dev/docs/kagent/1.x/agents/bring-your-own-agent/) | Checked live 2026-10-09. kagent 1.x speaks gRPC A2A (`lf.a2a.v1.A2AService`) on port 80; JSON-RPC alone is never reached. Our fast-depth scripted agent speaks A2A JSON-RPC `message/send` over HTTP as a stand-in. Live depth (a later ticket) needs a gRPC client |
+| [kagent BYO page, A2A wire protocol](https://kagent.dev/docs/kagent/1.x/agents/bring-your-own-agent/) | Checked live 2026-10-09. kagent 1.x speaks gRPC A2A (`lf.a2a.v1.A2AService`) on port 80 |
+| kagent controller A2A endpoint (`/agents/<namespace>/<agent>` on the controller, port 8083) | Checked live on k3d-ace in #29, 2026-10-11. The controller serves A2A 1.0 JSON-RPC over HTTP: method `SendMessage`, header `A2A-Version: 1.0`, role `ROLE_USER`, text-only parts, reply in `result.task`, and a session (contextId) that only the agent issues. The invoker and the scripted agent speak this, so no gRPC client is needed. The BYO page was not re-read for this row |
 
 ## Cluster
 
@@ -61,6 +62,8 @@ page before you rely on a row.
 | [OpenCode Go model list](https://opencode.ai/zen/go/v1/models) | The live list of model IDs |
 | [agentgateway model failover](https://agentgateway.dev/docs/kubernetes/latest/llm/failover/) | Priority groups set failover order. Providers in one group are load balanced. A 429 with `Retry-After` sets the eviction time |
 | [agentgateway rate limiting](https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/) | `traffic.rateLimit.local` with `tokens` and `unit` on an HTTPRoute sets a token budget. Over budget the gateway answers 429 with `retry-after` and `x-ratelimit-*` headers. Checked 2026-10-10 |
+| [kagent tracing](https://kagent.dev/docs/kagent/1.x/observability/tracing/) | Helm values `otel.traces.enabled` (default false), `otel.exporter.otlp.endpoint` (absolute http(s) URL, the collector's root) and `otel.exporter.otlp.protocol` (`grpc` default, or `http/protobuf`, which appends `/v1/traces`). `scripts/spike/install.sh` sets them when `ACE_OTEL_ENDPOINT` is set. Checked live 2026-10-11 against the 1.x docs, and against the pinned chart: `helm show values oci://ghcr.io/kagent-dev/kagent/helm/kagent --version 1.0.0-alpha9` lists `otel.traces.enabled`, `otel.exporter.otlp.endpoint` and `otel.exporter.otlp.protocol` (`grpc` or `http/protobuf`) |
+| [agentgateway traces setup](https://agentgateway.dev/docs/kubernetes/latest/observability/traces/setup.md) | `AgentgatewayPolicy` `spec.frontend.tracing` takes `backendRef` (`name`, `namespace`, `port` 4317), `protocol: GRPC` and `randomSampling: "true"`, and also `clientSampling`. The page does not mention a ReferenceGrant for a collector in another namespace; `manifests/observability/gateway-tracing.yaml` adds one to be safe. Checked 2026-10-11 on the `latest` docs and against the v1.6.0 pin: `helm pull oci://cr.agentgateway.dev/charts/agentgateway-crds --version v1.6.0` holds an `AgentgatewayPolicy` v1alpha1 CRD whose `spec.frontend.tracing` has `backendRef` (`name` required, `namespace`, `port`), `protocol` (enum `GRPC`, `HTTP`), `randomSampling` (string) and `clientSampling` |
 
 ## Image signing
 

@@ -1,7 +1,10 @@
-"""A scripted agent for fast depth: an A2A JSON-RPC (`message/send`) stand-in.
+"""A scripted agent for fast depth: a stand-in for kagent 1.x's A2A JSON-RPC endpoint.
 
-kagent 1.x itself serves gRPC A2A (see docs/sources.md); live depth will need a gRPC
-client. Fast depth only needs the message shape, so this speaks JSON-RPC over HTTP.
+It speaks the contract the kagent controller serves at /agents/<namespace>/<agent>, as
+seen on k3d-ace: `SendMessage` with an `A2A-Version: 1.0` header, role `ROLE_USER`, parts
+that hold only `text`, a reply in `result.task` (state `TASK_STATE_COMPLETED`, text in
+`artifacts[].parts[]`, tokens in the artifact's `kagent.dev/a2a/usage`), and a session
+(contextId) that only the agent issues: a message that names another one is refused.
 
 By default it plays the role whose prompt opens the message (strategist, research, a
 writer), or the email writer when none matches: it reads the threat report out of the
@@ -16,12 +19,21 @@ import threading
 import uuid
 from typing import Any
 
+from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
+from ace_engine.brand_review import BRAND_REVIEWER
 from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 JSONRPC_METHOD_NOT_FOUND = -32601
+JSONRPC_PERMISSION_DENIED = -31403
+JSONRPC_INVALID_REQUEST = -32600
+SEND_METHOD = "SendMessage"
+VERSION_HEADER = "A2A-Version"
+SUPPORTED_VERSION = "1.0"
+COMPLETED = "TASK_STATE_COMPLETED"
+USAGE_KEY = "kagent.dev/a2a/usage"
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
 SOCIAL_POST_CHARS = 280
@@ -41,6 +53,19 @@ VARIANT_B_PHRASE = "variant B"
 WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
+SERVICE = "scripted-agent"
+TOOL_NAME = "read_report"
+
+# Every reply carries token usage on the A2A task, the way the ADR in
+# docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
+# sets the numbers for each reply on that report; the default applies otherwise.
+SCRIPTED_MODEL = "scripted-model"
+USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
+# "[agent:usage-total-N]" reports only a total, as some harnesses do (Google ADK's
+# totalTokenCount with no split).
+TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
+DEFAULT_INPUT_TOKENS = 1000
+DEFAULT_OUTPUT_TOKENS = 500
 
 
 class ScriptedAgent:
@@ -50,6 +75,7 @@ class ScriptedAgent:
         self._modes: dict[str, str] = {}
         self._failed: dict[str, int] = {}
         self._message_ids: list[str] = []
+        self._sessions: set[str] = set()
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
@@ -87,8 +113,19 @@ class ScriptedAgent:
         is_writer = CONTEXT_MARKER in text
         return json.dumps(default_reply(text)), mode == SLOW_MARKER or is_writer
 
+    def _owns(self, context_id: str) -> bool:
+        with self._lock:
+            return context_id in self._sessions
+
+    def _open_session(self) -> str:
+        context_id = str(uuid.uuid4())
+        with self._lock:
+            self._sessions.add(context_id)
+        return context_id
+
     def _build_app(self) -> FastAPI:
         app = FastAPI()
+        telemetry.instrument_app(app, SERVICE)
 
         @app.get("/readyz")
         def readyz() -> dict[str, str]:
@@ -97,45 +134,70 @@ class ScriptedAgent:
         @app.post("/")
         async def rpc(request: Request) -> JSONResponse:
             body = await request.json()
-            if body.get("method") != "message/send":
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_METHOD_NOT_FOUND, "message": "method not found"},
-                    }
-                )
+            if request.headers.get(VERSION_HEADER) != SUPPORTED_VERSION:
+                return _error(body, JSONRPC_INVALID_REQUEST, "unsupported A2A version")
+            if body.get("method") != SEND_METHOD:
+                return _error(body, JSONRPC_METHOD_NOT_FOUND, "method not found")
             message = body["params"]["message"]
-            text = "".join(p.get("text", "") for p in message["parts"] if p.get("kind") == "text")
-            context_id = message.get("contextId") or str(uuid.uuid4())
+            text = "".join(p.get("text", "") for p in message["parts"])
+            requested = message.get("contextId")
+            if requested is not None and not self._owns(requested):
+                return _error(body, JSONRPC_PERMISSION_DENIED, "permission denied")
+            context_id = requested or self._open_session()
             if self._is_down(text, str(message.get("messageId", ""))):
-                return JSONResponse(
-                    {
-                        "jsonrpc": "2.0",
-                        "id": body.get("id"),
-                        "error": {"code": JSONRPC_AGENT_DOWN, "message": "agent unavailable"},
-                    }
-                )
+                return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
             reply, is_slow = self._next_reply(text, context_id)
+            _export_tool_and_model_spans()
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
                 )
+            artifact: dict[str, Any] = {
+                "artifactId": str(uuid.uuid4()),
+                "parts": [{"text": reply}],
+                "metadata": {USAGE_KEY: scripted_usage(text)},
+            }
             task: dict[str, Any] = {
-                "kind": "task",
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
-                "status": {"state": "completed"},
-                "artifacts": [
-                    {
-                        "artifactId": str(uuid.uuid4()),
-                        "parts": [{"kind": "text", "text": reply}],
-                    }
-                ],
+                "status": {"state": COMPLETED},
+                "artifacts": [artifact],
             }
-            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": task})
+            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
         return app
+
+
+def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
+    return JSONResponse(
+        {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
+    )
+
+
+def _export_tool_and_model_spans() -> None:
+    """What kagent exports on a real run: a tool call and a model call, as children of the
+    request that carries the caller's trace context."""
+    for operation, name in (("execute_tool", TOOL_NAME), ("chat", SCRIPTED_MODEL)):
+        with telemetry.span(SERVICE, f"{operation} {name}", operation=operation):
+            pass
+
+
+def scripted_usage(message_text: str) -> dict[str, Any]:
+    """The token usage a reply reports: the report's usage marker, else the default."""
+    total = TOTAL_USAGE_MARKER.search(message_text)
+    if total:
+        return {"model": SCRIPTED_MODEL, "totalTokenCount": int(total.group(1))}
+    found = USAGE_MARKER.search(message_text)
+    input_tokens, output_tokens = (
+        (int(found.group(1)), int(found.group(2)))
+        if found
+        else (DEFAULT_INPUT_TOKENS, DEFAULT_OUTPUT_TOKENS)
+    )
+    return {
+        "model": SCRIPTED_MODEL,
+        "promptTokenCount": input_tokens,
+        "candidatesTokenCount": output_tokens,
+    }
 
 
 def _report_of(message_text: str) -> str:
@@ -147,6 +209,8 @@ def _report_of(message_text: str) -> str:
 def default_reply(message_text: str) -> Any:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
+    if BRAND_REVIEWER.prompt in message_text:
+        return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)
     match role.step_id if role else "email_writer":
