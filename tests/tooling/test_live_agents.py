@@ -4,6 +4,7 @@ and its AgentTemplate calls the model through the gateway."""
 from typing import Any
 
 from ace_engine.agent_roles import ROLES
+from ace_engine.brand_review import BRAND_REVIEWER
 
 from tests.tooling.gateway_files import ROOT, yaml_docs
 
@@ -49,3 +50,24 @@ def test_chart_points_the_worker_at_the_kagent_controller_at_live_depth() -> Non
 
     assert "depth: live" in values
     assert "kagent-controller.kagent.svc.cluster.local:8083/agents/kagent" in values
+
+
+def test_brand_reviewer_has_an_agent_on_the_go_harness() -> None:
+    agents = _kind(yaml_docs(AGENTS), "Agent")
+
+    agent = agents[BRAND_REVIEWER.template]
+
+    assert agent["spec"]["templateRef"]["name"] == BRAND_REVIEWER.template
+    assert agent["spec"]["harnessRef"]["name"] == HARNESS
+    assert agent["metadata"]["namespace"] == "kagent"
+
+
+def test_brand_reviewer_template_uses_gateway_model() -> None:
+    templates = _kind(yaml_docs(TEMPLATES), "AgentTemplate")
+
+    assert templates[BRAND_REVIEWER.template]["spec"]["modelConfig"]["name"] == GATEWAY_MODEL
+
+
+def test_docs_name_no_mock_model_exception() -> None:
+    for path in (TEMPLATES, ROOT / "agents/README.md"):
+        assert "mock-model" not in path.read_text(), path
