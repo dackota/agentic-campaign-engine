@@ -20,7 +20,7 @@ k() { kubectl --context "$CTX" "$@"; }
 read_issuer() {
   local issuer
   [ -r "$ISSUER_FILE" ] || fail "cannot read $ISSUER_FILE"
-  issuer="$(tr -d '[:space:]' <"$ISSUER_FILE")"
+  issuer="$(tr -d '[:space:]' <"$ISSUER_FILE")" || fail "cannot read $ISSUER_FILE"
   # Characters that are safe inside the sed replacement below.
   [[ "$issuer" =~ ^http://[A-Za-z0-9.:/-]+$ ]] || fail "$ISSUER_FILE does not hold an http URL"
   printf '%s' "$issuer"
@@ -36,17 +36,23 @@ rewrite_line() {
 
 render_config() {
   local issuer config
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   issuer="$(read_issuer)" || exit 1
   config="$(cat "$CONFIG_FILE")" || fail "cannot read $CONFIG_FILE"
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   config="$(rewrite_line '^issuer:' "issuer: $issuer" "$config")" || exit 1
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   config="$(rewrite_line '^  allowedOrigins:' "  allowedOrigins: [\"$WEB_ORIGIN\"]" "$config")" || exit 1
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   config="$(rewrite_line '^    redirectURIs:' "    redirectURIs: [\"$WEB_ORIGIN/\"]" "$config")" || exit 1
   printf '%s\n' "$config"
 }
 
 run() {
   local config sha issuer
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   issuer="$(read_issuer)" || exit 1
+  # shellcheck disable=SC2310  # checked: each step ends in || fail or || exit 1
   config="$(render_config)" || exit 1
   sha="$(printf '%s\n' "$config" | shasum -a 256 | awk '{print $1}')"
   [ -n "$sha" ] || fail "could not checksum the rendered config"

@@ -25,6 +25,7 @@ ID=""
 ks() { kagent --api-url "http://localhost:$LOCAL_PORT" --gateway-url "http://localhost:$LOCAL_PORT" -n "$NS" "$@"; }
 cleanup() {
   if [ -n "$ID" ]; then
+    # shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
     ks sandbox delete "$ID" >/dev/null 2>&1 || echo "WARN: sandbox $ID not deleted" >&2
   fi
   kill $PF 2>/dev/null || true
@@ -45,6 +46,7 @@ for n in 1 2; do echo "CARD $n $(cat /tmp/social-card-$n.svg | base64 | tr -d '\
 CODE
 if [ -n "$CODE_FILE" ]; then CODE="$(cat "$CODE_FILE")"; else CODE="$DEFAULT_CODE"; fi
 
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 created="$(ks sandbox create "$TEMPLATE" --request-id "$REQUEST_ID" --name "$REQUEST_ID" -o json)" \
   || fail "sandbox create failed"
 ID="$(echo "$created" | jq -r .id)"
@@ -53,6 +55,7 @@ echo "created: $ID $state"
 [ "$state" = "RUNTIME_STATE_READY" ] || fail "sandbox not ready: $created"
 
 encoded="$(printf '%s' "$CODE" | base64 | tr -d '\n')"
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 out="$(ks sandbox exec "$ID" -- sh -c "echo $encoded | base64 -d > /tmp/make-cards.sh && sh /tmp/make-cards.sh")" \
   || fail "the code failed in the sandbox"
 cards=0
@@ -66,12 +69,14 @@ done
 [ "$cards" -eq 2 ] || fail "expected 2 cards"
 
 # A host the sandbox does not need must not answer (egress is deny-by-default).
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 probe="$(ks sandbox exec "$ID" -- sh -c "wget -T5 -qO- http://$PROBE_HOST 2>&1; echo exit=\$?" || true)"
 if echo "$probe" | grep -q "exit=0"; then
   fail "$PROBE_HOST is reachable from the sandbox"
 fi
 echo "$PROBE_HOST: NOT REACHABLE from the sandbox ($(echo "$probe" | head -1))"
 
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 ks sandbox delete "$ID" >/dev/null || fail "delete failed"
 final="$(ks sandbox get "$ID" -o json | jq -r .state)"
 echo "after delete: $final"

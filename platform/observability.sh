@@ -20,15 +20,20 @@ ENV_FILE="${ENV_FILE:-$MAIN/.env}"
 
 k() { kubectl --context "$CTX" "$@"; }
 
+# True when Secret $2 exists in namespace $1. Called from conditions, where set -e is off,
+# so a failed listing exits here instead of reading as "no Secret".
 has_secret() {
   local names
-  names="$(k get secret -n "$1" -o name)"
+  # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
+  names="$(k get secret -n "$1" -o name)" ||
+    { echo "observability: cannot list Secrets in $1" >&2; exit 1; }
   grep -qx "secret/$2" <<<"$names"
 }
 
 # The webhook token is made once. If either copy is missing, both are made again, so the two
 # always agree. Delete and create, not apply: apply would copy the token into an annotation.
 ensure_alert_token() {
+  # shellcheck disable=SC2310  # predicate: does the Secret exist; a failed listing exits
   if has_secret observability alert-webhook && has_secret "$APP_NAMESPACE" alert-webhook; then
     return
   fi
@@ -54,6 +59,7 @@ honeycomb_key() {
 configure_honeycomb() {
   local key had=""
   key="$(honeycomb_key)"
+  # shellcheck disable=SC2310  # predicate: does the Secret exist; a failed listing exits
   has_secret observability honeycomb && had=1
   if [ -n "$key" ]; then
     k delete secret honeycomb -n observability --ignore-not-found >/dev/null

@@ -33,7 +33,9 @@ key="$(sed -n 's/^OPENCODE_KEY=//p' "$ENV_FILE" | head -1)"
 [ -n "$key" ] || fail "OPENCODE_KEY is empty in $ENV_FILE; the key value check needs it"
 
 # 1. Gateway and ModelConfig.
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k rollout status deploy/agentgateway-proxy -n "$GW_NS" --timeout=60s >/dev/null || fail "gateway proxy not running"
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k get secret "$SECRET" -n "$GW_NS" >/dev/null || fail "secret $SECRET missing in $GW_NS"
 base="$(k get modelconfig gateway-model -n kagent -o jsonpath='{.spec.openAI.baseUrl}')"
 [[ "$base" == http://agentgateway-proxy."$GW_NS".svc*/v1 ]] || fail "ModelConfig baseUrl is not the gateway with /v1: $base"
@@ -45,6 +47,7 @@ echo "ok gateway runs, ModelConfig baseUrl=$base"
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 "$ROOT/scripts/spike/a2a-smoke.sh" >/dev/null || fail "spike agent did not answer"
 sleep 2
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 line="$(k logs -n "$GW_NS" deploy/agentgateway-proxy --since-time="$since" | grep 'protocol=llm' | tail -1 || true)"
 [ -n "$line" ] || fail "no llm request line in gateway log"
 in_tok="$(grep -o 'gen_ai.usage.input_tokens=[0-9]*' <<<"$line" | cut -d= -f2 || true)"

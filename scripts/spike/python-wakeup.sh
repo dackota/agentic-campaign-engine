@@ -37,9 +37,9 @@ actors() { ate get actors -A | awk -v t="$NS/$AGENT-" 'index($3, t) == 1 {print 
 
 send_message() { # prints the answer text; non-zero when the call fails or has no answer
   local body resp
-  CONTEXT_ID="$(cat "$CTX_FILE")"
+  CONTEXT_ID="$(cat "$CTX_FILE")" || return 1
   body="$(jq -n --arg t "$PROMPT" --arg id "$(uuidgen)" --arg c "$CONTEXT_ID" \
-    '{jsonrpc:"2.0",id:1,method:"SendMessage",params:{message:({messageId:$id,role:"ROLE_USER",parts:[{text:$t}]} + (if $c == "" then {} else {contextId:$c} end))}}')"
+    '{jsonrpc:"2.0",id:1,method:"SendMessage",params:{message:({messageId:$id,role:"ROLE_USER",parts:[{text:$t}]} + (if $c == "" then {} else {contextId:$c} end))}}')" || return 1
   # While the actor resumes, the controller answers KAGENT_SEND_NOT_ACCEPTED with a retry hint.
   for _ in $(seq 1 "$RETRIES"); do
     resp="$(curl -sS --max-time "$SEND_TIMEOUT_S" -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
@@ -48,7 +48,7 @@ send_message() { # prints the answer text; non-zero when the call fails or has n
     echo "  (session not available yet, retrying)" >&2
     sleep "$RETRY_SLEEP_S"
   done
-  [ -s "$CTX_FILE" ] || echo "$resp" | jq -r '.result.task.contextId // empty' >"$CTX_FILE"
+  { [ -s "$CTX_FILE" ] || echo "$resp" | jq -r '.result.task.contextId // empty' >"$CTX_FILE"; } || return 1
   echo "$resp" | jq -r '[.result.task.artifacts[]?.parts[]?.text // empty] | join("\n")' | grep . \
     || { echo "no answer in response: $resp" >&2; return 1; }
 }
@@ -70,6 +70,7 @@ done
 
 before="$(actors)"
 echo "== phase 1: first message"
+# shellcheck disable=SC2310  # checked: each step returns 1 on failure
 first="$(send_message)" || fail "phase 1: no answer"
 echo "$first"
 echo "contextId: $(cat "$CTX_FILE")"
@@ -79,6 +80,7 @@ actor="$(comm -13 <(echo "$before") <(actors) | head -1)"
 echo "actor: $actor"
 
 echo "== suspend"
+# shellcheck disable=SC2310  # wrapper: ate is one kubectl-ate call, so its status is kubectl-ate's
 out="$(ate suspend actor "$actor" -a "$NS" 2>&1)" || fail "suspend failed: $out"
 for _ in $(seq 1 "$SUSPEND_WAIT_TRIES"); do
   state="$(ate get actors -A | awk -v a="$actor" '$2 == a {print $4}')"
@@ -89,6 +91,7 @@ echo "state: $state"
 [ "$state" = "ACTOR_STATE_SUSPENDED" ] || fail "actor did not reach ACTOR_STATE_SUSPENDED"
 
 echo "== phase 2: second message after wake"
+# shellcheck disable=SC2310  # checked: each step returns 1 on failure
 if second="$(send_message)"; then
   echo "$second"
   echo "state: $(ate get actors -A | awk -v a="$actor" '$2 == a {print $4}')"
@@ -97,6 +100,7 @@ if second="$(send_message)"; then
 fi
 echo "state: $(ate get actors -A | awk -v a="$actor" '$2 == a {print $4}')"
 echo "-- worker log tail"
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k logs -n "$NS" -l app.kubernetes.io/name=kagent-default --tail="$LOG_TAIL_LINES" 2>&1 | grep -iE "fatal|illegal|sigill|crash|error" | tail -"$LOG_MATCH_LINES" || true
 echo "RESULT: crashed"
 exit 0

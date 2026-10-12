@@ -22,6 +22,7 @@ PF=$!
 ID=""
 cleanup() {
   if [ -n "$ID" ]; then
+    # shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
     ks sandbox delete "$ID" >/dev/null 2>&1 || echo "WARN: sandbox $ID not deleted" >&2
   fi
   kill $PF 2>/dev/null || true
@@ -33,6 +34,7 @@ for _ in $(seq 1 30); do
   sleep 1
 done
 
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 created="$(ks sandbox create "$TEMPLATE" --request-id "$REQUEST_ID" --name "s21-$REQUEST_ID" -o json)" \
   || fail "sandbox create failed"
 ID="$(echo "$created" | jq -r .id)"
@@ -40,10 +42,12 @@ state="$(echo "$created" | jq -r .state)"
 echo "created: $ID $state"
 [ "$state" = "RUNTIME_STATE_READY" ] || fail "sandbox not ready: $created"
 
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 out="$(ks sandbox exec "$ID" -- sh -c "echo '$MESSAGE'")" || fail "exec failed"
 echo "OUTPUT: $out"
 [[ "$out" == *"$MESSAGE"* ]] || fail "command output missing"
 
+# shellcheck disable=SC2310  # wrapper: ks is one kagent call, so its status is kagent's
 ks sandbox delete "$ID" >/dev/null || fail "delete failed"
 final="$(ks sandbox get "$ID" -o json | jq -r .state)"
 echo "after delete: $final"

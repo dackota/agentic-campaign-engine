@@ -36,6 +36,7 @@ check_releases() {
 check_rollouts() {
   local entry out
   for entry in $ROLLOUTS; do
+    # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
     if out="$(k rollout status "deployment/${entry#*/}" -n "${entry%%/*}" --timeout="$ROLLOUT_TIMEOUT" 2>&1)"; then
       pass "rollout ${entry#*/}"
     else
@@ -47,6 +48,7 @@ check_rollouts() {
 check_app() {
   local name out
   for name in $APP_DEPLOYMENTS; do
+    # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
     if out="$(k rollout status "deployment/$name" -n "$APP_NAMESPACE" --timeout="$ROLLOUT_TIMEOUT" 2>&1)"; then
       pass "app $name"
     else
@@ -58,6 +60,7 @@ check_app() {
 check_agents() {
   local agent ready
   for agent in $AGENTS; do
+    # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
     if ready="$(k get agent "$agent" -n kagent -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
       [ "$ready" = True ]; then
       pass "agent $agent Ready"

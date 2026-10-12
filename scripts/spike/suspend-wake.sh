@@ -32,7 +32,7 @@ send() { # send TEXT [CONTEXT_ID] -> prints the response JSON
   local ctx="${2:-}" body
   body="$(jq -n --arg t "$1" --arg id "$RUN-$RANDOM" --arg c "$ctx" \
     '{jsonrpc:"2.0",id:1,method:"SendMessage",params:{message:({messageId:$id,role:"ROLE_USER",parts:[{text:$t}]}
-      + (if $c == "" then {} else {contextId:$c} end))}}')"
+      + (if $c == "" then {} else {contextId:$c} end))}}')" || return 1
   curl -fsS --max-time "$MAX_REPLY_SECONDS" -H 'content-type: application/json' -H 'A2A-Version: 1.0' -d "$body" \
     "http://localhost:$LOCAL_PORT/agents/$NS/$AGENT"
 }
@@ -40,6 +40,7 @@ actor_state() {
   kubectl-ate --context "$KCTX" get actors -A | awk -v n="session-$1" '$2 == n {print $4}'
 }
 
+# shellcheck disable=SC2310  # checked: jq returns 1 on failure, then curl's status is the function's
 first="$(send "The code word is $FACT. Remember it.")" || fail "first message failed"
 ctx="$(echo "$first" | jq -r '.result.task.contextId')"
 [ -n "$ctx" ] && [ "$ctx" != null ] || fail "no contextId in: $first"
@@ -54,6 +55,7 @@ done
 echo "state before second message: ${state:-none}"
 [ "$state" = "ACTOR_STATE_SUSPENDED" ] || fail "session did not suspend within ${WAIT_SECONDS}s"
 
+# shellcheck disable=SC2310  # checked: jq returns 1 on failure, then curl's status is the function's
 second="$(send "What is the code word?" "$ctx")" || fail "second message failed"
 reply="$(echo "$second" | jq -r '[.result.task.artifacts[]?.parts[]?.text // empty] | join("\n")')"
 echo "state after second message: $(actor_state "$ctx")"
