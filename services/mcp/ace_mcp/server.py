@@ -39,12 +39,15 @@ class Reader:
         raise NotImplementedError
 
 
+ToolRun = Callable[[Reader, dict[str, Any]], Any]
+
+
 @dataclass(frozen=True)
 class Tool:
     name: str
     description: str
     input_schema: dict[str, Any]
-    run: Callable[[Reader, dict[str, Any]], Any]
+    run: ToolRun
 
 
 def schema(required: Sequence[str] = (), **properties: str) -> dict[str, Any]:
@@ -66,7 +69,9 @@ def describe(tool: Tool) -> dict[str, Any]:
     }
 
 
-def _reply(body: dict[str, Any], result: Any = None, error: tuple[int, str] | None = None) -> Any:
+def _reply(
+    body: dict[str, Any], result: Any = None, error: tuple[int, str] | None = None
+) -> JSONResponse:
     envelope: dict[str, Any] = {"jsonrpc": "2.0", "id": body.get("id")}
     if error is not None:
         envelope["error"] = {"code": error[0], "message": error[1]}
@@ -104,7 +109,7 @@ def create_app(name: str, tools: Sequence[Tool], reader: Reader) -> FastAPI:
         return {"status": "ok"}
 
     @app.post(MCP_PATH, response_model=None)
-    async def rpc(request: Request) -> Any:
+    async def rpc(request: Request) -> Response:
         try:
             body = await request.json()
         except ValueError:
