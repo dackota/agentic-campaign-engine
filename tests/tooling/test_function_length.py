@@ -17,7 +17,10 @@ def _tracked_python() -> list[Path]:
 
 
 def _long_functions(path: Path) -> list[str]:
-    tree = ast.parse(path.read_text(), filename=str(path))
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError) as error:
+        return [f"{path.relative_to(ROOT).as_posix()}: cannot parse: {error}"]
     return [
         f"{path.relative_to(ROOT).as_posix()}:{node.lineno} {node.name} is {span} lines"
         for node in ast.walk(tree)

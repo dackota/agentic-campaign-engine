@@ -4,6 +4,7 @@ The seam is the scripts in scripts/spike/, driven against kube context k3d-ace-s
 They skip when that cluster is not reachable. The findings are in docs/spike-log.md.
 """
 
+import os
 import subprocess
 from pathlib import Path
 
@@ -28,14 +29,14 @@ def _cluster_up() -> bool:
 
 
 live = pytest.mark.skipif(not _cluster_up(), reason=f"cluster {KCTX} not reachable")
-# Not strict: both passed on a healthy cluster (#21 proof, docs/spike-log.md sections 9 and
-# 14), and a pass should not fail the run. Since batch 7 the long-lived spike cluster cannot
-# resume actors: suspend-wake.sh gets JSON-RPC -32004 (KAGENT_SEND_NOT_ACCEPTED) on its first
-# message and sandbox.sh gets "error resuming actor" on exec. Cluster state, not a known
-# upstream bug, so it must not stop `make test` before the web tests.
-resume_broken = pytest.mark.xfail(
-    strict=False,
-    reason=f"{KCTX} cannot resume actors since batch 7 (cluster state); passes on a fresh cluster",
+# Both passed on a healthy cluster (#21 proof, docs/spike-log.md sections 9 and 14). Since
+# batch 7 the long-lived spike cluster cannot resume actors: suspend-wake.sh gets JSON-RPC
+# -32004 (KAGENT_SEND_NOT_ACCEPTED) on its first message and sandbox.sh gets "error resuming
+# actor" on exec. That is cluster state, so the tests run only on request, and a run that
+# asks for them still fails on a real regression.
+resume_broken = pytest.mark.skipif(
+    os.environ.get("ACE_SPIKE_RESUME") != "1",
+    reason=f"{KCTX} cannot resume actors since batch 7; set ACE_SPIKE_RESUME=1 on a fresh cluster",
 )
 
 

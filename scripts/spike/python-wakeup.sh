@@ -48,7 +48,8 @@ send_message() { # prints the answer text; non-zero when the call fails or has n
     echo "  (session not available yet, retrying)" >&2
     sleep "$RETRY_SLEEP_S"
   done
-  { [ -s "$CTX_FILE" ] || echo "$resp" | jq -r '.result.task.contextId // empty' >"$CTX_FILE"; } || return 1
+  { [ -s "$CTX_FILE" ] || echo "$resp" | jq -r '.result.task.contextId // empty' >"$CTX_FILE"; } \
+    || { echo "no contextId in response: $resp" >&2; return 1; }
   echo "$resp" | jq -r '[.result.task.artifacts[]?.parts[]?.text // empty] | join("\n")' | grep . \
     || { echo "no answer in response: $resp" >&2; return 1; }
 }
