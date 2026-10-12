@@ -75,6 +75,16 @@ def test_every_team_overlay_builds_into_the_teams_namespace(team: str) -> None:
     assert {role.template for role in ROLES.values()} <= agents
     models = {d["spec"]["modelConfig"]["name"] for d in docs if d["kind"] == "AgentTemplate"}
     assert models == {f"{team}-model"}
+    # kagent resolves a template's MCP server in the template's own namespace; a server
+    # that is only in kagent leaves the team's Agent at ResolvedRefs=False forever.
+    servers = {d["metadata"]["name"] for d in docs if d["kind"] == "RemoteMCPServer"}
+    named = {
+        tool["mcp"]["server"]["name"]
+        for d in docs
+        if d["kind"] == "AgentTemplate"
+        for tool in d["spec"].get("tools", [])
+    }
+    assert named and named <= servers
 
 
 def test_the_shared_team_parts_match_the_kagent_namespace() -> None:
