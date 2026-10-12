@@ -1,0 +1,31 @@
+# The runtime each team namespace gets: its own WorkerPool, the Go harness on it, and the
+# placeholder key kagent wants for an OpenAI ModelConfig. A team overlay sets the namespace.
+# The worker image is the one platform/install.sh installs Substrate with.
+apiVersion: ate.dev/v1alpha1
+kind: WorkerPool
+metadata: {name: team-pool}
+spec:
+  replicas: 1
+  sandboxClass: gvisor
+  workerImage: ghcr.io/kagent-dev/substrate/ateom-gvisor@sha256:a1ce5b950724c6167889324df6729ccf8c5b3b2963863f4602c21c17587ba454
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Harness
+metadata: {name: spike-harness}
+spec:
+  kagent: {}
+  workload:
+    image: ghcr.io/kagent-dev/kagent/golang-adk@sha256:26ae5c772d4a59b24ecb3619c3499e106e3b28abbc239de25b4ff8d746f97e69
+  substrate:
+    workerPoolRef: {name: team-pool}
+    snapshotPolicy:
+      location: s3://ate-snapshots/kagent/
+---
+# kagent requires a key field for an OpenAI ModelConfig. This is a placeholder the gateway
+# ignores: the real key lives only in the gateway (Secret opencode-go-key).
+apiVersion: v1
+kind: Secret
+metadata: {name: kagent-openai}
+type: Opaque
+stringData:
+  OPENAI_API_KEY: placeholder-the-gateway-holds-the-key

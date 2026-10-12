@@ -145,6 +145,12 @@ class Stack:
         return f"http://127.0.0.1:{self.api_port}"
 
     @property
+    def database_url(self) -> str:
+        """The stack's Postgres, for tests that check the database's own rules."""
+        assert self._postgres is not None, "the stack is not started"
+        return str(self._postgres.get_connection_url())
+
+    @property
     def marketo_url(self) -> str:
         return f"http://127.0.0.1:{self.marketo_port}"
 

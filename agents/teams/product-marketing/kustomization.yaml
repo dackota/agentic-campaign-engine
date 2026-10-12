@@ -1,0 +1,19 @@
+# Team product-marketing: the role templates and Agents in the namespace team-product-marketing, every
+# template on the team's own ModelConfig (product-marketing-model), which calls the model through
+# the team's own gateway route and token limit (../gateway.yaml). The role files sit
+# outside this directory, so platform/install.sh builds it with
+# --load-restrictor LoadRestrictionsNone.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: team-product-marketing
+resources:
+- ../../templates.yaml
+- ../../agents.yaml
+- ../shared
+- team.yaml
+patches:
+- target: {kind: AgentTemplate}
+  patch: |-
+    - op: replace
+      path: /spec/modelConfig/name
+      value: product-marketing-model

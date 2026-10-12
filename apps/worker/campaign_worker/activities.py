@@ -9,9 +9,9 @@ from typing import Any
 import httpx
 from ace_engine import brand_review, cost, db, invoker, telemetry
 from ace_engine import dag as graph
-from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for
+from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for, team_namespace
 from ace_engine.contracts import AgentOutput, citation_problems
-from ace_engine.settings import Settings
+from ace_engine.settings import Depth, Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio import activity
@@ -23,6 +23,8 @@ from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
+# A campaign whose team names no namespace has no Agents to run its steps.
+TEAM_REFUSED = "TeamRefused"
 SERVICE = "campaign-worker"
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
@@ -43,6 +45,8 @@ class ReviewJob:
     report: str
     role: Role
     context: dict[str, Any]
+    # The campaign's team: at live depth its Agents are the ones in the team's namespace.
+    team: str
 
 
 class Activities:
@@ -83,14 +87,20 @@ class Activities:
         session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
-        if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+        is_spent, team = await asyncio.to_thread(self._budget_and_team, campaign_id)
+        if is_spent:
             raise ApplicationError(
                 "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
             )
+        if self._settings.depth is Depth.LIVE:
+            try:
+                team_namespace(team)
+            except ValueError as exc:
+                raise ApplicationError(str(exc), type=TEAM_REFUSED, non_retryable=True) from exc
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                job = ReviewJob(campaign_id, step_id, report, role, context)
+                job = ReviewJob(campaign_id, step_id, report, role, context, team)
                 with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
                     output, usage, writer_sessions = await self._writer_outputs(client, job)
                     if review_rounds > 0:
@@ -111,13 +121,14 @@ class Activities:
                 )
         return {"output": output, "session": session, "usage": usage.as_dict()}
 
-    def _is_budget_spent(self, campaign_id: str) -> bool:
-        """True when the campaign has a budget and its model calls have used all of it."""
+    def _budget_and_team(self, campaign_id: str) -> tuple[bool, str]:
+        """Whether the campaign has a budget its model calls have used all of, and its team."""
         with Session(self._engine) as session:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
-            return cost.is_budget_spent(
+            is_spent = cost.is_budget_spent(
                 campaign.budget_micros, db.spent_micros(session, campaign.id)
             )
+            return is_spent, campaign.team
 
     async def _review_loop(
         self,
@@ -202,7 +213,7 @@ class Activities:
                 prompt = brand_review.fix_message(prompt, issues)
             reply = await invoker.invoke(
                 client,
-                agent_url_for(self._settings.agent_url, self._settings.depth, job.role),
+                agent_url_for(self._settings.agent_url, self._settings.depth, job.role, job.team),
                 invoker.AgentCall(
                     session_key=session_key(job.campaign_id, job.step_id, variant),
                     prompt=prompt,
