@@ -10,12 +10,17 @@ const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fak
   .map((p) => resolve(root, p))
   .join(delimiter);
 const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";
+// The alert-banner spec posts to the alert webhook with this demo-only token, so it is set in
+// this process (inherited by the test workers) as well as passed to the stack.
+process.env.ACE_ALERT_WEBHOOK_TOKEN ??= "e2e-alert-webhook-token";
+const alertToken = process.env.ACE_ALERT_WEBHOOK_TOKEN;
 const env = {
   ...process.env,
   ACE_API_PORT: apiPort,
   ACE_WEB_PORT: webPort,
   ACE_DEX_PORT: dexPort,
   ACE_MARKETO_PORT: marketoPort,
+  ACE_ALERT_WEBHOOK_TOKEN: alertToken,
   // The harness starts Dex on this port; the web app signs in against it.
   VITE_OIDC_ISSUER: `http://127.0.0.1:${dexPort}/dex`,
   PYTHONPATH: pythonPath,
