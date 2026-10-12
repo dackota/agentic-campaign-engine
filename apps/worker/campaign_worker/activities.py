@@ -84,6 +84,19 @@ class ReviewJob:
     context: dict[str, Any]
 
 
+@dataclass(frozen=True)
+class RedoJob:
+    """A rejected asset sent back to its writer: the approver's comment and what the step was
+    asked, with the review rounds the redo goes through."""
+
+    campaign_id: str
+    report: str
+    step_id: str
+    comment: str
+    context: dict[str, Any]
+    review_rounds: int = 0
+
+
 class Activities:
     def __init__(self, settings: Settings, engine: Engine) -> None:
         self._settings = settings
@@ -341,20 +354,13 @@ class Activities:
             event.tokens = usage.total_tokens or None
 
     @activity.defn
-    async def redo_asset(
-        self,
-        campaign_id: str,
-        report: str,
-        step_id: str,
-        comment: str,
-        context: dict[str, Any],
-        review_rounds: int = 0,
-    ) -> dict[str, Any]:
+    async def redo_asset(self, job: RedoJob) -> dict[str, Any]:
         """Send a rejected asset back to the writer sessions that made it, with the
         approver's comment, and store the corrected output. With `review_rounds` the brand
         reviewer checks the redo as it checks a first draft. Only this step's agent is
         asked; nothing else in the campaign is redone. Stops before the model call when the
         campaign's budget is spent."""
+        campaign_id, step_id = job.campaign_id, job.step_id
         role = role_for(step_id)
         campaign_uuid = uuid.UUID(campaign_id)
         if await asyncio.to_thread(self._is_budget_spent, campaign_id):
@@ -372,31 +378,45 @@ class Activities:
         rejections = await asyncio.to_thread(
             db.rejection_count, self._engine, campaign_uuid, step_id
         )
-        agent_session = session_key(campaign_id, step_id)
         await asyncio.to_thread(
-            self._record, campaign_id, step_id, db.STEP_STARTED, None, agent_session
+            self._record,
+            campaign_id,
+            step_id,
+            db.STEP_STARTED,
+            None,
+            session_key(campaign_id, step_id),
         )
-        issues = [{"check": "approver", "detail": comment}]
-        job = ReviewJob(campaign_id, step_id, report, role, context)
+        output, usage, redone = await self._redo_outputs(job, role, sessions, rejections)
+        await asyncio.to_thread(self._save_redo, campaign_id, step_id, output, usage, redone)
+        return {"output": output}
+
+    async def _redo_outputs(
+        self, job: RedoJob, role: Role, sessions: tuple[str, ...], rejections: int
+    ) -> tuple[Any, cost.Usage, tuple[str, ...]]:
+        """Ask the writer sessions for the corrected asset, then have the brand reviewer
+        check it for the job's review rounds."""
+        review = ReviewJob(job.campaign_id, job.step_id, job.report, role, job.context)
+        issues = [{"check": "approver", "detail": job.comment}]
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
+                with telemetry.span(
+                    SERVICE, f"invoke_agent {job.step_id}", operation="invoke_agent"
+                ):
                     # Each redo has a block of turns, so its message ids never repeat the
                     # draft's, a review fix's, or an earlier redo's.
                     turn = (rejections + 1) * REDO_TURNS
                     output, usage, redone = await self._writer_outputs(
-                        client, job, issues, turn, sessions
+                        client, review, issues, turn, sessions
                     )
-                    if review_rounds > 0:
+                    if job.review_rounds > 0:
                         output, usage, _ = await self._review_loop(
-                            client, job, (output, usage, redone), review_rounds, turn + 1
+                            client, review, (output, usage, redone), job.review_rounds, turn + 1
                         )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        await asyncio.to_thread(self._save_redo, campaign_id, step_id, output, usage, redone)
-        return {"output": output}
+        return output, usage, redone
 
     def _save_redo(
         self,

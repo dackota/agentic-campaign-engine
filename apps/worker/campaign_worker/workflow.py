@@ -37,6 +37,8 @@ with workflow.unsafe.imports_passed_through():
     from ace_engine.cost import BUDGET_SPENT
     from ace_engine.db import STEP_STARTED, STEP_SUCCEEDED
 
+    from campaign_worker.activities import RedoJob
+
 DB_STEP_TIMEOUT = timedelta(seconds=30)
 DEFAULT_RETRY_INTERVAL_SECONDS = 1.0
 NOTIFY_TIMEOUT = timedelta(seconds=60)
@@ -299,12 +301,14 @@ class CampaignWorkflow:
             step_policy(step),
             "redo_asset",
             [
-                campaign_id,
-                report,
-                step_id,
-                comment,
-                self._context_for(dag, step_id),
-                step.get("review_rounds", 0),
+                RedoJob(
+                    campaign_id,
+                    report,
+                    step_id,
+                    comment,
+                    self._context_for(dag, step_id),
+                    step.get("review_rounds", 0),
+                )
             ],
             campaign_id,
         )

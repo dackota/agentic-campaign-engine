@@ -473,6 +473,7 @@ _ASSET_KINDS: Mapping[str, tuple[tuple[str, ...], Callable[..., str | bytes], st
             "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
             "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
             "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
+            "social": (("social",), assets.render_social_html, "text/html"),
             "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
         }
     )
@@ -484,8 +485,8 @@ def _add_asset_preview_route(app: FastAPI) -> None:
     async def preview_asset(
         campaign_id: uuid.UUID, kind: str, request: Request, user: BrowserUser
     ) -> Response:
-        """The brand-rendered one-pager (PDF), deck (PPTX), landing page (HTML), or graphic
-        (SVG), made from what the campaign's writer steps produced."""
+        """The brand-rendered one-pager (PDF), deck (PPTX), landing page or social posts
+        (HTML), or graphic (SVG), made from what the campaign's writer steps produced."""
         authorize(user, Action.READ)
         if kind not in _ASSET_KINDS:
             raise HTTPException(status_code=404, detail="unknown asset kind")

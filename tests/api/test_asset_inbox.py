@@ -5,6 +5,7 @@ redone; once every asset is approved the campaign sends."""
 
 import json
 import uuid
+from html import escape
 from typing import Any
 
 import httpx
@@ -160,6 +161,21 @@ def test_each_asset_carries_its_preview_and_the_reviewers_flags(
     assert preview.status_code == 200
     assert preview.headers["content-type"].startswith("text/html")
     assert "H" in preview.text
+
+
+def test_the_social_asset_previews_its_post_text(stack: Stack, sign_in: SignIn) -> None:
+    stack.agent.script([])
+    approver = sign_in(DG_APPROVER)
+    campaign_id = waiting_default(sign_in(DG_OWNER))
+
+    [item] = [i for i in inbox(approver, campaign_id) if i["step"] == "social"]
+
+    assert item["preview_url"]
+    preview = approver.get(item["preview_url"])
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("text/html")
+    for post in item["output"]["posts"]:
+        assert escape(post["text"]) in preview.text
 
 
 def test_reject_returns_to_the_same_writer_session_and_redoes_only_that_asset(

@@ -55,6 +55,29 @@ MAX_BULLETS = 20
 _CONTROL_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f￾￿]")
 _PARAGRAPH_BREAK = re.compile(r"\n\s*\n")
 
+_SOCIAL_TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{brand} social posts</title>
+<style>
+body {{ margin: 0; font-family: {font}; color: {text}; background: #f4f6f8; }}
+header {{ background: {color}; color: #fff; padding: 16px 24px; font-weight: bold; }}
+main {{ max-width: {width}; margin: 24px auto; }}
+article {{ margin-bottom: 16px; padding: 16px 24px; background: #fff; }}
+h2 {{ margin: 0 0 8px; font-size: 14px; text-transform: uppercase; color: {color}; }}
+</style>
+</head>
+<body>
+<header>{brand}</header>
+<main>
+{posts}
+</main>
+</body>
+</html>
+"""
+
 _LANDING_TEMPLATE = """<!doctype html>
 <html lang="en">
 <head>
@@ -202,6 +225,24 @@ def render_landing_page_html(landing_page: Mapping[str, Any]) -> str:
         subheadline=escape(_clean(landing_page["subheadline"])),
         paragraphs="\n".join(f"<p>{_with_breaks(p)}</p>" for p in parts),
         cta=escape(_clean(landing_page["call_to_action"])),
+        brand=escape(BRAND_NAME),
+        color=BRAND_COLOR,
+        text=TEXT_COLOR,
+        font=FONT_STACK,
+        width=PAGE_MAX_WIDTH,
+    )
+
+
+def render_social_html(social: Mapping[str, Any]) -> str:
+    """Render the social posts contract (posts of channel and text) as brand HTML, one card
+    per post. Every field is escaped."""
+    posts = "\n".join(
+        f"<article><h2>{escape(_clean(post['channel']))}</h2>"
+        f"<p>{_with_breaks(_clean(post['text']))}</p></article>"
+        for post in social["posts"]
+    )
+    return _SOCIAL_TEMPLATE.format(
+        posts=posts,
         brand=escape(BRAND_NAME),
         color=BRAND_COLOR,
         text=TEXT_COLOR,

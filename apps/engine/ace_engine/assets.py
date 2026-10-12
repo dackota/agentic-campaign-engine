@@ -10,9 +10,12 @@ from ace_engine import dag as graph
 NOT_ASSETS = frozenset({"strategist", "research"})
 EMAIL_PREVIEW = "preview"
 # Asset step -> the brand-rendered preview route that shows it; the email's preview is the
-# draft itself, and steps with no renderer (social posts) show their text.
-_RENDERED_PREVIEWS = {"landing_page": "preview/landing-page", "one_pager": "preview/graphic"}
-_NO_PREVIEW = frozenset({"social"})
+# draft itself.
+_RENDERED_PREVIEWS = {
+    "landing_page": "preview/landing-page",
+    "social": "preview/social",
+    "one_pager": "preview/graphic",
+}
 
 
 def asset_steps(dag: graph.Dag) -> list[str]:
@@ -24,8 +27,6 @@ def asset_steps(dag: graph.Dag) -> list[str]:
     ]
 
 
-def preview_path(campaign_id: uuid.UUID | str, step_id: str) -> str | None:
-    """The API path that renders the asset, or None when only its text can be shown."""
-    if step_id in _NO_PREVIEW:
-        return None
+def preview_path(campaign_id: uuid.UUID | str, step_id: str) -> str:
+    """The API path that renders the asset."""
     return f"/campaigns/{campaign_id}/{_RENDERED_PREVIEWS.get(step_id, EMAIL_PREVIEW)}"
