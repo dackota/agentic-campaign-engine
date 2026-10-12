@@ -9,7 +9,7 @@ from fastapi import FastAPI
 
 from ace_mcp.server import Reader, Tool, schema, serve
 from ace_mcp.server import create_app as build_app
-from ace_mcp.upstream import HttpReader
+from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
 
 NAME = "ace-mcp-cms"
 
@@ -38,7 +38,7 @@ def create_app(client: httpx.Client) -> FastAPI:
 
 
 def app_from_env(environ: Mapping[str, str] = os.environ) -> FastAPI:
-    return create_app(httpx.Client(base_url=environ["ACE_CMS_URL"], timeout=10))
+    return create_app(httpx.Client(base_url=environ["ACE_CMS_URL"], timeout=HTTP_TIMEOUT_SECONDS))
 
 
 if __name__ == "__main__":

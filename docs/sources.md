@@ -81,10 +81,10 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 
 ## Agents bind MCP tools (#38)
 
-Checked on 2026-10-12 against the CRDs on the k3d-ace cluster (`kubectl --context k3d-ace explain`, read only).
+Written on 2026-10-12 from the kagent docs and the CRD shapes already in `agents/`. The CRD fields have not been checked against the live cluster (`kubectl --context k3d-ace explain`, read only): that check is owed to the proof runner, and so is kagent's A2A tool-call shape (`metadata.kagent_type = function_call`, `data.name`), which `apps/engine/ace_engine/invoker.py` reads and only the scripted agent has produced so far.
 
 | Source | What it told us |
 |---|---|
-| `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
-| `kubectl explain agenttemplates.spec.tools --recursive --api-version=api.kagent.dev/v1alpha3` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {apiGroup, kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use |
+| Unchecked live: `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
+| Unchecked live: `kubectl explain agenttemplates.spec.tools --recursive --api-version=api.kagent.dev/v1alpha3` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {apiGroup, kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use |
 | MCP spec 2025-03-26, Streamable HTTP | A client POSTs JSON-RPC to one endpoint and may take a plain JSON reply; a notification gets 202. Tool annotations carry `readOnlyHint` |

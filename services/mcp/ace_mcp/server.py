@@ -11,6 +11,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import httpx
 import uvicorn
 from ace_engine import telemetry
 from fastapi import FastAPI, Request, Response
@@ -31,6 +32,9 @@ class Reader:
     """What a tool may do to the system it fronts: read."""
 
     def get(self, path: str, **params: str) -> Any:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def get_response(self, path: str, **params: str) -> httpx.Response:  # pragma: no cover
         raise NotImplementedError
 
 
@@ -74,8 +78,14 @@ def _call(tools: dict[str, Tool], reader: Reader, params: dict[str, Any]) -> Any
     tool = tools.get(str(params.get("name")))
     if tool is None:
         return None
+    arguments = params.get("arguments") or {}
+    if not isinstance(arguments, dict):
+        return {
+            "content": [{"type": "text", "text": "arguments must be an object"}],
+            "isError": True,
+        }
     try:
-        text = json.dumps(tool.run(reader, params.get("arguments") or {}), default=str)
+        text = json.dumps(tool.run(reader, arguments), default=str)
         is_error = False
     except Exception as exc:  # the agent reads the failure; the server stays up
         log.warning("tool %s failed: %r", tool.name, exc)
@@ -103,6 +113,8 @@ def create_app(name: str, tools: Sequence[Tool], reader: Reader) -> FastAPI:
         method, params = body["method"], body.get("params") or {}
         if "id" not in body:
             return Response(status_code=202)  # a notification
+        if not isinstance(params, dict):
+            return _reply(body, error=(INVALID_PARAMS, "params must be an object"))
         if method == "initialize":
             return _reply(
                 body,

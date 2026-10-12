@@ -14,10 +14,11 @@ from fake_workfront.app import WorkfrontConfig
 from fake_workfront.app import create_app as create_workfront
 from fastapi.testclient import TestClient
 
+from tests.tooling.mcp_files import WRITE_VERBS
+
 CLIENT_ID = "mcp-client"
 CLIENT_SECRET = "mcp-client-secret-value"
 HOOK = "http://127.0.0.1:9/hook"
-WRITE_VERBS = ("create", "update", "delete", "put", "post", "send", "publish", "set", "upsert")
 
 
 def rpc(mcp: TestClient, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -171,3 +172,14 @@ def test_initialize_and_unknown_tool_follow_the_protocol() -> None:
         mcp.post("/mcp", json={"jsonrpc": "2.0", "method": "notifications/initialized"}).status_code
         == 202
     )
+
+
+def test_non_object_params_get_a_protocol_error_not_a_server_error() -> None:
+    mcp = TestClient(cms.create_app(TestClient(create_cms())))
+
+    reply = mcp.post(
+        "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": [1]}
+    )
+
+    assert reply.status_code == 200
+    assert reply.json()["error"]["code"] == -32602

@@ -8,6 +8,7 @@ import httpx
 from ace_mcp.server import Reader
 
 HTTP_UNAUTHORIZED = 401
+HTTP_TIMEOUT_SECONDS = 10
 
 
 class HttpReader(Reader):
@@ -29,7 +30,8 @@ class HttpReader(Reader):
         self._token: str | None = None
 
     def _fetch_token(self) -> str:
-        assert self._token_path is not None
+        if self._token_path is None:
+            raise RuntimeError("this upstream takes no token")
         response = self._client.post(self._token_path, data=self._credentials)
         response.raise_for_status()
         token = str(response.json()["access_token"])

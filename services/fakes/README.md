@@ -28,7 +28,7 @@ Fake third-party services. Later tickets add more.
   client credentials for a bearer token; every `/attask/api/v15.0/...` call without one is a
   401. `POST /proj`, `/task`, and `/appr` make projects, tasks, and approvals, idempotent per
   `externalID` (project and task) or per task (approval); a repeat task write updates the
-  same task. `GET /proj/search`, `/task/search`, `/appr/search`, and `/task/{id}` read them
+  same task. `GET /proj/search`, `/task/search`, `/appr/search`, `/proj/{id}`, and `/task/{id}` read them
   back. `PUT /task/{id}` with a new `status` posts one HMAC-signed status event to the
   Campaign API webhook (`X-Workfront-Timestamp`,
   `X-Workfront-Signature: sha256=<hex of timestamp "." body>`), naming the task's
