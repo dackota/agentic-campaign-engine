@@ -1,6 +1,6 @@
 from concurrent.futures import Executor
 
-from ace_engine import db, telemetry
+from ace_engine import db, row_security, telemetry
 from ace_engine.settings import TASK_QUEUE, Settings
 from temporalio.client import Client
 from temporalio.worker import Worker
@@ -20,7 +20,11 @@ def build_worker(
 ) -> Worker:
     telemetry.configure(SERVICE)
     telemetry.instrument_httpx()
-    activities = Activities(settings, db.make_engine(settings.database_url))
+    engine = db.make_engine(settings.database_url)
+    # The step cache reads as the campaign's team, so the team role and its policies must
+    # exist even when the worker starts before the API.
+    row_security.install(engine)
+    activities = Activities(settings, engine)
     return Worker(
         client,
         task_queue=TASK_QUEUE,
@@ -28,6 +32,7 @@ def build_worker(
         activities=[
             activities.run_agent_step,
             activities.save_agent_output,
+            activities.redo_asset,
             activities.mark_step,
             activities.open_approval,
             activities.mark_failed,

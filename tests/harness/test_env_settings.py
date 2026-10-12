@@ -14,7 +14,14 @@ from ace_engine.settings import Depth, Settings
 from fake_marketo.app import MarketoConfig
 
 ROOT = Path(__file__).resolve().parents[2]
-PYTHONPATH = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+PYTHONPATH = [
+    "apps/engine",
+    "apps/api",
+    "apps/worker",
+    "services/fakes",
+    "services/render",
+    "services/mcp",
+]
 # Values a reader could mistake for nothing else, so a leak is easy to spot.
 CLIENT_SECRET = "sentinel-client-secret-5a1e"
 WEBHOOK_SECRET = "sentinel-webhook-secret-77b3"
@@ -43,6 +50,7 @@ FULL_ENV = {
     "ACE_SLACK_CHANNEL": "#ace",
     "ACE_SLACK_URL": "http://fake-slack:8000",
     "ACE_ALERT_WEBHOOK_TOKEN": "sentinel-alert-token-6c3b",
+    "ACE_WEB_URL": "http://web.example",
     "ACE_GOOGLE_CLIENT_ID": "gid",
     "ACE_GOOGLE_CLIENT_SECRET": "sentinel-google-secret-8e07",
     "ACE_GOOGLE_REFRESH_TOKEN": "sentinel-google-refresh-52aa",
@@ -97,6 +105,7 @@ def test_api_loader_reads_every_settings_field() -> None:
         slack_token="sentinel-slack-token-31d2",
         slack_channel="#ace",
         slack_url="http://fake-slack:8000",
+        web_url="http://web.example",
         google_client_id="gid",
         google_client_secret="sentinel-google-secret-8e07",
         google_refresh_token="sentinel-google-refresh-52aa",

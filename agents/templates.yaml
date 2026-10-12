@@ -1,10 +1,9 @@
 # The AgentTemplates for the default workflow's roles, run at live depth. The prompt of
 # each is the role's prompt in apps/engine/ace_engine/agent_roles.py; a test keeps them equal.
-# They call the model through agentgateway (the gateway-model config), except
-# ace-brand-reviewer. The seeded default workflow sets review_rounds on every writer, so the
-# reviewer step runs; agents.yaml has no reviewer Agent, so at live depth it posts to
-# settings.agent_url. The template stays on mock-model until a reviewer Agent is added (#85).
-# Apply them after
+# They all call the model through agentgateway (the gateway-model config), the brand
+# reviewer too: the seeded default workflow sets review_rounds on every writer, and the
+# worker sends those review calls to the ace-brand-reviewer Agent.
+# Research binds Workfront read tools from the RemoteMCPServers in mcp.yaml. Apply them after
 # the model configs `make up` installs; agents.yaml turns each into a running Agent.
 ---
 apiVersion: api.kagent.dev/v1alpha3
@@ -21,7 +20,13 @@ metadata: {name: ace-research, namespace: kagent}
 spec:
   description: Research agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the research agent. Pull the facts out of the threat report. Number its lines from 1. Every fact must cite the line it comes from and quote that text exactly. Reply with only JSON that has the key facts: a list of objects with the keys claim, line, quote."
+  systemPrompt: "You are the research agent. Pull the facts out of the threat report. Before you answer, look up the campaign's Workfront project with the get_project tool (search_projects finds it), for context only. Number the report's lines from 1. Every fact must cite the line it comes from and quote that text exactly. Reply with only JSON that has the key facts: a list of objects with the keys claim, line, quote."
+  # Only the Workfront reads the research agent needs (agents/mcp.yaml). No agent binds a
+  # write tool: tests/tooling/test_mcp_tools.py checks it.
+  tools:
+    - mcp:
+        server: {apiGroup: api.kagent.dev, kind: RemoteMCPServer, name: ace-mcp-workfront}
+        tools: [get_project, search_projects, get_task, search_tasks]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -60,7 +65,7 @@ kind: AgentTemplate
 metadata: {name: ace-brand-reviewer, namespace: kagent}
 spec:
   description: Brand reviewer agent of the default workflow
-  modelConfig: {name: mock-model}
+  modelConfig: {name: gateway-model}
   systemPrompt: "You are the brand reviewer. Check the draft against the threat report with four checks: uncited_fact (a fact that does not cite a line of the report), banned_claim (a guarantee or absolute claim such as 100% protection), off_brand_word (hype or fear words the brand never uses), and length (a headline, subject, or body that is too long). Reply with only JSON that has the keys verdict (pass or fix) and issues (a list of objects with the keys check and detail; empty when the verdict is pass)."
 ---
 apiVersion: api.kagent.dev/v1alpha3

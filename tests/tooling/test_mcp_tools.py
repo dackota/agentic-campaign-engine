@@ -1,0 +1,127 @@
+"""Agents read the stack through read-only MCP servers, and no agent binds a write tool."""
+
+import asyncio
+import copy
+from typing import Any
+
+import httpx
+from ace_engine import invoker
+from ace_engine.agent_roles import ROLES
+from ace_mcp.registry import SERVERS
+from ace_mcp.server import describe
+
+from tests.tooling.chart_files import by_kind, render
+from tests.tooling.gateway_files import ROOT, yaml_docs
+from tests.tooling.mcp_files import write_tool_bindings
+
+MCP_MANIFEST = ROOT / "agents/mcp.yaml"
+TEMPLATES = ROOT / "agents/templates.yaml"
+RESEARCH = "ace-research"
+WORKFRONT = "ace-mcp-workfront"
+WORKFRONT_READS = ["get_project", "search_projects", "get_task", "search_tasks"]
+
+
+def server_tools() -> dict[str, list[dict[str, Any]]]:
+    return {name: [describe(t) for t in tools] for name, tools in SERVERS.items()}
+
+
+def templates() -> list[dict[str, Any]]:
+    return [d for d in yaml_docs(TEMPLATES) if d["kind"] == "AgentTemplate"]
+
+
+def binding(server: str, tools: list[str]) -> dict[str, Any]:
+    return {
+        "mcp": {
+            "server": {"apiGroup": "api.kagent.dev", "kind": "RemoteMCPServer", "name": server},
+            "tools": tools,
+        }
+    }
+
+
+def test_each_fake_has_a_remote_mcp_server_in_kagent() -> None:
+    remote = {
+        d["metadata"]["name"]: d for d in yaml_docs(MCP_MANIFEST) if d["kind"] == "RemoteMCPServer"
+    }
+    docs = render()
+    deployments = {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
+    services = {d["metadata"]["name"] for d in by_kind(docs, "Service")}
+
+    assert set(remote) == set(SERVERS) and len(SERVERS) == 4
+    for name, server in remote.items():
+        assert server["apiVersion"] == "api.kagent.dev/v1alpha3"
+        assert server["metadata"]["namespace"] == "kagent"
+        assert server["spec"]["protocol"] == "STREAMABLE_HTTP"
+        assert server["spec"]["url"] == f"http://{name}.ace.svc.cluster.local:8000/mcp"
+        assert name in deployments and name in services
+    install = (ROOT / "platform/install.sh").read_text()
+    assert install.index("agents/mcp.yaml") < install.index("agents/templates.yaml")
+
+
+def test_no_agent_template_binds_a_write_tool() -> None:
+    assert write_tool_bindings(templates(), server_tools()) == []
+
+
+def test_check_fails_on_a_planted_write_tool() -> None:
+    planted = server_tools()
+    planted[WORKFRONT].append(
+        {"name": "create_task", "annotations": {"readOnlyHint": False}, "inputSchema": {}}
+    )
+    bad = copy.deepcopy(templates())
+    research = next(t for t in bad if t["metadata"]["name"] == RESEARCH)
+    research["spec"]["tools"].append(binding(WORKFRONT, ["create_task"]))
+    disguised = {**planted}
+    disguised[WORKFRONT] = [
+        *planted[WORKFRONT][:-1],
+        {"name": "update_task", "annotations": {"readOnlyHint": True}, "inputSchema": {}},
+    ]
+    research["spec"]["tools"].append(binding(WORKFRONT, ["update_task"]))
+
+    assert any("create_task" in p for p in write_tool_bindings(bad, planted))
+    assert any("update_task" in p for p in write_tool_bindings(bad, disguised))
+    assert write_tool_bindings(
+        [{"metadata": {"name": "x"}, "spec": {"tools": [binding("someone-elses", ["anything"])]}}],
+        server_tools(),
+    )
+
+
+def test_research_binds_only_workfront_reads_and_no_other_agent_binds_tools() -> None:
+    by_name = {t["metadata"]["name"]: t for t in templates()}
+
+    assert by_name[RESEARCH]["spec"]["tools"] == [binding(WORKFRONT, WORKFRONT_READS)]
+    for role in ROLES.values():
+        if role.template != RESEARCH:
+            assert not by_name[role.template]["spec"].get("tools"), role.template
+    assert "get_project" in ROLES["research"].prompt
+
+
+def test_invoker_reads_the_tools_an_agent_called_off_the_task() -> None:
+    call = {
+        "data": {"name": "get_project", "args": {"project_id": "p1"}, "id": "c1"},
+        "metadata": {"kagent_type": "function_call"},
+    }
+    response = {
+        "data": {"name": "get_project", "response": {}, "id": "c1"},
+        "metadata": {"kagent_type": "function_response"},
+    }
+    task = {
+        "id": "t",
+        "contextId": "ctx",
+        "history": [
+            {"role": "ROLE_AGENT", "parts": [call]},
+            {"role": "ROLE_AGENT", "parts": [response]},
+        ],
+        "artifacts": [{"parts": [{"text": '{"ok": true}'}]}],
+    }
+
+    def reply(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "result": {"task": task}})
+
+    async def run() -> invoker.Invocation:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
+            return await invoker.invoke(
+                client,
+                "http://agent",
+                invoker.AgentCall("k", "p", {"type": "object"}),
+            )
+
+    assert asyncio.run(run()).tool_calls == ("get_project",)

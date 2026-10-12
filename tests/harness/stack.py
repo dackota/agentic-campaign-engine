@@ -140,6 +140,7 @@ class Stack:
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
+        self.web_origin = pinned.web_origin
         self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
@@ -202,6 +203,12 @@ class Stack:
     @property
     def api_url(self) -> str:
         return f"http://127.0.0.1:{self.api_port}"
+
+    @property
+    def database_url(self) -> str:
+        """The stack's Postgres, for tests that check the database's own rules."""
+        assert self._postgres is not None, "the stack is not started"
+        return str(self._postgres.get_connection_url())
 
     @property
     def marketo_url(self) -> str:
@@ -406,6 +413,7 @@ class Stack:
             s3_bucket=self.s3_bucket,
             oidc_issuer=self.dex.issuer,
             oidc_client_id=CLIENT_ID,
+            web_url=self.web_origin,
             marketo_client_id=self.marketo_client_id,
             marketo_client_secret=self.marketo_client_secret,
             marketo_webhook_secret=self.marketo_webhook_secret,

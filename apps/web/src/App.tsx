@@ -19,6 +19,7 @@ import {
 } from "./api";
 import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
+import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
@@ -173,6 +174,7 @@ export function App() {
   const showError = (e: unknown) => setError(messageOf(e));
 
   useEffect(() => {
+    rememberInboxLink();
     (async () => {
       await finishSignIn();
       if (!accessToken()) return setSession({ state: "signed-out" });
@@ -465,7 +467,10 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const fail: Fail = (e) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e)));
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
-  const [view, setView] = useState<"campaigns" | "builder">("campaigns");
+  const [linkedCampaign] = useState(takeInboxLink);
+  const [view, setView] = useState<"campaigns" | "builder" | "inbox">(
+    linkedCampaign ? "inbox" : "campaigns",
+  );
 
   return (
     <main>
@@ -478,9 +483,19 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
         <button type="button" onClick={() => setView("builder")}>
           Workflow builder
         </button>
+        {me.roles.includes("approver") && (
+          <>
+            {" "}
+            <button type="button" onClick={() => setView("inbox")}>
+              Inbox
+            </button>
+          </>
+        )}
       </nav>
       {view === "builder" ? (
         <Builder />
+      ) : view === "inbox" ? (
+        <Inbox onSignOut={onSignOut} linkedCampaign={linkedCampaign} />
       ) : (
         <Campaigns
           me={me}

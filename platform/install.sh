@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the platform on the `ace` cluster: Substrate, kagent, agentgateway, Dex, the mock model,
-# the S0 agent, and a mock-backed twin of it. Usage: install.sh check-env|run
+# the S0 agent, a mock-backed twin of it, and each team's role Agents in its own namespace. Usage: install.sh check-env|run
 # The spike scripts do the installing; this script only calls them (always with KCTX set,
 # because they default to the other cluster). It never reads .env values: check-env only
 # asks whether OPENCODE_KEY has a value, and gateway-install.sh pipes the keys to kubectl.
@@ -22,6 +22,8 @@ AGENT="spike-agent"
 # The default workflow's six role Agents (agents/agents.yaml).
 ROLE_AGENTS=(agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer agent/ace-design-agent)
 HARNESS="spike-harness"
+# The teams in Dex; each runs the role Agents in its own namespace team-<team> (agents/teams).
+TEAMS="demand-gen product-marketing"
 CA_POOLS_ATE="actor-id-jwt-pool actor-id-ca-pool egress-mitm-ca-pool"
 CA_POOLS_PODCERT="service-dns-ca-pool pod-identity-ca-pool"
 
@@ -120,6 +122,17 @@ smoke_twin() {
   done
 }
 
+# Each team's gateway route and token limit, then its namespace of Agents on its own
+# ModelConfig. The overlays name role files outside their directory, hence the restrictor.
+apply_teams() {
+  local team
+  k apply -f "$ROOT/agents/teams/gateway.yaml"
+  for team in $TEAMS; do
+    k kustomize --load-restrictor LoadRestrictionsNone "$ROOT/agents/teams/$team" | k apply -f -
+    k wait --for=condition=Ready "${ROLE_AGENTS[@]}" -n "team-$team" --timeout="$READY_TIMEOUT"
+  done
+}
+
 run() {
   check_env
   fetch_kubectl_ate
@@ -144,9 +157,11 @@ run() {
   "$ROOT/platform/dex/install.sh" run
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
+  k apply -f "$ROOT/agents/mcp.yaml"
   k apply -f "$ROOT/agents/templates.yaml"
   k apply -f "$ROOT/agents/agents.yaml"
   k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" "${ROLE_AGENTS[@]}" -n kagent --timeout="$READY_TIMEOUT"
+  apply_teams
   smoke_twin
   echo "platform is up; total time ${SECONDS}s"
 }

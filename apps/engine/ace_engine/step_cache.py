@@ -3,8 +3,9 @@
 The key is the step type, the agent revision digest, and a hash of the input. The revision
 digest is a hash of the agent's card, which the agent serves at
 `<agent url>/.well-known/agent-card.json`, so a new revision of the agent misses. Entries
-are kept per team, so one team never reads another's output. See
-docs/decisions/step-cache.md."""
+are kept per team: the cache reads and writes as its team (`row_security.for_team`), so
+row-level security keeps one team from another's output. See docs/decisions/step-cache.md
+and docs/decisions/team-isolation.md."""
 
 import hashlib
 import json
@@ -18,7 +19,7 @@ from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
-from ace_engine import db
+from ace_engine import db, row_security
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,7 @@ async def agent_revision(client: httpx.AsyncClient, agent_url: str) -> str | Non
 
 class StepCache:
     def __init__(self, engine: Engine, team: str) -> None:
-        self._engine = engine
+        self._engine = row_security.for_team(engine, team)
         self._team = team
 
     def get(self, key: CacheKey) -> CachedStep | None:
@@ -75,6 +76,8 @@ class StepCache:
     def put(self, key: CacheKey, output: object, model: str) -> None:
         """Save the output. The first entry for a key stays: racing writers agree."""
         values = {**self._where(key), "output": output, "model": model}
+        # The entry's owner, not a filter: the database checks it is the caller's team.
+        values.update(team=self._team)
         dialect = self._engine.dialect.name
         insert = (postgresql.insert if dialect == "postgresql" else sqlite.insert)(
             db.StepCacheEntry
@@ -84,7 +87,6 @@ class StepCache:
 
     def _where(self, key: CacheKey) -> dict[str, str]:
         return {
-            "team": self._team,
             "step_type": key.step_type,
             "agent_digest": key.agent_digest,
             "input_hash": key.input_hash,

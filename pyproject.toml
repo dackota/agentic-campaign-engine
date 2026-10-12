@@ -47,9 +47,9 @@ max-args = 5
 
 [tool.mypy]
 strict = true
-files = ["tests", "evals", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
-mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+files = ["tests", "evals", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
+mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]

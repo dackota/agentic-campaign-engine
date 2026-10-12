@@ -81,6 +81,16 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |
 | Grafana alerting provisioning (grafana/otel-lgtm), checked 2026-10-11 | Rules, contact points and policies load from YAML files in the provisioning/alerting folder (grafana/otel-lgtm reads `/otel-lgtm/grafana/conf/provisioning`, where `manifests/observability/collector.yaml` mounts them); a webhook contact point takes `authorization_scheme` and `authorization_credentials`, and `$__env{NAME}` reads an environment variable. Honeycomb takes OTLP at `api.honeycomb.io:443` with header `x-honeycomb-team` |
 
+## Agents bind MCP tools (#38)
+
+Written on 2026-10-12 from the CRD shapes already in `agents/`; no kagent docs page was read for this section. The CRD fields have not been checked against the live cluster (`kubectl --context k3d-ace explain`, read only): that check is owed to the proof runner, and so is kagent's A2A tool-call shape (`metadata.kagent_type = function_call`, `data.name`), which `apps/engine/ace_engine/invoker.py` reads and only the scripted agent has produced so far.
+
+| Source | What it told us |
+|---|---|
+| Unchecked live: `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
+| Unchecked live: `kubectl explain agenttemplates.spec.tools --recursive --api-version=api.kagent.dev/v1alpha3` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {apiGroup, kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use |
+| MCP spec 2025-03-26, Streamable HTTP | A client POSTs JSON-RPC to one endpoint and may take a plain JSON reply; a notification gets 202. Tool annotations carry `readOnlyHint` |
+
 ## Prompt caching
 
 | Source | What it told us |
@@ -88,6 +98,9 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | [OpenCode Go](https://opencode.ai/docs/go/) | Checked live 2026-10-12. Asks for a stable session ID in `x-opencode-session` "so we can optimize routing and prompt caching". Prices list a cached-read rate per model. `glm-5.3-flash` goes through `/v1/chat/completions`; the page documents no `cache_control` mark |
 | agentgateway access log on k3d-ace | Checked live 2026-10-12. Each model call logs `gen_ai.usage.input_tokens`, `gen_ai.usage.cache_read.input_tokens` and `agw.ai.time_to_first_token`. A repeat of a 5,755-token prompt read 5,440 tokens from the provider's cache. See `docs/decisions/prompt-caching.md` |
 | kagent A2A reply usage (`kagent.dev/a2a/usage`) | Checked live 2026-10-12. Holds `promptTokenCount`, `candidatesTokenCount`, `totalTokenCount` only: no cached-token count, so the cost ledger cannot show prompt-cache savings |
+| `kubectl kustomize` (kubectl v1.36.3, checked 2026-10-12) | A kustomization under `agents/teams/<team>` that lists `../..` fails: "cycle detected: candidate root ... contains visited root". Naming the files (`../../templates.yaml`) needs `--load-restrictor LoadRestrictionsNone`, which `kubectl apply -k` does not take, so install pipes `kubectl kustomize` into `kubectl apply -f -` |
+| `kubectl get workerpools -A` on k3d-ace (2026-10-12) | `WorkerPool` (`ate.dev/v1alpha1`) is namespaced. A team namespace needs its own pool: spec `replicas`, `sandboxClass: gvisor`, `workerImage` |
+| ActorTemplate `worker_selector` and WorkerPool labels on k3d-ace (2026-10-12) | kagent 1.0.0-alpha9 gives an Agent's ActorTemplate the selector `kagent.dev/worker-pool: <workerPoolRef name>`, matched against the WorkerPool's own labels. The kagent chart sets that label on `kagent-default`; a hand-made pool without it never runs the golden actor, and the Agent sits at `ActorTemplatePending` with no error. Adding the label made a team-namespace Agent Ready in about 30s |
 
 ## Sandbox design agent
 

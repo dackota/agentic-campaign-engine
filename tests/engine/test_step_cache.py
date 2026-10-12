@@ -1,5 +1,6 @@
 """The step cache: the key is the step type, the agent revision digest, and a hash of the
-input; a saved result is reused only for the same key and team. The agent revision digest
+input; a saved result is reused only for the same key (the team rule is row-level security,
+tested on Postgres in tests/api/test_team_isolation.py). The agent revision digest
 follows the agent's card. The prompt a role sends keeps the stable text first, so a
 provider's prefix cache can reuse it."""
 
@@ -78,12 +79,6 @@ def test_a_key_that_differs_in_any_part_misses(engine: Engine, other: CacheKey) 
     cache.put(key(), {"ok": True}, model="m")
 
     assert cache.get(other) is None
-
-
-def test_another_team_never_sees_the_entry(engine: Engine) -> None:
-    StepCache(engine, team="demand-gen").put(key(), {"ok": True}, model="m")
-
-    assert StepCache(engine, team="other-team").get(key()) is None
 
 
 def test_putting_the_same_key_twice_keeps_one_entry(engine: Engine) -> None:

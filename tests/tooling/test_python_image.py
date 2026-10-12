@@ -47,6 +47,7 @@ def test_image_copies_every_pythonpath_root_and_sets_pythonpath() -> None:
         "apps/worker",
         "services/fakes",
         "services/render",
+        "services/mcp",
     }
     for root in roots:
         top = root.split("/")[0]

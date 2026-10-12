@@ -41,6 +41,10 @@ SOCIAL_POST_CHARS = 280
 # behaviour without access to the agent: hold the reply, or reply with broken JSON.
 SLOW_MARKER = "[agent:slow]"
 BAD_JSON_MARKER = "[agent:bad-json]"
+# "[agent:flag]" in a report makes the brand reviewer always ask for a fix, so every writer's
+# draft ends up flagged for a human.
+FLAG_MARKER = "[agent:flag]"
+FLAG_ISSUE = {"check": "banned_claim", "detail": "100% protection is a banned claim"}
 SLOW_REPLY_SECONDS = 1.5
 # "[agent:down-N]" in a report makes the first N calls that carry that report answer with
 # an A2A error, so a step fails on cue and a later attempt succeeds.
@@ -76,6 +80,8 @@ DESIGN_PROGRAM = (
     "echo \"CARD $n $(base64 < /tmp/c$n.svg | tr -d '\\n')\"; done"
 )
 TOOL_NAME = "read_report"
+# The research agent reads the campaign's Workfront project through MCP before it answers.
+RESEARCH_TOOL = "get_project"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
 # docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
@@ -199,6 +205,8 @@ class ScriptedAgent:
                 "status": {"state": COMPLETED},
                 "artifacts": [artifact],
             }
+            if ROLES["research"].prompt in text:
+                task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
             return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
         return app
@@ -208,6 +216,15 @@ def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
     return JSONResponse(
         {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
     )
+
+
+def _tool_call_message(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """An agent message in a task's history that records one tool call, the way kagent does."""
+    call = {
+        "data": {"id": str(uuid.uuid4()), "name": name, "args": args},
+        "metadata": {"kagent_type": "function_call"},
+    }
+    return {"messageId": str(uuid.uuid4()), "role": "ROLE_AGENT", "parts": [call]}
 
 
 def _export_tool_and_model_spans() -> None:
@@ -246,6 +263,8 @@ def default_reply(message_text: str) -> dict[str, Any]:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
     if BRAND_REVIEWER.prompt in message_text:
+        if FLAG_MARKER in _report_of(message_text):
+            return {"verdict": "fix", "issues": [FLAG_ISSUE]}
         return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)
