@@ -38,7 +38,7 @@ from temporalio.client import Client
 
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.alerts import register_alert_routes
-from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
+from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, User, authorize
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.trace_middleware import install_campaign_trace
 from campaign_api.trace_middleware import remember as remember_trace
@@ -505,6 +505,24 @@ def _add_asset_preview_route(app: FastAPI) -> None:
         return Response(content, media_type=media_type)
 
 
+def _new_campaign(
+    body: NewCampaign, user: User, name: str | None, version: int | None, dag: dict[str, Any]
+) -> db.Campaign:
+    """A drafting campaign that runs `dag`, version `version` of workflow `name`."""
+    return db.Campaign(
+        id=uuid.uuid4(),
+        report=body.report,
+        team=user.team,
+        created_by=user.subject,
+        status=db.DRAFTING,
+        workflow_name=name,
+        workflow_version=version,
+        dag=dag,
+        budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
+        use_step_cache=body.use_step_cache,
+    )
+
+
 def _add_campaign_routes(app: FastAPI) -> None:
     @app.get("/me")
     def me(user: CurrentUser) -> Me:
@@ -522,18 +540,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
         authorize(user, Action.CREATE)
         engine = request.app.state.engine
         name, version, dag = await _pinned(engine, body.workflow)
-        campaign = db.Campaign(
-            id=uuid.uuid4(),
-            report=body.report,
-            team=user.team,
-            created_by=user.subject,
-            status=db.DRAFTING,
-            workflow_name=name,
-            workflow_version=version,
-            dag=dag,
-            budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
-            use_step_cache=body.use_step_cache,
-        )
+        campaign = _new_campaign(body, user, name, version, dag)
         # This request's span is the root of the campaign's trace: keep it for later requests,
         # and the workflow started below carries it through Temporal.
         trace.get_current_span().set_attribute(telemetry.CAMPAIGN_ATTRIBUTE, str(campaign.id))

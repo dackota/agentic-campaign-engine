@@ -50,15 +50,30 @@ class BatchUpdate(BaseModel):
     requests: list[Request]
 
 
+def _same(a: str, b: str) -> bool:
+    return hmac.compare_digest(a.encode(), b.encode())
+
+
+def _check_grant(body: bytes, config: GoogleConfig) -> None:
+    """Refuse a token request that is not a refresh grant for the configured client."""
+    # A form body, parsed by hand so the fake needs no multipart package.
+    form = {k: v[0] for k, v in parse_qs(body.decode()).items()}
+    if form.get("grant_type", "") != "refresh_token":
+        raise HTTPException(status_code=400, detail={"error": "unsupported_grant_type"})
+    if not (
+        _same(form.get("client_id", ""), config.client_id)
+        and _same(form.get("client_secret", ""), config.client_secret)
+        and _same(form.get("refresh_token", ""), config.refresh_token)
+    ):
+        raise HTTPException(status_code=401, detail={"error": "invalid_client"})
+
+
 def create_app(config: GoogleConfig) -> FastAPI:
     app = FastAPI(title="fake-google")
     telemetry.instrument_app(app, "fake-google")
     access_tokens: set[str] = set()
     documents: dict[str, dict[str, str]] = {}
     lock = threading.Lock()
-
-    def same(a: str, b: str) -> bool:
-        return hmac.compare_digest(a.encode(), b.encode())
 
     def require_token(authorization: str | None = Header(default=None)) -> None:
         token = (authorization or "").removeprefix("Bearer ")
@@ -68,20 +83,7 @@ def create_app(config: GoogleConfig) -> FastAPI:
 
     @app.post("/token")
     async def token(http: HttpRequest) -> dict[str, Any]:
-        # A form body, parsed by hand so the fake needs no multipart package.
-        form = {k: v[0] for k, v in parse_qs((await http.body()).decode()).items()}
-        grant_type = form.get("grant_type", "")
-        client_id = form.get("client_id", "")
-        client_secret = form.get("client_secret", "")
-        refresh_token = form.get("refresh_token", "")
-        if grant_type != "refresh_token":
-            raise HTTPException(status_code=400, detail={"error": "unsupported_grant_type"})
-        if not (
-            same(client_id, config.client_id)
-            and same(client_secret, config.client_secret)
-            and same(refresh_token, config.refresh_token)
-        ):
-            raise HTTPException(status_code=401, detail={"error": "invalid_client"})
+        _check_grant(await http.body(), config)
         access = secrets.token_urlsafe(24)
         with lock:
             access_tokens.add(access)
