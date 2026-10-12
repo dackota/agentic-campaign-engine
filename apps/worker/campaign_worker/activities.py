@@ -134,12 +134,9 @@ class Activities:
         output, usage, writer_sessions = draft
         reviewer_session_id: str | None = None
         writer_session = session_key(job.campaign_id, job.step_id)
-        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
         for turn in range(fix_rounds + 1):
-            verdict = await self._review(
-                client, job, output, reviewer_session, turn, reviewer_session_id
-            )
+            verdict = await self._review(client, job, output, turn, reviewer_session_id)
             reviewer_session_id = verdict.session_id
             usage = usage + verdict.usage
             if verdict.output["verdict"] == brand_review.PASS:
@@ -168,10 +165,10 @@ class Activities:
         client: httpx.AsyncClient,
         job: ReviewJob,
         output: AgentOutput,
-        reviewer_session: str,
         turn: int,
         session_id: str | None,
     ) -> invoker.Invocation:
+        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         return await invoker.invoke(
             client,
             self._settings.agent_url,
