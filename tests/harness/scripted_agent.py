@@ -41,6 +41,10 @@ SOCIAL_POST_CHARS = 280
 # behaviour without access to the agent: hold the reply, or reply with broken JSON.
 SLOW_MARKER = "[agent:slow]"
 BAD_JSON_MARKER = "[agent:bad-json]"
+# "[agent:flag]" in a report makes the brand reviewer always ask for a fix, so every writer's
+# draft ends up flagged for a human.
+FLAG_MARKER = "[agent:flag]"
+FLAG_ISSUE = {"check": "banned_claim", "detail": "100% protection is a banned claim"}
 SLOW_REPLY_SECONDS = 1.5
 # "[agent:down-N]" in a report makes the first N calls that carry that report answer with
 # an A2A error, so a step fails on cue and a later attempt succeeds.
@@ -259,6 +263,8 @@ def default_reply(message_text: str) -> Any:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
     if BRAND_REVIEWER.prompt in message_text:
+        if FLAG_MARKER in _report_of(message_text):
+            return {"verdict": "fix", "issues": [FLAG_ISSUE]}
         return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)

@@ -97,6 +97,14 @@ def test_slack_gets_the_approval_request_and_the_publish_notice(wired: Stack) ->
     assert wired.slack_token not in str(read(wired.slack_messages_url))
 
 
+def test_slack_approval_message_links_to_the_inbox_item(wired: Stack) -> None:
+    sent = run_to_sent(wired, f"{REPORT} slack-link-marker-3")
+
+    texts = until_messages(wired, sent["id"], 2)
+
+    assert f"{wired.web_origin}/?inbox={sent['id']}" in texts[0]
+
+
 def test_google_stand_in_gets_one_doc_with_the_brief_and_drafts(wired: Stack) -> None:
     report = f"{REPORT} google-marker-2"
     sent = run_to_sent(wired, report)
