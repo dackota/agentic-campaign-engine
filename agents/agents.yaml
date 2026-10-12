@@ -1,0 +1,45 @@
+# One kagent Agent per AgentTemplate in templates.yaml, all on the Go harness S0 installed
+# (spike-harness, golang-adk). The Agent's name is the last part of its A2A URL:
+# <controller>/agents/kagent/<name>. Apply after templates.yaml.
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-strategist, namespace: kagent}
+spec:
+  templateRef: {name: ace-strategist}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-research, namespace: kagent}
+spec:
+  templateRef: {name: ace-research}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-email-writer, namespace: kagent}
+spec:
+  templateRef: {name: ace-email-writer}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-landing-page-writer, namespace: kagent}
+spec:
+  templateRef: {name: ace-landing-page-writer}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-social-writer, namespace: kagent}
+spec:
+  templateRef: {name: ace-social-writer}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-one-pager-writer, namespace: kagent}
+spec:
+  templateRef: {name: ace-one-pager-writer}
+  harnessRef: {name: spike-harness}

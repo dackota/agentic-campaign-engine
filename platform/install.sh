@@ -19,6 +19,8 @@ SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-120}"
 SMOKE_RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 TWIN="spike-agent-mock"
 AGENT="spike-agent"
+# The default workflow's six role Agents (agents/agents.yaml).
+ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer"
 HARNESS="spike-harness"
 CA_POOLS_ATE="actor-id-jwt-pool actor-id-ca-pool egress-mitm-ca-pool"
 CA_POOLS_PODCERT="service-dns-ca-pool pod-identity-ca-pool"
@@ -135,7 +137,9 @@ run() {
   "$ROOT/platform/dex/install.sh" run
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
-  k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" -n kagent --timeout="$READY_TIMEOUT"
+  k apply -f "$ROOT/agents/templates.yaml"
+  k apply -f "$ROOT/agents/agents.yaml"
+  k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" $ROLE_AGENTS -n kagent --timeout="$READY_TIMEOUT"
   smoke_twin
   echo "platform is up; total time ${SECONDS}s"
 }

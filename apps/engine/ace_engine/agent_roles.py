@@ -16,6 +16,7 @@ from ace_engine.contracts import (
     SOCIAL_POSTS_SCHEMA,
     STRATEGY_SCHEMA,
 )
+from ace_engine.settings import Depth
 
 # The email writer returns the A/B test's two emails: variant A first.
 EMAIL_VARIANTS = 2
@@ -136,3 +137,12 @@ def message_for(role: Role, report: str, context: dict[str, Any], variant: int =
     for step_id, output in context.items():
         parts.append(f"OUTPUT OF {step_id}: {output}")
     return "\n\n".join(parts) + f"\n\n{REPORT_MARKER}\n{report}"
+
+
+def agent_url_for(base_url: str, depth: Depth, role: Role) -> str:
+    """Where to send a role's messages. At live depth each role is its own kagent Agent,
+    named like its template, under the controller's base URL; at fast depth the scripted
+    agent plays every role at the one URL."""
+    if depth is Depth.LIVE:
+        return f"{base_url.rstrip('/')}/{role.template}"
+    return base_url

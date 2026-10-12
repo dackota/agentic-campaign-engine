@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 from ace_engine import brand_review, cost, db, invoker, telemetry
 from ace_engine import dag as graph
-from ace_engine.agent_roles import Role, message_for, role_for
+from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for
 from ace_engine.contracts import AgentOutput, citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
@@ -92,10 +92,10 @@ class Activities:
             try:
                 job = ReviewJob(campaign_id, step_id, report, role, context)
                 with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
-                    output, usage = await self._writer_outputs(client, job)
+                    output, usage, writer_sessions = await self._writer_outputs(client, job)
                     if review_rounds > 0:
                         output, usage = await self._review_loop(
-                            client, job, output, usage, review_rounds
+                            client, job, (output, usage, writer_sessions), review_rounds
                         )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
@@ -123,28 +123,21 @@ class Activities:
         self,
         client: httpx.AsyncClient,
         job: ReviewJob,
-        output: AgentOutput,
-        usage: cost.Usage,
+        draft: tuple[AgentOutput, cost.Usage, tuple[str, ...]],
         review_rounds: int,
     ) -> tuple[AgentOutput, cost.Usage]:
         """Send the draft to the brand reviewer; on a fix verdict send the issues back to
         the same writer sessions, for at most `review_rounds` rounds (never more than the
         limit). What the reviewer still flags after the last round is flagged for a human.
+        `draft` is the writers' output, its tokens, and the sessions the agents issued.
         Returns the output and the tokens of every call so far."""
+        output, usage, writer_sessions = draft
+        reviewer_session_id: str | None = None
         writer_session = session_key(job.campaign_id, job.step_id)
-        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
         for turn in range(fix_rounds + 1):
-            verdict = await invoker.invoke(
-                client,
-                self._settings.agent_url,
-                invoker.AgentCall(
-                    session_key=reviewer_session,
-                    prompt=brand_review.review_message(output, job.context, job.report),
-                    schema=brand_review.VERDICT_SCHEMA,
-                    turn=turn,
-                ),
-            )
+            verdict = await self._review(client, job, output, turn, reviewer_session_id)
+            reviewer_session_id = verdict.session_id
             usage = usage + verdict.usage
             if verdict.output["verdict"] == brand_review.PASS:
                 break
@@ -161,9 +154,32 @@ class Activities:
             )
             if is_last:
                 break
-            output, fix_usage = await self._writer_outputs(client, job, issues, turn + 1)
+            output, fix_usage, writer_sessions = await self._writer_outputs(
+                client, job, issues, turn + 1, writer_sessions
+            )
             usage = usage + fix_usage
         return output, usage
+
+    async def _review(
+        self,
+        client: httpx.AsyncClient,
+        job: ReviewJob,
+        output: AgentOutput,
+        turn: int,
+        session_id: str | None,
+    ) -> invoker.Invocation:
+        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
+        return await invoker.invoke(
+            client,
+            self._settings.agent_url,
+            invoker.AgentCall(
+                session_key=reviewer_session,
+                prompt=brand_review.review_message(output, job.context, job.report),
+                schema=brand_review.VERDICT_SCHEMA,
+                turn=turn,
+                session_id=session_id,
+            ),
+        )
 
     async def _writer_outputs(
         self,
@@ -171,11 +187,14 @@ class Activities:
         job: ReviewJob,
         issues: list[dict[str, Any]] | None = None,
         turn: int = 0,
-    ) -> tuple[AgentOutput, cost.Usage]:
+        sessions: tuple[str, ...] = (),
+    ) -> tuple[AgentOutput, cost.Usage, tuple[str, ...]]:
         """Ask each of the writer's sessions: the first draft, or with `issues` the fixes the
         reviewer asked for. The step's output (a list when the role replies more than once)
-        and the tokens the calls used."""
+        the tokens the calls used, and the sessions the agent issued (`sessions` are the ones
+        a fix goes back to)."""
         outputs = []
+        issued = []
         usage = cost.NO_USAGE
         for variant in range(job.role.replies):
             prompt = message_for(job.role, job.report, job.context, variant)
@@ -183,17 +202,19 @@ class Activities:
                 prompt = brand_review.fix_message(prompt, issues)
             reply = await invoker.invoke(
                 client,
-                self._settings.agent_url,
+                agent_url_for(self._settings.agent_url, self._settings.depth, job.role),
                 invoker.AgentCall(
                     session_key=session_key(job.campaign_id, job.step_id, variant),
                     prompt=prompt,
                     schema=job.role.reply_schema,
                     turn=turn,
+                    session_id=sessions[variant] if sessions else None,
                 ),
             )
             outputs.append(reply.output)
+            issued.append(reply.session_id)
             usage = usage + reply.usage
-        return (outputs if job.role.replies > 1 else outputs[0]), usage
+        return (outputs if job.role.replies > 1 else outputs[0]), usage, tuple(issued)
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
