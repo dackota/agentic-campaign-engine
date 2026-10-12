@@ -32,6 +32,7 @@ def build_worker(
         activities=[
             activities.run_agent_step,
             activities.save_agent_output,
+            activities.redo_asset,
             activities.mark_step,
             activities.open_approval,
             activities.mark_failed,

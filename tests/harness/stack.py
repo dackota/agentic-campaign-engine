@@ -130,6 +130,7 @@ class Stack:
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
+        self.web_origin = web_origin
         self.dex = Dex(dex_port or free_port(), web_origin)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
@@ -402,6 +403,7 @@ class Stack:
             s3_bucket=self.s3_bucket,
             oidc_issuer=self.dex.issuer,
             oidc_client_id=CLIENT_ID,
+            web_url=self.web_origin,
             marketo_client_id=self.marketo_client_id,
             marketo_client_secret=self.marketo_client_secret,
             marketo_webhook_secret=self.marketo_webhook_secret,
