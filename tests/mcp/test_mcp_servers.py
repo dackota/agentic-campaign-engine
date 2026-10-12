@@ -1,11 +1,15 @@
 """The four read-only MCP servers over HTTP, each reading the real fake it fronts."""
 
+import asyncio
 import json
 from typing import Any
 
 import httpx
+import pytest
 from ace_mcp import assets, cms, marketo, workfront
 from ace_mcp.registry import SERVERS
+from ace_mcp.server import Tool, create_app, schema
+from ace_mcp.upstream import HttpReader
 from fake_cms.app import create_app as create_cms
 from fake_marketo.app import MarketoConfig
 from fake_marketo.app import create_app as create_marketo
@@ -183,3 +187,61 @@ def test_non_object_params_get_a_protocol_error_not_a_server_error() -> None:
 
     assert reply.status_code == 200
     assert reply.json()["error"]["code"] == -32602
+
+
+def _recording_apps() -> tuple[dict[str, TestClient], list[str]]:
+    paths: list[str] = []
+
+    def record(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(200, json={"access_token": "t", "data": [], "result": []})
+
+    client = httpx.Client(transport=httpx.MockTransport(record), base_url="http://up")
+    apps = {
+        "workfront": workfront.create_app(client, CLIENT_ID, CLIENT_SECRET),
+        "marketo": marketo.create_app(client, CLIENT_ID, CLIENT_SECRET),
+        "cms": cms.create_app(client),
+        "assets": assets.create_app(client, "bucket"),
+    }
+    return {name: TestClient(app) for name, app in apps.items()}, paths
+
+
+ESCAPING_CALLS = [
+    ("workfront", "get_project", {"project_id": "../../task/x"}),
+    ("workfront", "get_project", {"project_id": ".."}),
+    ("workfront", "get_task", {"task_id": "a/b"}),
+    ("workfront", "get_task", {"task_id": "a?b=1"}),
+    ("workfront", "search_tasks", {"project_id": "../x"}),
+    ("workfront", "search_approvals", {"task_id": "a#b"}),
+    ("marketo", "get_program", {"program_id": "../../x"}),
+    ("cms", "get_page", {"slug": "../secret"}),
+    ("assets", "get_asset", {"key": "../other/x"}),
+    ("assets", "get_asset", {"key": "img/./a.txt"}),
+    ("assets", "get_asset", {"key": "img/../../x"}),
+]
+
+
+@pytest.mark.parametrize(("server", "tool", "arguments"), ESCAPING_CALLS)
+def test_an_id_that_escapes_its_path_segment_is_a_tool_error_with_no_upstream_call(
+    server: str, tool: str, arguments: dict[str, Any]
+) -> None:
+    apps, paths = _recording_apps()
+
+    result = rpc(apps[server], "tools/call", {"name": tool, "arguments": arguments})["result"]
+
+    assert result["isError"] is True, result
+    assert paths == []
+
+
+def test_a_tool_runs_off_the_event_loop() -> None:
+    def run(reader: Any, args: dict[str, Any]) -> Any:
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            return "off the loop"
+        return "on the loop"
+
+    tool = Tool("probe", "probe", schema(), run)
+    mcp = TestClient(create_app("probe", [tool], HttpReader(httpx.Client(base_url="http://up"))))
+
+    assert call(mcp, "probe", {}) == "off the loop"

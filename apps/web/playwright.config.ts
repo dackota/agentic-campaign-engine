@@ -7,7 +7,7 @@ const apiPort = process.env.ACE_API_PORT ?? "18080";
 const webPort = process.env.ACE_WEB_PORT ?? "15173";
 const dexPort = process.env.ACE_DEX_PORT ?? "15556";
 const root = resolve(import.meta.dirname, "../..");
-const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
   .map((p) => resolve(root, p))
   .join(delimiter);
 const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";

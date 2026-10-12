@@ -27,6 +27,8 @@ class HttpReader(Reader):
             "client_id": client_id,
             "client_secret": client_secret,
         }
+        # Tool calls run in worker threads; two may fetch a token at once, which only costs a
+        # second fetch, so the cache needs no lock.
         self._token: str | None = None
 
     def _fetch_token(self) -> str:

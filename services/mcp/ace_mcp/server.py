@@ -5,6 +5,7 @@ It speaks the few methods an agent runtime needs: `initialize`, `ping`, `tools/l
 tool is listed with `readOnlyHint: true`. A tool that would write has nowhere to stand.
 """
 
+import asyncio
 import json
 import logging
 from collections.abc import Callable, Sequence
@@ -129,7 +130,8 @@ def create_app(name: str, tools: Sequence[Tool], reader: Reader) -> FastAPI:
         if method == "tools/list":
             return _reply(body, {"tools": [describe(t) for t in tools]})
         if method == "tools/call":
-            result = _call(by_name, reader, params)
+            # the tool's upstream call is blocking httpx: keep it off the event loop
+            result = await asyncio.to_thread(_call, by_name, reader, params)
             if result is None:
                 return _reply(body, error=(INVALID_PARAMS, f"unknown tool {params.get('name')}"))
             return _reply(body, result)

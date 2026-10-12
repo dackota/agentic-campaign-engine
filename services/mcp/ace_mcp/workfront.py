@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 
+from ace_mcp.args import optional_segment, segment
 from ace_mcp.server import Reader, Tool, schema, serve
 from ace_mcp.server import create_app as build_app
 from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
@@ -16,7 +17,7 @@ API = "/attask/api/v15.0"
 
 
 def _get_project(reader: Reader, args: dict[str, Any]) -> Any:
-    return reader.get(f"{API}/proj/{args['project_id']}")
+    return reader.get(f"{API}/proj/{segment(args, 'project_id')}")
 
 
 def _search_projects(reader: Reader, args: dict[str, Any]) -> Any:
@@ -24,19 +25,19 @@ def _search_projects(reader: Reader, args: dict[str, Any]) -> Any:
 
 
 def _get_task(reader: Reader, args: dict[str, Any]) -> Any:
-    return reader.get(f"{API}/task/{args['task_id']}")
+    return reader.get(f"{API}/task/{segment(args, 'task_id')}")
 
 
 def _search_tasks(reader: Reader, args: dict[str, Any]) -> Any:
     return reader.get(
         f"{API}/task/search",
-        projectID=str(args.get("project_id", "")),
+        projectID=optional_segment(args, "project_id"),
         externalID=str(args.get("external_id", "")),
     )
 
 
 def _search_approvals(reader: Reader, args: dict[str, Any]) -> Any:
-    return reader.get(f"{API}/appr/search", taskID=str(args.get("task_id", "")))
+    return reader.get(f"{API}/appr/search", taskID=optional_segment(args, "task_id"))
 
 
 TOOLS = (

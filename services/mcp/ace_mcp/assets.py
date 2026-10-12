@@ -9,6 +9,7 @@ from xml.etree import ElementTree
 import httpx
 from fastapi import FastAPI
 
+from ace_mcp.args import key_path
 from ace_mcp.server import Reader, Tool, schema, serve
 from ace_mcp.server import create_app as build_app
 from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
@@ -23,7 +24,7 @@ def _list_assets(bucket: str) -> Any:
         listing = reader.get_response(
             f"/{bucket}", **{"list-type": "2", "prefix": str(args.get("prefix", ""))}
         )
-        root = ElementTree.fromstring(listing.text)
+        root = ElementTree.fromstring(listing.text)  # nosec B314 - the in-cluster S3 fake
         return {
             "assets": [
                 {
@@ -39,7 +40,7 @@ def _list_assets(bucket: str) -> Any:
 
 def _get_asset(bucket: str) -> Any:
     def run(reader: Reader, args: dict[str, Any]) -> Any:
-        response = reader.get_response(f"/{bucket}/{quote(str(args['key']), safe='/')}")
+        response = reader.get_response(f"/{bucket}/{quote(key_path(args, 'key'), safe='/')}")
         content_type = response.headers.get("content-type", "")
         reply: dict[str, Any] = {
             "key": args["key"],

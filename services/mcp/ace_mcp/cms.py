@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 from fastapi import FastAPI
 
+from ace_mcp.args import segment
 from ace_mcp.server import Reader, Tool, schema, serve
 from ace_mcp.server import create_app as build_app
 from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
@@ -19,7 +20,7 @@ def _list_pages(reader: Reader, args: dict[str, Any]) -> Any:
 
 
 def _get_page(reader: Reader, args: dict[str, Any]) -> Any:
-    return reader.get(f"/api/pages/{args['slug']}")
+    return reader.get(f"/api/pages/{segment(args, 'slug')}")
 
 
 TOOLS = (
