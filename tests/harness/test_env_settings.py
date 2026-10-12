@@ -14,7 +14,14 @@ from ace_engine.settings import Depth, Settings
 from fake_marketo.app import MarketoConfig
 
 ROOT = Path(__file__).resolve().parents[2]
-PYTHONPATH = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+PYTHONPATH = [
+    "apps/engine",
+    "apps/api",
+    "apps/worker",
+    "services/fakes",
+    "services/render",
+    "services/mcp",
+]
 # Values a reader could mistake for nothing else, so a leak is easy to spot.
 CLIENT_SECRET = "sentinel-client-secret-5a1e"
 WEBHOOK_SECRET = "sentinel-webhook-secret-77b3"

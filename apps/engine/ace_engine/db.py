@@ -45,6 +45,8 @@ RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
 STEP_SUCCEEDED = "succeeded"
+# An agent step read through an MCP tool; the event's reason is the tool's name.
+TOOL_READ = "tool_read"
 STEP_FAILED = "failed"
 # Run events for an approver's per-asset decisions: the comment is the event's reason.
 ASSET_APPROVED = "approved"

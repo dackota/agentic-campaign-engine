@@ -12,7 +12,14 @@ from tests.tooling.chart_files import CHART, by_kind, raw_render, render
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRET_TEMPLATE = CHART / "templates/secret.yaml"
-SECRET_KEYS = {"postgres-password", "marketo-client-secret", "marketo-webhook-secret"}
+SECRET_KEYS = {
+    "postgres-password",
+    "marketo-client-secret",
+    "marketo-webhook-secret",
+    "workfront-client-secret",
+    "workfront-webhook-secret",
+}
+MCP_SERVERS = {"ace-mcp-workfront", "ace-mcp-marketo", "ace-mcp-cms", "ace-mcp-assets"}
 PYTHON_COMPONENTS = {"api": "campaign_api", "worker": "campaign_worker"}
 ALERT_TOKEN_ENV = "ACE_ALERT_WEBHOOK_TOKEN"
 SECRET_WORDS = ("SECRET", "PASSWORD", "TOKEN", "KEY")
@@ -47,17 +54,22 @@ def test_chart_deploys_every_app_component_with_a_service() -> None:
     deployments = {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
     services = {d["metadata"]["name"] for d in by_kind(docs, "Service")}
 
-    assert deployments == {
-        "web",
-        "api",
-        "worker",
-        "fake-marketo",
-        "fake-cms",
-        "fake-s3",
-        "postgres",
-        "temporal",
-    }
-    assert services == {"web", "api", "fake-marketo", "fake-cms", "fake-s3", "postgres", "temporal"}
+    assert (
+        deployments
+        == {
+            "web",
+            "api",
+            "worker",
+            "fake-marketo",
+            "fake-workfront",
+            "fake-cms",
+            "fake-s3",
+            "postgres",
+            "temporal",
+        }
+        | MCP_SERVERS
+    )
+    assert services == deployments - {"worker"}
     for name in services:
         svc = _named(docs, "Service", name)
         labels = _named(docs, "Deployment", name)["spec"]["template"]["metadata"]["labels"]
@@ -157,7 +169,7 @@ def test_worker_agent_url_is_a_value() -> None:
     assert "#29" in values
 
 
-def test_one_secret_holds_the_three_generated_values() -> None:
+def test_one_secret_holds_the_generated_values() -> None:
     first = _secret(render())
     second = _secret(render())
 
@@ -194,6 +206,9 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
             "ACE_MARKETO_WEBHOOK_SECRET",
         },
         "fake-marketo": {"ACE_MARKETO_CLIENT_SECRET", "ACE_MARKETO_WEBHOOK_SECRET"},
+        "fake-workfront": {"ACE_WORKFRONT_CLIENT_SECRET", "ACE_WORKFRONT_WEBHOOK_SECRET"},
+        "ace-mcp-workfront": {"ACE_WORKFRONT_CLIENT_SECRET"},
+        "ace-mcp-marketo": {"ACE_MARKETO_CLIENT_SECRET"},
     }
     for deploy in by_kind(docs, "Deployment"):
         env = _env(deploy)

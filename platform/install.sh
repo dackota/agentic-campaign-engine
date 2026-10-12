@@ -150,6 +150,7 @@ run() {
   "$ROOT/platform/dex/install.sh" run
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
+  k apply -f "$ROOT/agents/mcp.yaml"
   k apply -f "$ROOT/agents/templates.yaml"
   k apply -f "$ROOT/agents/agents.yaml"
   k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" $ROLE_AGENTS -n kagent --timeout="$READY_TIMEOUT"
