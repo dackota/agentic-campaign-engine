@@ -173,7 +173,9 @@ class Activities:
         reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         return await invoker.invoke(
             client,
-            self._settings.agent_url,
+            agent_url_for(
+                self._settings.agent_url, self._settings.depth, brand_review.BRAND_REVIEWER
+            ),
             invoker.AgentCall(
                 session_key=reviewer_session,
                 prompt=brand_review.review_message(output, job.context, job.report),
