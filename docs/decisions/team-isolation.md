@@ -4,7 +4,7 @@ Date: 2026-10-12. Status: accepted.
 
 ## Decision
 
-**Data.** Every table but `workflow_versions` holds one team's rows and has row-level
+**Data.** Every table but `workflow_versions` and `alerts` holds one team's rows and has row-level
 security on, with one policy (`apps/engine/ace_engine/row_security.py`). `campaigns`
 shows a row when its `team` equals the session setting `ace.team`. Every other team table
 shows a row when its campaign is one the team can see. The API runs each signed-in
@@ -16,7 +16,9 @@ which row-level security does not filter. They act for the system: the worker ru
 campaign by id, and a webhook is signed by the marketing system, not sent by a team.
 
 **Workflows are shared.** A saved workflow is a DAG of steps, not a team's data. Every
-team can run any saved workflow, so `workflow_versions` has no policy.
+team can run any saved workflow, so `workflow_versions` has no policy. `alerts` are the
+platform's own (Grafana alerts shown to every signed-in user as a banner), so they have none
+either.
 
 **Agents.** Each team runs the role Agents in its own namespace `team-<team>`
 (`agents/teams/<team>`), on its own WorkerPool and harness, and every role template uses

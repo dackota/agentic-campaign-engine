@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from ace_engine import brand_review, cost, db, invoker, telemetry
+from ace_engine import brand_review, cost, db, invoker, metrics, telemetry
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for, team_namespace
 from ace_engine.contracts import AgentOutput, citation_problems
@@ -149,8 +149,10 @@ class Activities:
         for turn in range(fix_rounds + 1):
             verdict = await self._review(client, job, output, turn, reviewer_session_id)
             reviewer_session_id = verdict.session_id
+            is_pass = verdict.output["verdict"] == brand_review.PASS
+            metrics.eval_score(metrics.PASS_SCORE if is_pass else metrics.FIX_SCORE, "brand-review")
             usage = usage + verdict.usage
-            if verdict.output["verdict"] == brand_review.PASS:
+            if is_pass:
                 break
             issues = verdict.output["issues"]
             is_last = turn == fix_rounds
@@ -250,6 +252,7 @@ class Activities:
                     cost_micros=usage.cost_micros,
                 )
             )
+            metrics.step_cost(cost.to_dollars(usage.cost_micros), usage.model)
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
             event = db.add_agent_event(
@@ -298,6 +301,7 @@ class Activities:
             campaign.failure_reason = reason
             db.add_event(session, campaign.id, step_id, db.STEP_FAILED, reason)
             db.add_event(session, campaign.id, db.RUN_STEP, db.FAILED, reason)
+        metrics.run_ended(db.FAILED)
 
     @activity.defn
     def finish_run(self, campaign_id: str) -> None:
@@ -306,6 +310,8 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.SENT if campaign.receipt else db.FINISHED
             db.add_event(session, campaign.id, db.RUN_STEP, campaign.status)
+            outcome = campaign.status
+        metrics.run_ended(outcome)
 
     @activity.defn
     async def send_email(

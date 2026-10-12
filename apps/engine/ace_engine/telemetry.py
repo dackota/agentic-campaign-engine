@@ -13,10 +13,13 @@ from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 from fastapi import FastAPI
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.http.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
@@ -34,6 +37,7 @@ OPERATION_ATTRIBUTE = "gen_ai.operation.name"
 URL_ATTRIBUTES = ("http.url", "url.full", "http.target", "url.path")
 QUERY_ATTRIBUTE = "url.query"
 TRACEPARENT_HEADER = "traceparent"
+METRIC_EXPORT_INTERVAL_MS = 15_000
 _tracer = trace.get_tracer("ace")
 
 
@@ -77,6 +81,10 @@ def configure(service: str, environ: Mapping[str, str] | None = None) -> None:
     provider = TracerProvider(resource=resource)
     provider.add_span_processor(BatchSpanProcessor(exporter))
     trace.set_tracer_provider(provider)
+    reader = PeriodicExportingMetricReader(
+        OTLPMetricExporter(), export_interval_millis=METRIC_EXPORT_INTERVAL_MS
+    )
+    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
 
 def instrument_httpx() -> None:

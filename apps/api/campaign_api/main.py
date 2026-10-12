@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
+from campaign_api.alerts import register_alert_routes
 from campaign_api.auth import (
     Action,
     BrowserUser,
@@ -596,6 +597,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_event_routes(app)
     _add_step_routes(app)
     _add_activity_routes(app, settings)
+    register_alert_routes(app, settings)
     _add_preview_route(app)
     _add_asset_preview_route(app)
     register_workflow_routes(app)

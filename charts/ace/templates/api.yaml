@@ -28,6 +28,14 @@ spec:
           env:
             {{- include "ace.engineEnv" . | nindent 12 }}
             {{- include "ace.otelEnv" (list . "campaign-api") | nindent 12 }}
+            # Made by platform/observability.sh (make up FULL=1); without it the alert
+            # webhook is off.
+            - name: ACE_ALERT_WEBHOOK_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook
+                  key: token
+                  optional: true
             - name: ACE_OIDC_ISSUER
               value: {{ .Values.api.oidcIssuer | quote }}
             - name: ACE_OIDC_CLIENT_ID

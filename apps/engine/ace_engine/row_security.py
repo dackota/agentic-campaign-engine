@@ -4,7 +4,8 @@ A request of a signed-in user runs as the `ace_team` role with the setting `ace.
 the user's team (`for_team`). The policies then show and accept only that team's rows, so
 the API's queries name no team. The worker and the signed webhooks connect as the tables'
 owner, which row-level security does not filter: they act for the system, not for a team.
-Workflows are shared by every team and have no policy (docs/decisions/team-isolation.md).
+Workflows and platform alerts are shared by every team and have no policy
+(docs/decisions/team-isolation.md).
 """
 
 from sqlalchemy import event, text
@@ -17,7 +18,8 @@ TEAM_ROLE = "ace_team"
 TEAM_SETTING = "ace.team"
 # The execution option that carries a request's team to its database session.
 TEAM_OPTION = "ace_team"
-SHARED_TABLES = frozenset({db.WorkflowVersion.__tablename__})
+# Workflows and platform alerts belong to no team.
+SHARED_TABLES = frozenset({db.WorkflowVersion.__tablename__, db.Alert.__tablename__})
 # One installer at a time: the API and the worker can start together.
 _INSTALL_LOCK = 4_040_040
 _CURRENT_TEAM = f"current_setting('{TEAM_SETTING}', true)"

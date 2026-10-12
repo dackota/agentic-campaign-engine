@@ -19,6 +19,13 @@ data:
           http: {endpoint: 0.0.0.0:4318}
     processors:
       batch: {}
+    connectors:
+      # Metrics from the spans every service exports. The gateway's model-call spans carry the
+      # provider that answered, which is what the gateway-failover alert counts.
+      spanmetrics:
+        dimensions:
+        - name: gen_ai.provider.name
+        - name: ace.service
     exporters:
       otlphttp/lgtm:
         endpoint: http://lgtm.observability.svc.cluster.local:4318
@@ -27,6 +34,10 @@ data:
       pipelines:
         traces:
           receivers: [otlp]
+          processors: [batch]
+          exporters: [otlphttp/lgtm, spanmetrics]
+        metrics:
+          receivers: [otlp, spanmetrics]
           processors: [batch]
           exporters: [otlphttp/lgtm]
 ---
@@ -43,6 +54,11 @@ spec:
       - name: collector
         image: otel/opentelemetry-collector-contrib:0.162.0@sha256:39923a8e431bd1f57be82411999d389fcfe40857492e4365456d97a4c1f74be6
         args: ["--config=/conf/config.yaml"]
+        env:
+        # Set only when Honeycomb export is on (platform/observability.sh); the base config
+        # never reads it.
+        - name: HONEYCOMB_API_KEY
+          valueFrom: {secretKeyRef: {name: honeycomb, key: api-key, optional: true}}
         ports:
         - {name: otlp-grpc, containerPort: 4317}
         - {name: otlp-http, containerPort: 4318}
@@ -76,10 +92,28 @@ spec:
         ports:
         - {name: grafana, containerPort: 3000}
         - {name: otlp-http, containerPort: 4318}
+        env:
+        # The bearer token Grafana's alert webhook sends to the Campaign API; made by
+        # platform/observability.sh.
+        - name: ACE_ALERT_WEBHOOK_TOKEN
+          valueFrom: {secretKeyRef: {name: alert-webhook, key: token}}
+        volumeMounts:
+        - {name: dashboards, mountPath: /ace-dashboards}
+        - name: provisioning
+          mountPath: /otel-lgtm/grafana/conf/provisioning/alerting/ace.yaml
+          subPath: alerting.yaml
+        - name: provisioning
+          mountPath: /otel-lgtm/grafana/conf/provisioning/dashboards/ace.yaml
+          subPath: dashboards.yaml
         readinessProbe:
           httpGet: {path: /api/health, port: grafana}
           periodSeconds: 5
           failureThreshold: 60
+      volumes:
+      - name: dashboards
+        configMap: {name: grafana-dashboards}
+      - name: provisioning
+        configMap: {name: grafana-provisioning}
 ---
 apiVersion: v1
 kind: Service

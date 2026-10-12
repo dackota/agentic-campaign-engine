@@ -27,8 +27,8 @@ TEAM_B_APPROVER = "pm-approver@demo.example"
 # The database role the API's requests run as, and the setting that names their team.
 TEAM_ROLE = "ace_team"
 TEAM_SETTING = "ace.team"
-# Workflows are shared by every team (docs/decisions/team-isolation.md).
-SHARED_TABLES = {"workflow_versions"}
+# Workflows and platform alerts are shared by every team (docs/decisions/team-isolation.md).
+SHARED_TABLES = {"workflow_versions", "alerts"}
 # Every per-campaign view a signed-in reader can open.
 READ_PATHS = (
     "/campaigns/{id}",
