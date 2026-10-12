@@ -3,16 +3,15 @@ in a standalone sandbox and reads the cards from stdout. A fake `kagent` on PATH
 
 import asyncio
 import os
-from typing import Any
 import stat
 from pathlib import Path
+from typing import Any
 
 import pytest
 from ace_engine import contracts
 from ace_engine.contracts import violations
-from temporalio.exceptions import ApplicationError
-
 from campaign_worker import sandbox
+from temporalio.exceptions import ApplicationError
 
 FAKE = """#!/bin/sh
 echo "$@" >> "$FAKE_LOG"
@@ -24,7 +23,7 @@ esac
 """
 PROGRAM = (
     "for n in 1 2; do printf '<svg width=\"1200\"/>' > /tmp/c$n.svg; "
-    'echo "CARD $n $(base64 < /tmp/c$n.svg | tr -d \'\\n\')"; done'
+    "echo \"CARD $n $(base64 < /tmp/c$n.svg | tr -d '\\n')\"; done"
 )
 
 
