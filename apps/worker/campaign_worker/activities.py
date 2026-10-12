@@ -158,6 +158,10 @@ class Activities:
         if cache is not None and not is_flagged:
             await asyncio.to_thread(cache.save, output, usage.model)
 
+    def _agent_url(self, role: Role) -> str:
+        """Where the role's agent is reached, for its calls and for its cache revision."""
+        return agent_url_for(self._settings.agent_url, self._settings.depth, role)
+
     async def _open_cache(
         self, client: httpx.AsyncClient, job: ReviewJob, review_rounds: int
     ) -> StepCacheLookup | None:
@@ -166,9 +170,9 @@ class Activities:
         team = await asyncio.to_thread(self._cache_team, job.campaign_id)
         if team is None:
             return None
-        urls = [agent_url_for(self._settings.agent_url, self._settings.depth, job.role)]
+        urls = [self._agent_url(job.role)]
         if review_rounds > 0:
-            urls.append(self._settings.agent_url)
+            urls.append(self._agent_url(brand_review.BRAND_REVIEWER))
         revisions = [await step_cache.agent_revision(client, url) for url in urls]
         digests = [r for r in revisions if r is not None]
         if len(digests) < len(revisions):
@@ -251,9 +255,7 @@ class Activities:
         reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         return await invoker.invoke(
             client,
-            agent_url_for(
-                self._settings.agent_url, self._settings.depth, brand_review.BRAND_REVIEWER
-            ),
+            self._agent_url(brand_review.BRAND_REVIEWER),
             invoker.AgentCall(
                 session_key=reviewer_session,
                 prompt=brand_review.review_message(output, job.context, job.report),
@@ -284,7 +286,7 @@ class Activities:
                 prompt = brand_review.fix_message(prompt, issues)
             reply = await invoker.invoke(
                 client,
-                agent_url_for(self._settings.agent_url, self._settings.depth, job.role),
+                self._agent_url(job.role),
                 invoker.AgentCall(
                     session_key=session_key(job.campaign_id, job.step_id, variant),
                     prompt=prompt,

@@ -3,11 +3,11 @@ template under the controller's base URL; at fast depth to the one scripted URL.
 
 import asyncio
 import json
-from typing import Any
-
 import httpx
+import pytest
 from ace_engine import brand_review, db
 from ace_engine.agent_roles import ROLES
+from ace_engine.contracts import AgentOutput
 from ace_engine.settings import Depth, Settings
 from campaign_worker.activities import Activities, ReviewJob
 
@@ -44,7 +44,7 @@ def _review_paths(depth: Depth, base: str) -> list[str]:
 
     async def go() -> None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
-            output: Any = {"subject": "s"}
+            output: AgentOutput = {"subject": "s"}
             await activities._review(client, job, output, 0, None)  # noqa: SLF001
 
     asyncio.run(go())
@@ -59,3 +59,28 @@ def test_live_depth_sends_review_calls_to_the_reviewer_agent() -> None:
 
 def test_fast_depth_sends_review_calls_to_the_one_scripted_url() -> None:
     assert _review_paths(Depth.FAST, "http://agent:8080/") == ["/"]
+
+
+def test_live_depth_reads_the_reviewer_agents_card_for_the_cache_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    seen: list[str] = []
+
+    def reply(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path)
+        return httpx.Response(200, json={"name": request.url.path})
+
+    activities = Activities(_settings(Depth.LIVE, BASE), db.make_engine("sqlite://"))
+    monkeypatch.setattr(activities, "_cache_team", lambda _campaign_id: "team")
+    job = ReviewJob("camp-1", "email_writer", "report", ROLES["email_writer"], {})
+
+    async def go() -> None:
+        async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
+            await activities._open_cache(client, job, 2)  # noqa: SLF001
+
+    asyncio.run(go())
+
+    assert sorted(seen) == [
+        "/agents/kagent/ace-brand-reviewer/.well-known/agent-card.json",
+        "/agents/kagent/ace-email-writer/.well-known/agent-card.json",
+    ]
