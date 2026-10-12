@@ -8,12 +8,26 @@ from typing import Any
 import httpx
 from ace_engine import brand_review, db
 from ace_engine.agent_roles import ROLES
-from ace_engine.settings import Depth
+from ace_engine.settings import Depth, Settings
 from campaign_worker.activities import Activities, ReviewJob
 
-from tests.harness.test_settings import _settings
-
 BASE = "http://kagent-controller.kagent:8083/agents/kagent"
+
+
+def _settings(depth: Depth, agent_url: str) -> Settings:
+    return Settings(
+        depth=depth,
+        database_url="postgresql://unused",
+        temporal_address="localhost:7233",
+        temporal_namespace="default",
+        agent_url=agent_url,
+        marketo_url="http://marketo",
+        marketo_client_id="client",
+        marketo_client_secret="client-secret",
+        marketo_webhook_secret="webhook-secret",
+    )
+
+
 PASS = json.dumps({"verdict": "pass", "issues": []})
 
 
@@ -25,7 +39,7 @@ def _review_paths(depth: Depth, base: str) -> list[str]:
         task = {"contextId": "c-1", "artifacts": [{"parts": [{"text": PASS}]}]}
         return httpx.Response(200, json={"result": {"task": task}})
 
-    activities = Activities(_settings(depth=depth, agent_url=base), db.make_engine("sqlite://"))
+    activities = Activities(_settings(depth, base), db.make_engine("sqlite://"))
     job = ReviewJob("camp-1", "email_writer", "report", ROLES["email_writer"], {})
 
     async def go() -> None:
