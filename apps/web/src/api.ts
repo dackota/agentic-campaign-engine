@@ -296,3 +296,27 @@ export function watchRun(
   // A dropped connection is retried by the browser, resuming from the last event id.
   return () => source.close();
 }
+
+/** An alert Grafana raised that has not resolved yet. */
+export interface FiringAlert {
+  name: string;
+  summary: string;
+  fired_at: string;
+}
+
+function isFiringAlert(value: unknown): value is FiringAlert {
+  if (typeof value !== "object" || value === null) return false;
+  const a = value as Record<string, unknown>;
+  return (
+    typeof a.name === "string" && typeof a.summary === "string" && typeof a.fired_at === "string"
+  );
+}
+
+/** The alerts firing now, for the banner. */
+export async function listAlerts(): Promise<FiringAlert[]> {
+  const body = await fetchJson("/alerts");
+  if (!Array.isArray(body) || !body.every(isFiringAlert)) {
+    throw new Error("the API returned an unexpected alert shape");
+  }
+  return body;
+}

@@ -16,6 +16,8 @@ def main() -> None:
         marketo_port=int(os.environ["ACE_MARKETO_PORT"])
         if "ACE_MARKETO_PORT" in os.environ
         else None,
+        # The browser spec for the alert banner posts to the alert webhook with this token.
+        alert_webhook_token=os.environ.get("ACE_ALERT_WEBHOOK_TOKEN"),
     ).start()
     done = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: done.set())

@@ -225,6 +225,22 @@ class TaskStatusEvent(Base):
     )
 
 
+class Alert(Base):
+    """An alert Grafana raised, kept once per fingerprint. Firing alerts show as the in-app
+    banner; a resolved one stays as history."""
+
+    __tablename__ = "alerts"
+
+    fingerprint: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    fired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 def add_event(
     session: Session,
     campaign_id: uuid.UUID,
