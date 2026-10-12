@@ -80,3 +80,11 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | `cosign verify --help` (v3.1.3) | `--insecure-ignore-tlog` defaults to false: "ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log". With `--insecure-ignore-tlog=true`, `cosign verify --key <pub>` exits 0 on a signature made as above; without it, verify exits 1 |
 | [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |
 | Grafana alerting provisioning (grafana/otel-lgtm), checked 2026-10-11 | Rules, contact points and policies load from YAML files in the provisioning/alerting folder (grafana/otel-lgtm reads `/otel-lgtm/grafana/conf/provisioning`, where `manifests/observability/collector.yaml` mounts them); a webhook contact point takes `authorization_scheme` and `authorization_credentials`, and `$__env{NAME}` reads an environment variable. Honeycomb takes OTLP at `api.honeycomb.io:443` with header `x-honeycomb-team` |
+
+## Prompt caching
+
+| Source | What it told us |
+|---|---|
+| [OpenCode Go](https://opencode.ai/docs/go/) | Checked live 2026-10-12. Asks for a stable session ID in `x-opencode-session` "so we can optimize routing and prompt caching". Prices list a cached-read rate per model. `glm-5.3-flash` goes through `/v1/chat/completions`; the page documents no `cache_control` mark |
+| agentgateway access log on k3d-ace | Checked live 2026-10-12. Each model call logs `gen_ai.usage.input_tokens`, `gen_ai.usage.cache_read.input_tokens` and `agw.ai.time_to_first_token`. A repeat of a 5,755-token prompt read 5,440 tokens from the provider's cache. See `docs/decisions/prompt-caching.md` |
+| kagent A2A reply usage (`kagent.dev/a2a/usage`) | Checked live 2026-10-12. Holds `promptTokenCount`, `candidatesTokenCount`, `totalTokenCount` only: no cached-token count, so the cost ledger cannot show prompt-cache savings |
