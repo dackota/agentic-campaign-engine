@@ -408,7 +408,7 @@ class Activities:
 
     async def _redo_outputs(
         self, job: RedoJob, role: Role, sessions: tuple[str, ...], rejections: int
-    ) -> tuple[Any, cost.Usage, tuple[str, ...]]:
+    ) -> tuple[AgentOutput, cost.Usage, tuple[str, ...]]:
         """Ask the writer sessions for the corrected asset, then have the brand reviewer
         check it for the job's review rounds."""
         review = ReviewJob(job.campaign_id, job.step_id, job.report, role, job.context)
@@ -438,7 +438,7 @@ class Activities:
         self,
         campaign_id: str,
         step_id: str,
-        output: Any,
+        output: AgentOutput,
         usage: cost.Usage,
         writer_sessions: tuple[str, ...],
     ) -> None:
@@ -471,7 +471,8 @@ class Activities:
                 ledger.cache_hit = False
             metrics.step_cost(cost.to_dollars(usage.cost_micros), usage.model)
             db.save_asset_sessions(session, campaign.id, step_id, list(writer_sessions))
-            if role_for(step_id).writes_draft:
+            # A draft-writing role replies twice, so its output is the pair of variants.
+            if role_for(step_id).writes_draft and isinstance(output, list):
                 campaign.draft, campaign.variant_b = output
             event = db.add_agent_event(
                 session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session

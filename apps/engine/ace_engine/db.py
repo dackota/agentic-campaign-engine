@@ -372,14 +372,37 @@ def waiting_campaigns(session: Session, team: str, excluding_creator: str) -> li
 
 def outputs_of(session: Session, campaign_id: uuid.UUID) -> dict[str, Any]:
     """What each of the campaign's agent steps produced, by step."""
-    rows = session.scalars(select(StepOutput).where(StepOutput.campaign_id == campaign_id))
-    return {r.step: r.output for r in rows}
+    return outputs_by_campaign(session, [campaign_id]).get(campaign_id, {})
+
+
+def outputs_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, Any]]:
+    """`outputs_of` for these campaigns, in one query."""
+    found: dict[uuid.UUID, dict[str, Any]] = {}
+    rows = session.scalars(select(StepOutput).where(StepOutput.campaign_id.in_(campaign_ids)))
+    for row in rows:
+        found.setdefault(row.campaign_id, {})[row.step] = row.output
+    return found
 
 
 def approved_steps(session: Session, campaign_id: uuid.UUID) -> set[str]:
-    return set(
-        session.scalars(select(AssetApproval.step).where(AssetApproval.campaign_id == campaign_id))
+    return approved_by_campaign(session, [campaign_id]).get(campaign_id, set())
+
+
+def approved_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, set[str]]:
+    """The approved steps of these campaigns, in one query."""
+    found: dict[uuid.UUID, set[str]] = {}
+    rows = session.execute(
+        select(AssetApproval.campaign_id, AssetApproval.step).where(
+            AssetApproval.campaign_id.in_(campaign_ids)
+        )
     )
+    for campaign_id, step in rows:
+        found.setdefault(campaign_id, set()).add(step)
+    return found
 
 
 def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list[RunEvent]:
@@ -397,21 +420,32 @@ def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
     """The events where a reviewer gave up on a step and flagged it for a human: the latest
     one per step, from the step's latest run only. A step that started again (a retry, or a
     redo after a rejection) drops the flags of the run before it."""
+    return review_flags_by_campaign(session, [campaign_id]).get(campaign_id, [])
+
+
+def review_flags_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[RunEvent]]:
+    """`review_flags` of these campaigns, in one query, each list in event order."""
     events = session.scalars(
         select(RunEvent)
         .where(
-            RunEvent.campaign_id == campaign_id,
+            RunEvent.campaign_id.in_(campaign_ids),
             RunEvent.status.in_((FLAGGED, STEP_STARTED)),
         )
         .order_by(RunEvent.seq)
     )
-    latest: dict[str, RunEvent] = {}
+    latest: dict[uuid.UUID, dict[str, RunEvent]] = {}
     for event in events:
+        steps = latest.setdefault(event.campaign_id, {})
         if event.status == STEP_STARTED:
-            latest.pop(event.step, None)
+            steps.pop(event.step, None)
         else:
-            latest[event.step] = event
-    return sorted(latest.values(), key=lambda e: e.seq)
+            steps[event.step] = event
+    return {
+        campaign_id: sorted(steps.values(), key=lambda e: e.seq)
+        for campaign_id, steps in latest.items()
+    }
 
 
 def save_receipt(

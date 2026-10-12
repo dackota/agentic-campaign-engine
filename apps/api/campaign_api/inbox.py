@@ -91,11 +91,15 @@ def _title(report: str) -> str:
 def _inbox(engine: Engine, user: User) -> list[AssetOut]:
     with Session(engine) as session:
         waiting = db.waiting_campaigns(session, user.team or "", user.subject)
+        ids = [c.id for c in waiting]
+        all_outputs = db.outputs_by_campaign(session, ids)
+        all_approved = db.approved_by_campaign(session, ids)
+        all_flags = db.review_flags_by_campaign(session, ids)
         items: list[AssetOut] = []
         for campaign in waiting:
-            outputs = db.outputs_of(session, campaign.id)
-            approved = db.approved_steps(session, campaign.id)
-            flags = {e.step: e.reason for e in db.review_flags(session, campaign.id)}
+            outputs = all_outputs.get(campaign.id, {})
+            approved = all_approved.get(campaign.id, set())
+            flags = {e.step: e.reason for e in all_flags.get(campaign.id, [])}
             for step in assets.asset_steps(campaign.dag):
                 if step in approved or step not in outputs:
                     continue

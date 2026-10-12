@@ -5,6 +5,7 @@ Pure and deterministic: the same content gives the same bytes. Text from an agen
 untrusted, so each renderer strips control characters and escapes what it writes.
 """
 
+import base64
 import io
 import re
 import zipfile
@@ -74,6 +75,22 @@ h2 {{ margin: 0 0 8px; font-size: 14px; text-transform: uppercase; color: {color
 <main>
 {posts}
 </main>
+</body>
+</html>
+"""
+
+_CARDS_TEMPLATE = """<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>{brand} social cards</title>
+<style>
+body {{ margin: 0; padding: 16px; font-family: {font}; background: #f4f6f8; }}
+img {{ display: block; max-width: 100%; margin-bottom: 16px; background: #fff; }}
+</style>
+</head>
+<body>
+{cards}
 </body>
 </html>
 """
@@ -249,6 +266,17 @@ def render_social_html(social: Mapping[str, Any]) -> str:
         font=FONT_STACK,
         width=PAGE_MAX_WIDTH,
     )
+
+
+def render_cards_html(design: Mapping[str, Any]) -> str:
+    """Render the design agent's SVG cards as a page. Each card is an image from a data URI,
+    so a card's markup never runs as part of the page."""
+    cards = "\n".join(
+        f'<img alt="{escape(card["name"])}" src="data:image/svg+xml;base64,'
+        f'{base64.b64encode(card["svg"].encode()).decode()}">'
+        for card in design["cards"]
+    )
+    return _CARDS_TEMPLATE.format(cards=cards, brand=escape(BRAND_NAME), font=FONT_STACK)
 
 
 def render_graphic_svg(one_pager: Mapping[str, Any]) -> str:

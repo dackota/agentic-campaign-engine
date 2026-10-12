@@ -14,6 +14,7 @@ EMAIL_PREVIEW = "preview"
 _RENDERED_PREVIEWS = {
     "landing_page": "preview/landing-page",
     "social": "preview/social",
+    "design": "preview/cards",
     "one_pager": "preview/graphic",
 }
 

@@ -473,6 +473,7 @@ _ASSET_KINDS: Mapping[str, tuple[tuple[str, ...], Callable[..., str | bytes], st
             "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
             "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
             "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
+            "cards": (("design",), assets.render_cards_html, "text/html"),
             "social": (("social",), assets.render_social_html, "text/html"),
             "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
         }

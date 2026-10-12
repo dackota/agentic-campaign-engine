@@ -33,7 +33,7 @@ DG_VIEWER = "dg-viewer@demo.example"
 DG_LEAD = "dg-lead@demo.example"
 PM_OWNER = "pm-owner@demo.example"
 PM_APPROVER = "pm-approver@demo.example"
-ASSETS = {"landing_page", "social", "one_pager", "email_writer"}
+ASSETS = {"landing_page", "social", "one_pager", "email_writer", "design"}
 PAGE = {"headline": "H", "subheadline": "S", "body": "B", "call_to_action": "Go"}
 REDONE_PAGE = {**PAGE, "body": "Calmer words"}
 FIX = {
@@ -178,6 +178,20 @@ def test_the_social_asset_previews_its_post_text(stack: Stack, sign_in: SignIn) 
         assert escape(post["text"]) in preview.text
 
 
+def test_the_design_asset_previews_its_cards(stack: Stack, sign_in: SignIn) -> None:
+    stack.agent.script([])
+    approver = sign_in(DG_APPROVER)
+    campaign_id = waiting_default(sign_in(DG_OWNER))
+
+    [item] = [i for i in inbox(approver, campaign_id) if i["step"] == "design"]
+
+    preview = approver.get(item["preview_url"])
+    assert preview.status_code == 200
+    assert preview.headers["content-type"].startswith("text/html")
+    assert preview.text.count("<img") == len(item["output"]["cards"])
+    assert "<svg" not in preview.text
+
+
 def test_reject_returns_to_the_same_writer_session_and_redoes_only_that_asset(
     stack: Stack, sign_in: SignIn
 ) -> None:
@@ -219,7 +233,7 @@ def test_approving_every_asset_sends_the_campaign(stack: Stack, sign_in: SignIn)
     owner, approver = sign_in(DG_OWNER), sign_in(DG_APPROVER)
     campaign_id = waiting_default(owner)
 
-    for asset in ("landing_page", "social", "one_pager"):
+    for asset in ("landing_page", "social", "one_pager", "design"):
         assert decide(approver, campaign_id, asset, "approve").status_code == 200
         assert owner.get(f"/campaigns/{campaign_id}").json()["status"] == AWAITING
     assert marketo_sends(stack, campaign_id) == []
@@ -341,3 +355,21 @@ def test_a_redo_stops_at_the_budget_until_the_owner_raises_it(
     until_status(owner, campaign_id, AWAITING)
     assert len(stack.agent.message_ids()) - seen == 1
     assert inbox(approver, campaign_id)[0]["output"] == REDONE_PAGE
+
+
+def test_inbox_keeps_each_waiting_campaigns_assets_flags_and_approvals_apart(
+    stack: Stack, sign_in: SignIn
+) -> None:
+    stack.agent.script([])
+    owner, approver = sign_in(DG_OWNER), sign_in(DG_APPROVER)
+    first, second = waiting_default(owner), waiting_default(owner)
+    assert decide(approver, first, "social", "approve").status_code == 200
+
+    first_steps = {i["step"] for i in inbox(approver, first)}
+    second_items = inbox(approver, second)
+
+    assert first_steps == ASSETS - {"social"}
+    assert {i["step"] for i in second_items} == ASSETS
+    assert {i["campaign_id"] for i in second_items} == {second}
+    outs = outputs(owner, second)
+    assert all(i["output"] == outs[i["step"]]["output"] for i in second_items)
