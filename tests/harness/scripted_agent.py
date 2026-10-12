@@ -68,6 +68,13 @@ FIXED_CARDS = tuple(
 )
 # The version on the agent card until a test publishes another.
 DEFAULT_REVISION = "1"
+# A report with this marker makes the design step reply with a program (the live-depth shape)
+# instead of cards, so the engine runs it in the sandbox.
+PROGRAM_MARKER = "DESIGN-BY-PROGRAM"
+DESIGN_PROGRAM = (
+    'for n in 1 2; do printf \'<svg width="1200" height="630"/>\' > /tmp/c$n.svg; '
+    "echo \"CARD $n $(base64 < /tmp/c$n.svg | tr -d '\\n')\"; done"
+)
 TOOL_NAME = "read_report"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
@@ -270,6 +277,8 @@ def default_reply(message_text: str) -> Any:
                 "bullets": [_first_line(report)],
             }
         case "design":
+            if PROGRAM_MARKER in message_text:
+                return {"program": DESIGN_PROGRAM}
             return {"cards": list(FIXED_CARDS)}
         case _:
             return default_draft(message_text)
