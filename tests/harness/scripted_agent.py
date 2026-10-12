@@ -259,7 +259,7 @@ def _report_of(message_text: str) -> str:
     return report.removeprefix("\n")
 
 
-def default_reply(message_text: str) -> Any:
+def default_reply(message_text: str) -> dict[str, Any]:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
     if BRAND_REVIEWER.prompt in message_text:

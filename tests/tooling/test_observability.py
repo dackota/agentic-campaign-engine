@@ -89,3 +89,13 @@ def test_the_app_gets_the_collector_endpoint_only_with_full(tmp_path: Path) -> N
         "otel.endpoint=" + COLLECTOR_ENDPOINT in c for c in with_full if c.startswith("helm")
     )
     assert not any("otel.endpoint" in c for c in without)
+
+
+def test_a_failed_secret_listing_stops_before_remaking_the_alert_token(tmp_path: Path) -> None:
+    # Read inside a condition, a kubectl failure once looked like "no Secret": the step went
+    # on and replaced the webhook token both namespaces share.
+    result, calls = _run(tmp_path, "up-observability", STUB_SECRET_FAIL="1")
+
+    assert result.returncode != 0
+    assert "cannot list Secrets" in result.stderr
+    assert not any("alert-webhook" in c and ("delete" in c or "create" in c) for c in calls)

@@ -26,7 +26,7 @@ POLL_INTERVAL_SECONDS = 0.2
 STALE_SECONDS = 3600
 
 
-def event(campaign_id: str, **overrides: Any) -> dict[str, Any]:
+def event(campaign_id: str, **overrides: object) -> dict[str, Any]:
     return {
         "id": str(uuid.uuid4()),
         "taskID": "task-1",

@@ -15,11 +15,11 @@ from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
 NAME = "ace-mcp-cms"
 
 
-def _list_pages(reader: Reader, args: dict[str, Any]) -> Any:
+def _list_pages(reader: Reader, args: dict[str, Any]) -> object:
     return reader.get("/api/pages")
 
 
-def _get_page(reader: Reader, args: dict[str, Any]) -> Any:
+def _get_page(reader: Reader, args: dict[str, Any]) -> object:
     return reader.get(f"/api/pages/{segment(args, 'slug')}")
 
 

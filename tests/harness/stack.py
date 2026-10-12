@@ -105,16 +105,26 @@ def free_port() -> int:
         return int(s.getsockname()[1])
 
 
+@dataclasses.dataclass(frozen=True)
+class Pinned:
+    """What a browser spec has to know before the stack starts. None is chosen fresh."""
+
+    api_port: int | None = None
+    dex_port: int | None = None
+    web_origin: str = "http://127.0.0.1:5173"
+    marketo_port: int | None = None
+    alert_webhook_token: str | None = None
+
+
+NOTHING_PINNED = Pinned()
+
+
 class Stack:
     def __init__(
         self,
         depth: str | None = None,
-        api_port: int | None = None,
-        dex_port: int | None = None,
-        web_origin: str = "http://127.0.0.1:5173",
         integrations: bool = False,
-        marketo_port: int | None = None,
-        alert_webhook_token: str | None = None,
+        pinned: Pinned = NOTHING_PINNED,
     ) -> None:
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         # Every service runs in this process, so one in-memory exporter holds every span.
@@ -122,16 +132,16 @@ class Stack:
         self._metric_reader = _install_metric_reader()
         # What Grafana's alert webhook sends as its bearer token. Fresh per stack unless a
         # browser spec has to know it up front.
-        self.alert_webhook_token = alert_webhook_token or secrets.token_urlsafe(24)
+        self.alert_webhook_token = pinned.alert_webhook_token or secrets.token_urlsafe(24)
         self.agent = ScriptedAgent()
-        self.api_port = api_port or free_port()
-        self.marketo_port = marketo_port or free_port()
+        self.api_port = pinned.api_port or free_port()
+        self.marketo_port = pinned.marketo_port or free_port()
         self.cms_port = free_port()
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
-        self.web_origin = web_origin
-        self.dex = Dex(dex_port or free_port(), web_origin)
+        self.web_origin = pinned.web_origin
+        self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
         self.slack_port = free_port()

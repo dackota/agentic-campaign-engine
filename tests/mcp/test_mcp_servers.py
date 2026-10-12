@@ -34,7 +34,7 @@ def rpc(mcp: TestClient, method: str, params: dict[str, Any] | None = None) -> d
     return body
 
 
-def call(mcp: TestClient, tool: str, arguments: dict[str, Any]) -> Any:
+def call(mcp: TestClient, tool: str, arguments: dict[str, Any]) -> Any:  # noqa: ANN401  parsed JSON of any shape; the tests index into it
     result = rpc(mcp, "tools/call", {"name": tool, "arguments": arguments})["result"]
     assert result["isError"] is False, result
     return json.loads(result["content"][0]["text"])

@@ -33,7 +33,9 @@ key="$(sed -n 's/^OPENCODE_KEY=//p' "$ENV_FILE" | head -1)"
 [ -n "$key" ] || fail "OPENCODE_KEY is empty in $ENV_FILE; the key value check needs it"
 
 # 1. Gateway and ModelConfig.
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k rollout status deploy/agentgateway-proxy -n "$GW_NS" --timeout=60s >/dev/null || fail "gateway proxy not running"
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k get secret "$SECRET" -n "$GW_NS" >/dev/null || fail "secret $SECRET missing in $GW_NS"
 base="$(k get modelconfig gateway-model -n kagent -o jsonpath='{.spec.openAI.baseUrl}')"
 [[ "$base" == http://agentgateway-proxy."$GW_NS".svc*/v1 ]] || fail "ModelConfig baseUrl is not the gateway with /v1: $base"
@@ -45,11 +47,12 @@ echo "ok gateway runs, ModelConfig baseUrl=$base"
 since="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 "$ROOT/scripts/spike/a2a-smoke.sh" >/dev/null || fail "spike agent did not answer"
 sleep 2
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 line="$(k logs -n "$GW_NS" deploy/agentgateway-proxy --since-time="$since" | grep 'protocol=llm' | tail -1 || true)"
 [ -n "$line" ] || fail "no llm request line in gateway log"
 in_tok="$(grep -o 'gen_ai.usage.input_tokens=[0-9]*' <<<"$line" | cut -d= -f2 || true)"
 out_tok="$(grep -o 'gen_ai.usage.output_tokens=[0-9]*' <<<"$line" | cut -d= -f2 || true)"
-[ "${in_tok:-0}" -gt 0 ] && [ "${out_tok:-0}" -gt 0 ] || fail "no tokens in gateway log: $line"
+{ [ "${in_tok:-0}" -gt 0 ] && [ "${out_tok:-0}" -gt 0 ]; } || fail "no tokens in gateway log: $line"
 grep -q 'http.status=200' <<<"$line" || fail "gateway call was not 200: $line"
 echo "ok tokens per call: input=$in_tok output=$out_tok"
 echo "gateway log: $line"
@@ -58,7 +61,7 @@ echo "gateway log: $line"
 ua="$(grep -o 'user_agent="[^"]*"' <<<"$line" || true)"
 sess="$(grep -o 'opencode_session="[^"]*"' <<<"$line" || true)"
 [[ "$ua" == user_agent=\"agentic-campaign-engine/* ]] || fail "user-agent not ours: $ua"
-[ -n "$sess" ] && [ "$sess" != 'opencode_session="none"' ] || fail "no x-opencode-session header: $sess"
+{ [ -n "$sess" ] && [ "$sess" != 'opencode_session="none"' ]; } || fail "no x-opencode-session header: $sess"
 echo "ok headers: $ua $sess"
 
 # 4. No agent pod holds a provider key. Pods in $GW_NS are the gateway, not agents.

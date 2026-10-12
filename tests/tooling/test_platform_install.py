@@ -644,9 +644,10 @@ def test_spike_install_creates_only_the_missing_ca_pool(tmp_path: Path) -> None:
 
 
 def _list(script: Path, name: str) -> list[str]:
-    match = re.search(rf'^{name}="([^"]*)"', script.read_text(), re.MULTILINE)
+    # A word list is either a quoted string, NAME="a b", or a bash array, NAME=(a b).
+    match = re.search(rf'^{name}=(?:"([^"]*)"|\(([^)]*)\))', script.read_text(), re.MULTILINE)
     assert match, name
-    return match.group(1).split()
+    return (match.group(1) or match.group(2)).split()
 
 
 def test_status_checks_workfront_fake_and_mcp_deployments() -> None:

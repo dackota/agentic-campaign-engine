@@ -32,14 +32,14 @@ MAX_TEXT_CHARS = 20_000
 class Reader:
     """What a tool may do to the system it fronts: read."""
 
-    def get(self, path: str, **params: str) -> Any:  # pragma: no cover - interface
+    def get(self, path: str, **params: str) -> object:  # pragma: no cover - interface
         raise NotImplementedError
 
     def get_response(self, path: str, **params: str) -> httpx.Response:  # pragma: no cover
         raise NotImplementedError
 
 
-ToolRun = Callable[[Reader, dict[str, Any]], Any]
+ToolRun = Callable[[Reader, dict[str, Any]], object]
 
 
 @dataclass(frozen=True)

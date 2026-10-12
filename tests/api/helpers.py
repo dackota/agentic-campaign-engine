@@ -84,7 +84,7 @@ def create_on(api: httpx.Client, workflow: str, report: str = REPORT) -> dict[st
     return created
 
 
-def step(step_id: str, kind: str, **extra: Any) -> dict[str, Any]:
+def step(step_id: str, kind: str, **extra: object) -> dict[str, Any]:
     return {"id": step_id, "kind": kind, **extra}
 
 

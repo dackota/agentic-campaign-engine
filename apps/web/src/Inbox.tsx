@@ -27,6 +27,37 @@ interface AssetCardProps {
   onDecide: (asset: InboxAsset, decision: Decision, comment: string) => Promise<void>;
 }
 
+function AssetPreview({ asset }: { asset: InboxAsset }) {
+  return asset.preview_url ? (
+    <iframe
+      title={`Preview of ${asset.step}`}
+      src={assetPreviewSrc(asset.preview_url)}
+      sandbox=""
+      style={{ width: "100%", height: PREVIEW_HEIGHT_PX, border: "1px solid #ccc" }}
+    />
+  ) : (
+    <pre data-testid="asset-text">{JSON.stringify(asset.output, null, 2)}</pre>
+  );
+}
+
+function ReviewerFlags({ flags }: { flags: InboxAsset["flags"] }) {
+  return (
+    <section aria-label="Reviewer flags" data-testid="asset-flags">
+      {flags.length === 0 ? (
+        <p>No flags from the brand reviewer.</p>
+      ) : (
+        <ul>
+          {flags.map((f, i) => (
+            <li key={i}>
+              {f.check}: {f.detail}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
   const [comment, setComment] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -49,29 +80,8 @@ function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
       <h3>
         {asset.title} <small>({asset.step})</small>
       </h3>
-      {asset.preview_url ? (
-        <iframe
-          title={`Preview of ${asset.step}`}
-          src={assetPreviewSrc(asset.preview_url)}
-          sandbox=""
-          style={{ width: "100%", height: PREVIEW_HEIGHT_PX, border: "1px solid #ccc" }}
-        />
-      ) : (
-        <pre data-testid="asset-text">{JSON.stringify(asset.output, null, 2)}</pre>
-      )}
-      <section aria-label="Reviewer flags" data-testid="asset-flags">
-        {asset.flags.length === 0 ? (
-          <p>No flags from the brand reviewer.</p>
-        ) : (
-          <ul>
-            {asset.flags.map((f, i) => (
-              <li key={i}>
-                {f.check}: {f.detail}
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+      <AssetPreview asset={asset} />
+      <ReviewerFlags flags={asset.flags} />
       <label>
         Comment
         <input value={comment} onChange={(e) => setComment(e.target.value)} />

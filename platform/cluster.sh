@@ -21,6 +21,7 @@ up() {
     echo "FAIL could not list k3d clusters: $(first_line "$clusters")" >&2
     exit 1
   fi
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$CLUSTER" "$clusters"; then
     echo "cluster $CLUSTER already exists; not recreating it"
   else
@@ -31,15 +32,19 @@ up() {
 down() {
   local clusters registries volumes
   clusters="$(k3d cluster list --no-headers)"
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$CLUSTER" "$clusters"; then k3d cluster delete "$CLUSTER"; fi
   registries="$(k3d registry list --no-headers)"
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$REGISTRY" "$registries"; then k3d registry delete "$REGISTRY"; fi
   registries="$(k3d registry list --no-headers)"
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$REGISTRY" "$registries"; then
     echo "FAIL registry $REGISTRY is still listed after delete" >&2
     exit 1
   fi
   volumes="$(docker volume ls -q)"
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$VOLUME" "$volumes"; then docker volume rm "$VOLUME"; fi
   echo "cluster $CLUSTER, its registry, and its volume are gone"
 }
@@ -60,6 +65,7 @@ status() {
     echo "FAIL cluster check: k3d failed: $(first_line "$clusters")"
     return 1
   fi
+  # shellcheck disable=SC2310  # predicate: is the name in the listing
   if has_name "$CLUSTER" "$clusters"; then
     echo "ok   cluster $CLUSTER exists"
   else
@@ -68,7 +74,9 @@ status() {
     echo "FAIL Kubernetes version: no cluster"
     return 1
   fi
+  # shellcheck disable=SC2310  # wrapper: one kubectl call, so its status is kubectl's
   if ready="$(node_ready_states 2>&1)"; then
+    # shellcheck disable=SC2310  # predicate: is every node Ready
     if all_true "$ready"; then
       echo "ok   node Ready"
     else
@@ -79,6 +87,7 @@ status() {
     echo "FAIL node Ready (kubectl: $(first_line "$ready"))"
     failed=1
   fi
+  # shellcheck disable=SC2310  # wrapper: one kubectl call, so its status is kubectl's
   if version="$(kubelet_version 2>&1)" && [ -n "$version" ]; then
     echo "ok   Kubernetes version $version"
   else

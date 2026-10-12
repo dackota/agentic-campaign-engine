@@ -1,8 +1,6 @@
 """How a server reaches the fake it fronts: GET only, with an OAuth2 client-credentials
 token when the fake asks for one."""
 
-from typing import Any
-
 import httpx
 
 from ace_mcp.server import Reader
@@ -54,5 +52,5 @@ class HttpReader(Reader):
         response.raise_for_status()
         return response
 
-    def get(self, path: str, **params: str) -> Any:
+    def get(self, path: str, **params: str) -> object:
         return self.get_response(path, **params).json()

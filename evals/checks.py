@@ -4,7 +4,6 @@ reviewer's four checks, but need no model, so the same asset always gets the sam
 import re
 from collections.abc import Iterator
 from dataclasses import dataclass
-from typing import Any
 
 CHECK_NAMES = ("uncited_fact", "banned_claim", "off_brand_word", "length")
 
@@ -40,7 +39,7 @@ class CheckResult:
     detail: str = ""
 
 
-def fields(output: Any, name: str = "") -> Iterator[tuple[str, str]]:
+def fields(output: object, name: str = "") -> Iterator[tuple[str, str]]:
     """Every (field name, text) in an asset's output, whatever its nesting."""
     if isinstance(output, str):
         yield name, output
@@ -52,16 +51,16 @@ def fields(output: Any, name: str = "") -> Iterator[tuple[str, str]]:
             yield from fields(item, name)
 
 
-def texts(output: Any) -> list[str]:
+def texts(output: object) -> list[str]:
     return [text for _, text in fields(output)]
 
 
-def _scan(check: str, pattern: re.Pattern[str], output: Any) -> CheckResult:
+def _scan(check: str, pattern: re.Pattern[str], output: object) -> CheckResult:
     hits = sorted({m.group(0).lower() for text in texts(output) for m in pattern.finditer(text)})
     return CheckResult(check, not hits, f"found {', '.join(repr(h) for h in hits)}" if hits else "")
 
 
-def _length(output: Any) -> CheckResult:
+def _length(output: object) -> CheckResult:
     over = [
         f"{name} is {len(text)} characters (limit {MAX_CHARS[name]})"
         for name, text in fields(output)
@@ -74,7 +73,7 @@ def _squash(text: str) -> str:
     return " ".join(text.split())
 
 
-def _uncited(step: str, output: Any, report: str) -> CheckResult:
+def _uncited(step: str, output: object, report: str) -> CheckResult:
     """Research facts must quote the report line they cite. Other assets cite nothing."""
     if step != "research":
         return CheckResult("uncited_fact", True)
@@ -88,7 +87,7 @@ def _uncited(step: str, output: Any, report: str) -> CheckResult:
     return CheckResult("uncited_fact", not bad, "; ".join(bad))
 
 
-def check_asset(step: str, output: Any, report: str) -> list[CheckResult]:
+def check_asset(step: str, output: object, report: str) -> list[CheckResult]:
     """Run every hard check on one asset's recorded output."""
     return [
         _uncited(step, output, report),

@@ -24,6 +24,7 @@ ensure_pool() { # <ca|jwt> <name> <secret-namespace> [extra args]
   local kind="$1" name="$2" namespace="$3" id_flag="--ca-id=1"
   [ "$kind" = jwt ] && id_flag="--key-id=1"
   shift 3
+  # shellcheck disable=SC2310  # predicate: does the pool Secret exist
   if k get secret "$name" -n "$namespace" -o name >/dev/null 2>&1; then
     echo "$name exists, skipping"
   else

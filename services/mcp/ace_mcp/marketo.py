@@ -16,11 +16,11 @@ NAME = "ace-mcp-marketo"
 API = "/rest/asset/v1"
 
 
-def _list_programs(reader: Reader, args: dict[str, Any]) -> Any:
+def _list_programs(reader: Reader, args: dict[str, Any]) -> object:
     return reader.get(f"{API}/programs.json", externalId=str(args.get("external_id", "")))
 
 
-def _get_program(reader: Reader, args: dict[str, Any]) -> Any:
+def _get_program(reader: Reader, args: dict[str, Any]) -> object:
     return reader.get(f"{API}/program/{segment(args, 'program_id')}.json")
 
 

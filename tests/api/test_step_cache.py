@@ -44,7 +44,7 @@ def fresh_report() -> str:
     return f"{REPORT}\ncase {uuid.uuid4().hex}"
 
 
-def run(api: httpx.Client, workflow: str, report: str, **extra: Any) -> dict[str, Any]:
+def run(api: httpx.Client, workflow: str, report: str, **extra: object) -> dict[str, Any]:
     response = api.post(
         "/campaigns", json={"report": report, "workflow": workflow, "use_step_cache": True, **extra}
     )
@@ -65,7 +65,7 @@ def agent_calls(stack: Stack, campaign: dict[str, Any]) -> list[str]:
     return [m for m in stack.agent.message_ids() if m.startswith(f"{found['idempotency_key']}:")]
 
 
-def output_of(api: httpx.Client, campaign: dict[str, Any]) -> Any:
+def output_of(api: httpx.Client, campaign: dict[str, Any]) -> object:
     response = api.get(f"/campaigns/{campaign['id']}/steps")
     assert response.status_code == 200, response.text
     [found] = [s for s in response.json() if s["step"] == "draft"]

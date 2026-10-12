@@ -48,7 +48,7 @@ def _policy_condition(preparer: IdentifierPreparer, table: str) -> str:
     campaign_id = preparer.quote_identifier("campaign_id")
     id_ = preparer.quote_identifier("id")
     return (
-        f"EXISTS (SELECT 1 FROM {campaigns} c "
+        f"EXISTS (SELECT 1 FROM {campaigns} c "  # noqa: S608  only quoted identifiers; values stay bound
         f"WHERE c.{id_} = {campaign_id} AND c.{team} = {_CURRENT_TEAM})"
     )
 

@@ -42,11 +42,14 @@ build_and_push() {
 
 run() {
   local port issuer web_tag python_tag
+  # shellcheck disable=SC2310  # checked: each step ends in || fail
   port="$(host_port)" || exit 1
   issuer="$(tr -d '[:space:]' <"$ISSUER_FILE")" || fail "cannot read $ISSUER_FILE"
   [ -n "$issuer" ] || fail "$ISSUER_FILE is empty"
+  # shellcheck disable=SC2310  # checked: each step ends in || exit 1
   web_tag="$(build_and_push ace-web apps/web/Dockerfile "localhost:$port" \
     --build-arg "VITE_OIDC_ISSUER=$issuer")" || exit 1
+  # shellcheck disable=SC2310  # checked: each step ends in || exit 1
   python_tag="$(build_and_push ace-python apps/python.Dockerfile "localhost:$port")" || exit 1
   helm --kube-context "$CTX" upgrade --install "$RELEASE" "$ROOT/charts/ace" \
     --namespace "$NAMESPACE" --create-namespace \

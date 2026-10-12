@@ -28,7 +28,7 @@ PROPERTY_CASES = 150
 OVERSIZED_BYTES = (256 * 1024, 2 * 1024 * 1024)
 
 
-def event(campaign_id: str, **overrides: Any) -> dict[str, Any]:
+def event(campaign_id: str, **overrides: object) -> dict[str, Any]:
     return {
         "id": str(uuid.uuid4()),
         "type": "open",

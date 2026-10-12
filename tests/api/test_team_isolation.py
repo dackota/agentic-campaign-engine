@@ -133,7 +133,7 @@ def test_install_quotes_every_identifier_in_its_ddl(database: Engine) -> None:
     installer's grants and policies is a quoted identifier."""
     executed: list[str] = []
 
-    def record(_conn: Any, _cursor: Any, statement: str, *_rest: Any) -> None:
+    def record(_conn: object, _cursor: object, statement: str, *_rest: object) -> None:
         executed.append(statement)
 
     event.listen(database, "before_cursor_execute", record)

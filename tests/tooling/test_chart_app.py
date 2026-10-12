@@ -239,7 +239,7 @@ def test_render_and_values_hold_no_secret_literal() -> None:
     assert "sk-" not in out
     values = yaml.safe_load((CHART / "values.yaml").read_text())
 
-    def keys(node: Any) -> list[str]:
+    def keys(node: object) -> list[str]:
         if isinstance(node, dict):
             return [k for k, v in node.items() for k in (k, *keys(v))]
         return []

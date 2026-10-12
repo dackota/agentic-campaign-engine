@@ -4,11 +4,11 @@ import os
 import signal
 import threading
 
-from tests.harness.stack import Stack
+from tests.harness.stack import Pinned, Stack
 
 
 def main() -> None:
-    stack = Stack(
+    pinned = Pinned(
         api_port=int(os.environ["ACE_API_PORT"]),
         dex_port=int(os.environ["ACE_DEX_PORT"]),
         web_origin=f"http://127.0.0.1:{os.environ['ACE_WEB_PORT']}",
@@ -18,7 +18,8 @@ def main() -> None:
         else None,
         # The browser spec for the alert banner posts to the alert webhook with this token.
         alert_webhook_token=os.environ.get("ACE_ALERT_WEBHOOK_TOKEN"),
-    ).start()
+    )
+    stack = Stack(pinned=pinned).start()
     done = threading.Event()
     signal.signal(signal.SIGTERM, lambda *_: done.set())
     signal.signal(signal.SIGINT, lambda *_: done.set())

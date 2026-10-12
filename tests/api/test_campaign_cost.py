@@ -43,7 +43,7 @@ def report(usage: str) -> str:
     return "\n".join([f"[agent:usage-{usage}]", REPORT, f"case {uuid.uuid4().hex}"])
 
 
-def start(api: httpx.Client, dag: dict[str, Any], text: str, **extra: Any) -> dict[str, Any]:
+def start(api: httpx.Client, dag: dict[str, Any], text: str, **extra: object) -> dict[str, Any]:
     name = workflow_name("cost")
     save_workflow(api, name, dag)
     if not extra:
@@ -175,7 +175,7 @@ def test_only_an_owner_raises_the_budget(api: httpx.Client, approver: httpx.Clie
 
 
 @pytest.mark.parametrize("budget", [0, -1, "lots"])
-def test_campaign_budget_must_be_a_positive_amount(api: httpx.Client, budget: Any) -> None:
+def test_campaign_budget_must_be_a_positive_amount(api: httpx.Client, budget: float | str) -> None:
     response = api.post("/campaigns", json={"report": REPORT, "budget_usd": budget})
 
     assert response.status_code == 422, response.text

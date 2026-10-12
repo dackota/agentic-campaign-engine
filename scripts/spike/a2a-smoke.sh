@@ -26,6 +26,7 @@ for v in k3s k3d Substrate kagent sha256; do
 done
 
 # 2. The three resources exist and the Harness image is pinned by digest.
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k get harness,agenttemplate,agent -n "$NS" >/dev/null || fail "resources not found on $KCTX"
 image="$(k get harness "$HARNESS" -n "$NS" -o jsonpath='{.spec.workload.image}')"
 [[ "$image" == *@sha256:* ]] || fail "harness image is not pinned by digest: $image"
