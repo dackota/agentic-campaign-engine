@@ -78,3 +78,14 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | `cosign sign` round trip (v3.1.3) | `--tlog-upload=false` alone fails: "--tlog-upload=false is not supported with --signing-config or --use-signing-config". `--use-signing-config=false --tlog-upload=false` signs, uploads nothing to Rekor, and stores the signature in the new bundle format as an OCI referrer next to the image |
 | `cosign verify --help` (v3.1.3) | `--insecure-ignore-tlog` defaults to false: "ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log". With `--insecure-ignore-tlog=true`, `cosign verify --key <pub>` exits 0 on a signature made as above; without it, verify exits 1 |
 | [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |
+
+## Sandbox design agent
+
+Taken from `docs/spike-log.md` section 16 (kagent 1.0.0-alpha9, measured on the spike
+cluster). Recorded 2026-10-12. Not re-checked against the live kagent pages or a cluster.
+
+| Source | What it told us |
+|---|---|
+| `docs/spike-log.md` section 16 | In a standalone sandbox, egress is deny-by-default through Substrate's proxy: HTTP to any host, in-cluster services and the metadata address answer 403. DNS resolves; ICMP is lost. Nothing reaches a sandbox but `kagent sandbox exec/upload/download` (inferred, not probed) |
+| `docs/spike-log.md` section 16 | The `SandboxTemplate` CRD (`api.kagent.dev/v1alpha3`) has only `workload.image`, `env` and `substrate`: no egress field to widen (draft bug 6) |
+| `docs/spike-log.md` section 15 | `kagent sandbox create/exec/delete` and `get` work on a template; a sandbox is `RUNTIME_STATE_READY` at once and `RUNTIME_STATE_DELETED` after delete; the default TTL is 1 h |

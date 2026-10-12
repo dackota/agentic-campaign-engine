@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import cards, notify, publisher
+from campaign_worker import cards, notify, publisher, sandbox
 from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
@@ -27,6 +28,8 @@ SERVICE = "campaign-worker"
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
+
+KAGENT_API_URL_ENV = "ACE_KAGENT_API_URL"
 
 
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
@@ -101,6 +104,9 @@ class Activities:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        if role.makes_cards and isinstance(output, dict) and "program" in output:
+            # Live depth: the agent wrote the program; the engine runs it in the sandbox.
+            output = await self._run_design_program(output["program"])
         if role.checks_citations and isinstance(output, dict):
             problems = citation_problems(output, report)
             if problems:
@@ -110,6 +116,10 @@ class Activities:
                     non_retryable=True,
                 )
         return {"output": output, "session": session, "usage": usage.as_dict()}
+
+    async def _run_design_program(self, program: str) -> dict[str, Any]:
+        api_url = os.environ.get(KAGENT_API_URL_ENV) or self._settings.agent_url
+        return await sandbox.run_design_program(program, sandbox.SandboxConfig(api_url=api_url))
 
     def _is_budget_spent(self, campaign_id: str) -> bool:
         """True when the campaign has a budget and its model calls have used all of it."""

@@ -29,6 +29,16 @@ agent returns the same two cards for every report.
 
 ## Open
 
-The Agent runs on the Go harness; whether it can call `sandbox exec` itself as a tool is
-unproven in alpha9. If it cannot, the engine's live step runs the program the agent wrote in
-the sandbox and reads the cards from stdout; the contract and the saving do not change.
+Where the code runs: the Agent runs on the Go harness, and whether it can call `sandbox exec`
+as a tool is unproven in alpha9, so the AgentTemplate has no sandbox tool. The built path is
+the fallback: at live depth the agent replies with `program` (a shell script), the engine's
+`run_agent_step` runs it in a new `ace-design-sandbox` through the `kagent sandbox` CLI
+(`campaign_worker/sandbox.py`, API URL from `ACE_KAGENT_API_URL`, else the agent URL), reads
+the two `CARD <n> <base64>` lines from stdout, checks them against the contract, and deletes
+the sandbox on every exit. The saving does not change. At fast depth the scripted agent
+replies with the cards directly.
+
+Not re-checked live: the sandbox facts above come from the alpha9 spike (`docs/spike-log.md`
+section 16, recorded in `docs/sources.md` on 2026-10-12), not from the live kagent pages or a
+running cluster. The live run of `scripts/design-sandbox.sh` and of a live design step is
+owed.
