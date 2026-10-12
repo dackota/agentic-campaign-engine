@@ -1,0 +1,200 @@
+"""The approval inbox: the assets that wait for the signed-in approver's team, and the
+approver's decision on each one.
+
+Approving every asset of a campaign approves the campaign and it sends. Rejecting one with a
+comment sends that asset back to the writer Session that made it; the rest stay as they
+are. The team filter is applied here, on every read and every decision."""
+
+import json
+import uuid
+from dataclasses import dataclass
+from typing import Annotated, Any, Literal
+
+from ace_engine import assets, db, telemetry
+from ace_engine.settings import APPROVE_SIGNAL, REJECT_ASSET_SIGNAL
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.concurrency import run_in_threadpool
+from pydantic import BaseModel, StringConstraints
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+from temporalio.client import Client
+
+from campaign_api.auth import Action, CurrentUser, User, authorize
+
+SERVICE = "campaign-api"
+MAX_COMMENT_CHARS = 2_000
+TITLE_CHARS = 120
+Comment = Annotated[str, StringConstraints(strip_whitespace=True, max_length=MAX_COMMENT_CHARS)]
+RejectComment = Annotated[
+    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=MAX_COMMENT_CHARS)
+]
+
+
+class AssetOut(BaseModel):
+    campaign_id: uuid.UUID
+    title: str
+    team: str
+    created_by: str
+    step: str
+    # The API path that renders the asset; None when only its text can be shown.
+    preview_url: str | None
+    output: Any
+    # What the brand reviewer still flags on this asset after its fix rounds.
+    flags: list[dict[str, Any]]
+
+
+class Approval(BaseModel):
+    comment: Comment = ""
+
+
+class Rejection(BaseModel):
+    comment: RejectComment
+
+
+class DecisionOut(BaseModel):
+    campaign_id: uuid.UUID
+    step: str
+    decision: Literal["approved", "rejected"]
+    comment: str
+    campaign_status: str
+
+
+@dataclass(frozen=True)
+class Decided:
+    """The outcome of a decision: whether it settled the campaign (or sent the asset back)
+    and so needs a signal to the run."""
+
+    campaign_status: str
+    needs_signal: bool
+
+
+def _title(report: str) -> str:
+    line = next((ln.strip() for ln in report.splitlines() if ln.strip()), "")
+    return line[:TITLE_CHARS]
+
+
+def _inbox(engine: Engine, user: User) -> list[AssetOut]:
+    with Session(engine) as session:
+        waiting = db.waiting_campaigns(session, user.team or "", user.subject)
+        items: list[AssetOut] = []
+        for campaign in waiting:
+            outputs = db.outputs_of(session, campaign.id)
+            approved = db.approved_steps(session, campaign.id)
+            flags = {e.step: e.reason for e in db.review_flags(session, campaign.id)}
+            for step in assets.asset_steps(campaign.dag):
+                if step in approved or step not in outputs:
+                    continue
+                items.append(
+                    AssetOut(
+                        campaign_id=campaign.id,
+                        title=_title(campaign.report),
+                        team=campaign.team,
+                        created_by=campaign.created_by,
+                        step=step,
+                        preview_url=assets.preview_path(campaign.id, step),
+                        output=outputs[step],
+                        flags=json.loads(flags.get(step) or "[]"),
+                    )
+                )
+        return items
+
+
+def _decide(
+    engine: Engine, user: User, campaign_id: uuid.UUID, step: str, decision: str, comment: str
+) -> Decided:
+    """Record the decision in one transaction that holds the campaign's row, so two
+    approvers deciding at once settle in order."""
+    with Session(engine) as session, session.begin():
+        campaign = session.get(db.Campaign, campaign_id, with_for_update=True)
+        if campaign is None or campaign.team != user.team:
+            raise HTTPException(status_code=404, detail="campaign not found")
+        authorize(user, Action.APPROVE, created_by=campaign.created_by)
+        if step not in assets.asset_steps(campaign.dag):
+            raise HTTPException(status_code=404, detail="asset not found")
+        approved = db.approved_steps(session, campaign_id)
+        if campaign.status != db.AWAITING_APPROVAL:
+            raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
+        if step in approved:
+            raise HTTPException(status_code=409, detail="asset is already approved")
+        if decision == db.ASSET_REJECTED:
+            campaign.status = db.DRAFTING
+            db.add_event(session, campaign_id, db.RUN_STEP, db.DRAFTING)
+            db.add_event(session, campaign_id, step, db.ASSET_REJECTED, comment)
+            return Decided(campaign.status, needs_signal=True)
+        session.add(
+            db.AssetApproval(
+                campaign_id=campaign_id, step=step, approved_by=user.subject, comment=comment
+            )
+        )
+        db.add_event(session, campaign_id, step, db.ASSET_APPROVED, comment)
+        is_complete = approved | {step} >= set(assets.asset_steps(campaign.dag))
+        if is_complete:
+            campaign.status = db.SENDING
+        return Decided(campaign.status, needs_signal=is_complete)
+
+
+def _undo(engine: Engine, campaign_id: uuid.UUID, step: str, decision: str) -> None:
+    """The run could not be signalled: put the campaign back as it was before the decision."""
+    with Session(engine) as session, session.begin():
+        campaign = session.get_one(db.Campaign, campaign_id, with_for_update=True)
+        campaign.status = db.AWAITING_APPROVAL
+        if decision == db.ASSET_APPROVED:
+            approval = session.get(db.AssetApproval, (campaign_id, step))
+            if approval is not None:
+                session.delete(approval)
+
+
+async def _signal(
+    temporal: Client, campaign_id: uuid.UUID, step: str, decision: str, comment: str
+) -> None:
+    handle = temporal.get_workflow_handle(f"campaign-{campaign_id}")
+    if decision == db.ASSET_REJECTED:
+        with telemetry.span(SERVICE, "campaign.reject_asset"):
+            await handle.signal(REJECT_ASSET_SIGNAL, args=[step, comment])
+    else:
+        with telemetry.span(SERVICE, "campaign.approve"):
+            await handle.signal(APPROVE_SIGNAL)
+
+
+async def _decision(
+    request: Request,
+    user: User,
+    campaign_id: uuid.UUID,
+    step: str,
+    decision: Literal["approved", "rejected"],
+    comment: str,
+) -> DecisionOut:
+    engine = request.app.state.engine
+    decided = await run_in_threadpool(_decide, engine, user, campaign_id, step, decision, comment)
+    if decided.needs_signal:
+        try:
+            await _signal(request.app.state.temporal, campaign_id, step, decision, comment)
+        except Exception:
+            await run_in_threadpool(_undo, engine, campaign_id, step, decision)
+            raise
+    return DecisionOut(
+        campaign_id=campaign_id,
+        step=step,
+        decision=decision,
+        comment=comment,
+        campaign_status=decided.campaign_status,
+    )
+
+
+def register_inbox_routes(app: FastAPI) -> None:
+    @app.get("/inbox")
+    async def inbox(request: Request, user: CurrentUser) -> list[AssetOut]:
+        authorize(user, Action.APPROVE)
+        return await run_in_threadpool(_inbox, request.app.state.engine, user)
+
+    @app.post("/campaigns/{campaign_id}/assets/{step}/approve")
+    async def approve_asset(
+        campaign_id: uuid.UUID, step: str, body: Approval, request: Request, user: CurrentUser
+    ) -> DecisionOut:
+        return await _decision(request, user, campaign_id, step, "approved", body.comment)
+
+    @app.post("/campaigns/{campaign_id}/assets/{step}/reject")
+    async def reject_asset(
+        campaign_id: uuid.UUID, step: str, body: Rejection, request: Request, user: CurrentUser
+    ) -> DecisionOut:
+        return await _decision(request, user, campaign_id, step, "rejected", body.comment)

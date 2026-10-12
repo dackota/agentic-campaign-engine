@@ -109,7 +109,12 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
-        return {"output": output, "session": session, "usage": usage.as_dict()}
+        return {
+            "output": output,
+            "session": session,
+            "usage": usage.as_dict(),
+            "writer_sessions": list(writer_sessions),
+        }
 
     def _is_budget_spent(self, campaign_id: str) -> bool:
         """True when the campaign has a budget and its model calls have used all of it."""
@@ -239,6 +244,85 @@ class Activities:
                     cost_micros=usage.cost_micros,
                 )
             )
+            db.save_asset_sessions(session, campaign.id, step_id, result.get("writer_sessions", []))
+            if role_for(step_id).writes_draft:
+                campaign.draft, campaign.variant_b = output
+            event = db.add_agent_event(
+                session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session
+            )
+            event.tokens = usage.total_tokens or None
+
+    @activity.defn
+    async def redo_asset(
+        self,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        comment: str,
+        context: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Send a rejected asset back to the writer sessions that made it, with the
+        approver's comment, and store the corrected output. Only this step's agent is
+        asked; nothing else in the campaign is redone."""
+        role = role_for(step_id)
+        campaign_uuid = uuid.UUID(campaign_id)
+        sessions = await asyncio.to_thread(db.asset_sessions, self._engine, campaign_uuid, step_id)
+        if len(sessions) != role.replies:
+            raise ApplicationError(
+                f"step {step_id!r} has no writer session to send the asset back to",
+                type=AGENT_OUTPUT_INVALID,
+                non_retryable=True,
+            )
+        rejections = await asyncio.to_thread(
+            db.rejection_count, self._engine, campaign_uuid, step_id
+        )
+        agent_session = session_key(campaign_id, step_id)
+        await asyncio.to_thread(
+            self._record, campaign_id, step_id, db.STEP_STARTED, None, agent_session
+        )
+        issues = [{"check": "approver", "detail": comment}]
+        job = ReviewJob(campaign_id, step_id, report, role, context)
+        async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+            try:
+                with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
+                    # Its own turn, so its message ids never repeat the draft's or a review fix's.
+                    output, usage, _ = await self._writer_outputs(
+                        client, job, issues, brand_review.MAX_FIX_ROUNDS + rejections, sessions
+                    )
+            except invoker.AgentOutputInvalid as exc:
+                raise ApplicationError(
+                    str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
+                ) from exc
+        await asyncio.to_thread(self._save_redo, campaign_id, step_id, output, usage)
+        return {"output": output}
+
+    def _save_redo(self, campaign_id: str, step_id: str, output: Any, usage: cost.Usage) -> None:
+        """Replace the asset's output; the redo's tokens add to what the step already cost."""
+        agent_session = session_key(campaign_id, step_id)
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            session.merge(
+                db.StepOutput(
+                    campaign_id=campaign.id, step=step_id, session=agent_session, output=output
+                )
+            )
+            ledger = session.get(db.StepUsage, (campaign.id, step_id))
+            if ledger is None:
+                session.add(
+                    db.StepUsage(
+                        campaign_id=campaign.id,
+                        step=step_id,
+                        model=usage.model,
+                        input_tokens=usage.input_tokens,
+                        output_tokens=usage.output_tokens,
+                        cost_micros=usage.cost_micros,
+                    )
+                )
+            else:
+                ledger.model = usage.model or ledger.model
+                ledger.input_tokens += usage.input_tokens
+                ledger.output_tokens += usage.output_tokens
+                ledger.cost_micros += usage.cost_micros
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
             event = db.add_agent_event(
@@ -329,12 +413,10 @@ class Activities:
         if not self._settings.slack_enabled:
             return
         report, _ = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
+        text = f"Campaign {campaign_id} needs approval: {notify.first_line(report)}"
+        link = notify.inbox_link(self._settings, campaign_id)
         async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
-            await notify.post_to_slack(
-                client,
-                self._settings,
-                f"Campaign {campaign_id} needs approval: {notify.first_line(report)}",
-            )
+            await notify.post_to_slack(client, self._settings, f"{text} {link}" if link else text)
 
     @activity.defn
     async def announce_published(self, campaign_id: str, receipt: str) -> None:

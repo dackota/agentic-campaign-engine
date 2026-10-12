@@ -224,7 +224,7 @@ export function retryCampaign(id: string): Promise<Campaign> {
 
 /** A URL the browser loads itself (an iframe, an EventSource), so it cannot send the
  * Authorization header: the API also takes the token as the `access_token` parameter. */
-function withToken(path: string, extra: Record<string, string> = {}): string {
+export function withToken(path: string, extra: Record<string, string> = {}): string {
   const query = new URLSearchParams({ ...extra, access_token: accessToken() ?? "" });
   return `/api${path}?${query}`;
 }

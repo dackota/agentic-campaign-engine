@@ -22,6 +22,7 @@ from typing import Any
 from ace_engine.settings import (
     APPROVE_SIGNAL,
     RAISE_BUDGET_SIGNAL,
+    REJECT_ASSET_SIGNAL,
     RETRY_SIGNAL,
     WORKFLOW_NAME,
 )
@@ -136,10 +137,16 @@ class CampaignWorkflow:
         self._retries_used = 0
         self._budget_raises = 0
         self._outputs: dict[str, Any] = {}
+        # Assets an approver sent back, (step, comment), waiting to be redone.
+        self._rejections: list[tuple[str, str]] = []
 
     @workflow.signal(name=APPROVE_SIGNAL)
     def approve(self) -> None:
         self._approvals += 1
+
+    @workflow.signal(name=REJECT_ASSET_SIGNAL)
+    def reject_asset(self, step_id: str, comment: str) -> None:
+        self._rejections.append((step_id, comment))
 
     @workflow.signal(name=RETRY_SIGNAL)
     def retry_step(self) -> None:
@@ -240,7 +247,7 @@ class CampaignWorkflow:
         elif kind == graph.APPROVAL:
             await self._db("open_approval", campaign_id)
             await self._announce("announce_approval", campaign_id)
-            await workflow.wait_condition(lambda: self._approvals >= approvals_needed)
+            await self._until_approved(campaign_id, report, dag, approvals_needed)
             await self._db("mark_step", campaign_id, step_id, STEP_SUCCEEDED)
         elif kind == graph.PUBLISH:
             await self._publish(campaign_id, dag, step)
@@ -255,17 +262,55 @@ class CampaignWorkflow:
         else:
             raise StepFailed(step_id, f"step {step_id!r} has an unknown kind {kind!r}")
 
-    async def _agent(
-        self, campaign_id: str, report: str, dag: dict[str, Any], step: dict[str, Any]
-    ) -> None:
-        step_id = step["id"]
-        # The agent steps before this one hand it their output.
+    def _context_for(self, dag: dict[str, Any], step_id: str) -> dict[str, Any]:
+        """What the agent steps before this one produced."""
         before = graph.ancestors(dag, step_id)
-        context = {
+        return {
             s["id"]: self._outputs[s["id"]]
             for s in dag["steps"]
             if s["id"] in before and s["id"] in self._outputs
         }
+
+    async def _until_approved(
+        self, campaign_id: str, report: str, dag: dict[str, Any], approvals_needed: int
+    ) -> None:
+        """Wait for the approval. An asset an approver sends back is redone on its own
+        while the wait goes on, and the campaign waits for approval again."""
+        while True:
+            await workflow.wait_condition(
+                lambda: self._approvals >= approvals_needed or bool(self._rejections)
+            )
+            if self._approvals >= approvals_needed:
+                return
+            step_id, comment = self._rejections.pop(0)
+            await self._redo(campaign_id, report, dag, step_id, comment)
+            await self._db("open_approval", campaign_id)
+
+    async def _redo(
+        self, campaign_id: str, report: str, dag: dict[str, Any], step_id: str, comment: str
+    ) -> None:
+        """Send one rejected asset back to its writer sessions; no other step runs."""
+        step = next((s for s in dag["steps"] if s["id"] == step_id), None)
+        if step is None or step["kind"] != graph.AGENT:
+            workflow.logger.warning("a rejection named %r, which is not an agent step", step_id)
+            return
+        policy = step_policy(step)
+        try:
+            result = await workflow.execute_activity(
+                "redo_asset",
+                args=[campaign_id, report, step_id, comment, self._context_for(dag, step_id)],
+                start_to_close_timeout=policy.timeout,
+                retry_policy=policy.retry_policy(),
+            )
+        except ActivityError as exc:
+            raise _failed(step_id, policy, exc) from exc
+        self._outputs[step_id] = result["output"]
+
+    async def _agent(
+        self, campaign_id: str, report: str, dag: dict[str, Any], step: dict[str, Any]
+    ) -> None:
+        step_id = step["id"]
+        context = self._context_for(dag, step_id)
         result = await self._run_agent_within_budget(campaign_id, report, step, context)
         await self._db("save_agent_output", campaign_id, step_id, result)
         self._outputs[step_id] = result["output"]

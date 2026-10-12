@@ -24,6 +24,12 @@ def first_line(report: str) -> str:
     return line[:SUMMARY_LINE_LIMIT]
 
 
+def inbox_link(settings: Settings, campaign_id: str) -> str:
+    """Where an approver opens the campaign's assets; empty when the web app's URL is not set."""
+    base = settings.web_url.strip().rstrip("/")
+    return f"{base}/?inbox={campaign_id}" if base else ""
+
+
 async def post_to_slack(client: httpx.AsyncClient, settings: Settings, text: str) -> bool:
     """Post `text` to the configured channel. False when Slack is off or the post failed."""
     if not settings.slack_enabled:

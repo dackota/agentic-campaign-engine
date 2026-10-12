@@ -39,6 +39,7 @@ from temporalio.client import Client
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
+from campaign_api.inbox import register_inbox_routes
 from campaign_api.trace_middleware import install_campaign_trace
 from campaign_api.trace_middleware import remember as remember_trace
 from campaign_api.webhook_routes import (
@@ -577,6 +578,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     _add_campaign_routes(app)
     _register_approval_route(app)
+    register_inbox_routes(app)
     _register_retry_route(app)
     _register_budget_route(app)
     _add_event_routes(app)
