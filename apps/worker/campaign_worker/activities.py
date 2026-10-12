@@ -1,6 +1,7 @@
 """Activities: the side-effecting steps the campaign workflow runs."""
 
 import asyncio
+import hashlib
 import json
 import uuid
 from dataclasses import dataclass
@@ -179,7 +180,8 @@ class Activities:
             return None
         key = step_cache.CacheKey(
             step_type=job.role.template,
-            agent_digest=":".join(digests),
+            # One fixed-width digest: the column is 64 characters, one card digest each.
+            agent_digest=hashlib.sha256(":".join(digests).encode()).hexdigest(),
             input_hash=step_cache.input_hash(job.report, job.context, review_rounds),
         )
         return StepCacheLookup(step_cache.StepCache(self._engine, team), key)
