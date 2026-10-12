@@ -13,6 +13,7 @@ import httpx
 import pytest
 from ace_engine import db
 from ace_engine.default_workflow import DEFAULT_WORKFLOW_NAME
+from ace_engine.step_cache import CacheKey, StepCache, input_hash
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
@@ -103,10 +104,13 @@ def test_the_team_role_sees_only_its_own_rows_without_a_team_condition(
 
 def test_api_code_adds_no_team_condition() -> None:
     """The campaign queries name no team: row-level security is the only team filter."""
-    team_condition = re.compile(r"\.team\s*(==|!=)|\bteam\s*=\s*:|Campaign\.team\b")
+    team_condition = re.compile(
+        r"\.team\s*(==|!=)|\bteam\s*=\s*:|Campaign\.team\b|StepCacheEntry\.team\b|[\"']team[\"']\s*:"
+    )
     sources = [
         *(ROOT / "apps/api/campaign_api").glob("*.py"),
         ROOT / "apps/engine/ace_engine/db.py",
+        ROOT / "apps/engine/ace_engine/step_cache.py",
     ]
 
     found = [
@@ -181,3 +185,16 @@ def test_two_teams_run_campaigns_at_once_without_mixing_data(
     steps_b = team_b.get(f"/campaigns/{b['id']}/steps").json()
     assert steps_a and steps_b
     assert {s["session"] for s in steps_a}.isdisjoint({s["session"] for s in steps_b})
+
+
+def test_a_team_never_reads_another_teams_step_cache(database: Engine) -> None:
+    """The step cache is a team table too: the database keeps one team's saved outputs from
+    another, with no team condition in the cache's queries."""
+    key = CacheKey("ace-email-writer", f"rev-{uuid.uuid4()}", input_hash("a report", {}, 0))
+    StepCache(database, team=TEAM_A).put(key, {"ok": True}, model="m")
+
+    own = StepCache(database, team=TEAM_A).get(key)
+    other = StepCache(database, team=TEAM_B).get(key)
+
+    assert own is not None and own.output == {"ok": True}
+    assert other is None

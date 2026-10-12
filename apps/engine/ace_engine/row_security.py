@@ -4,6 +4,8 @@ A request of a signed-in user runs as the `ace_team` role with the setting `ace.
 the user's team (`for_team`). The policies then show and accept only that team's rows, so
 the API's queries name no team. The worker and the signed webhooks connect as the tables'
 owner, which row-level security does not filter: they act for the system, not for a team.
+The step cache is the exception: the worker reads and writes it through `for_team`, so the
+database keeps one team's saved outputs from another.
 Workflows and platform alerts are shared by every team and have no policy
 (docs/decisions/team-isolation.md).
 """
@@ -20,6 +22,8 @@ TEAM_SETTING = "ace.team"
 TEAM_OPTION = "ace_team"
 # Workflows and platform alerts belong to no team.
 SHARED_TABLES = frozenset({db.WorkflowVersion.__tablename__, db.Alert.__tablename__})
+# Tables with their own team column; the other team tables reach theirs through a campaign.
+TEAM_KEYED_TABLES = frozenset({db.Campaign.__tablename__, db.StepCacheEntry.__tablename__})
 # One installer at a time: the API and the worker can start together.
 _INSTALL_LOCK = 4_040_040
 _CURRENT_TEAM = f"current_setting('{TEAM_SETTING}', true)"
@@ -34,8 +38,9 @@ def team_tables() -> list[str]:
 
 
 def _policy_condition(table: str) -> str:
-    """Campaigns carry their team; every other team table belongs to a campaign."""
-    if table == db.Campaign.__tablename__:
+    """Campaigns and the step cache carry their team; every other team table belongs to a
+    campaign."""
+    if table in TEAM_KEYED_TABLES:
         return f"team = {_CURRENT_TEAM}"
     return _OWN_CAMPAIGN
 
@@ -87,7 +92,8 @@ def for_team(engine: Engine, team: str | None) -> Engine:
 @event.listens_for(Session, "after_begin")
 def _set_team(_session: Session, _transaction: SessionTransaction, conn: Connection) -> None:
     team = conn.get_execution_options().get(TEAM_OPTION)
-    if team is None:
+    # Row-level security is Postgres's: an SQLite test database has no roles to set.
+    if team is None or conn.dialect.name != "postgresql":
         return
     conn.execute(text(f"SET LOCAL ROLE {TEAM_ROLE}"))
     conn.execute(

@@ -11,6 +11,12 @@ shows a row when its campaign is one the team can see. The API runs each signed-
 request as the `ace_team` role (`SET LOCAL ROLE`) with `ace.team` set to the user's team
 from the token, so no API query names a team. A session with no team set sees nothing.
 
+**The step cache.** `step_cache` has its own `team` column (a saved output is reused
+only inside its team), so its policy is `team = current_setting('ace.team')` like
+`campaigns`. The worker reads and writes the cache through `for_team` with the campaign's
+team, and the cache's queries name no team. The worker installs the role and policies at
+start too, since it may start before the API.
+
 **Who is not filtered.** The worker and the signed webhooks connect as the tables' owner,
 which row-level security does not filter. They act for the system: the worker runs one
 campaign by id, and a webhook is signed by the marketing system, not sent by a team.
