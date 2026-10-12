@@ -16,6 +16,7 @@ from typing import Any
 import httpx
 
 from ace_engine.contracts import violations
+from ace_engine.cost import Usage, usage_from
 
 _FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
@@ -32,7 +33,8 @@ class AgentCallFailed(Exception):
 class Invocation:
     output: dict[str, Any]
     session_id: str
-    usage: dict[str, Any] | None
+    # The tokens every call of this invocation used, the repair attempt's included.
+    usage: Usage
 
 
 A2A_VERSION = "1.0"
@@ -46,15 +48,6 @@ def _reply_text(task: dict[str, Any]) -> str:
     if not parts:
         parts = (task.get("status", {}).get("message") or {}).get("parts", [])
     return "".join(p.get("text", "") for p in parts)
-
-
-def _usage(task: dict[str, Any]) -> dict[str, Any] | None:
-    for artifact in task.get("artifacts") or []:
-        usage = (artifact.get("metadata") or {}).get(USAGE_KEY)
-        if usage is not None:
-            found: dict[str, Any] = usage
-            return found
-    return None
 
 
 def _parse(text: str, schema: dict[str, Any]) -> tuple[dict[str, Any] | None, list[str]]:
@@ -106,15 +99,26 @@ async def _send(
     return task
 
 
-async def invoke(
-    client: httpx.AsyncClient,
-    agent_url: str,
-    session_key: str,
-    prompt: str,
-    schema: dict[str, Any],
-) -> Invocation:
-    result = await _send(client, agent_url, None, f"{session_key}:1", prompt)
+@dataclass(frozen=True)
+class AgentCall:
+    """One question to an agent. `session_id` is the session the agent issued for an earlier
+    question (a fix the reviewer asked for goes to the same session); none opens a new one.
+    A later `turn` gets message ids of its own."""
+
+    session_key: str
+    prompt: str
+    schema: dict[str, Any]
+    turn: int = 0
+    session_id: str | None = None
+
+
+async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> Invocation:
+    """Ask in a session: the agent issues it on the first question, the repair reuses it."""
+    prompt, schema = call.prompt, call.schema
+    prefix = call.session_key if call.turn == 0 else f"{call.session_key}:r{call.turn}"
+    result = await _send(client, agent_url, call.session_id, f"{prefix}:1", prompt)
     session_id: str = result["contextId"]
+    usage = _usage_of(result)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:
         repair = (
@@ -122,7 +126,8 @@ async def invoke(
             + "; ".join(problems)
             + ". Reply again with only the corrected JSON."
         )
-        result = await _send(client, agent_url, session_id, f"{session_key}:2", repair)
+        result = await _send(client, agent_url, session_id, f"{prefix}:2", repair)
+        usage = usage + _usage_of(result)
         output, problems = _parse(_reply_text(result), schema)
     if output is None:
         raise AgentOutputInvalid(
@@ -131,8 +136,20 @@ async def invoke(
     return Invocation(
         output=output,
         session_id=result.get("contextId", session_id),
-        usage=_usage(result),
+        usage=usage,
     )
+
+
+def _usage_of(task: dict[str, Any]) -> Usage:
+    """The token usage on an A2A task reply. kagent reports it on the artifact metadata under
+    `kagent.dev/a2a/usage`; the ADR in docs/decisions/token-usage-per-campaign.md names
+    `metadata.usage` on the task, which is read when no artifact carries it."""
+    for artifact in task.get("artifacts") or []:
+        reported = (artifact.get("metadata") or {}).get(USAGE_KEY)
+        if reported is not None:
+            return usage_from(reported)
+    metadata = task.get("metadata")
+    return usage_from(metadata.get("usage") if isinstance(metadata, dict) else None)
 
 
 def new_session_key() -> str:

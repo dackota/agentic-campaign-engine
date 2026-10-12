@@ -1,14 +1,16 @@
 """Activities: the side-effecting steps the campaign workflow runs."""
 
 import asyncio
+import json
 import uuid
+from dataclasses import dataclass
 from typing import Any
 
 import httpx
+from ace_engine import brand_review, cost, db, invoker
 from ace_engine import dag as graph
-from ace_engine import db, invoker
-from ace_engine.agent_roles import agent_url_for, message_for, role_for
-from ace_engine.contracts import citation_problems
+from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for
+from ace_engine.contracts import AgentOutput, citation_problems
 from ace_engine.settings import Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
@@ -31,6 +33,17 @@ def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
 
 
+@dataclass(frozen=True)
+class ReviewJob:
+    """What a writer step was asked, so the reviewer's fixes go back to the same sessions."""
+
+    campaign_id: str
+    step_id: str
+    report: str
+    role: Role
+    context: dict[str, Any]
+
+
 class Activities:
     def __init__(self, settings: Settings, engine: Engine) -> None:
         self._settings = settings
@@ -48,38 +61,45 @@ class Activities:
             if agent_session is None:
                 db.add_event(session, uuid.UUID(campaign_id), step, status, reason)
             else:
-                # Agent steps carry a session and never a reason.
-                db.add_agent_event(session, uuid.UUID(campaign_id), step, status, agent_session)
+                # An agent step's event carries its session; a review event adds the issues.
+                event = db.add_agent_event(
+                    session, uuid.UUID(campaign_id), step, status, agent_session
+                )
+                event.reason = reason
 
     @activity.defn
     async def run_agent_step(
-        self, campaign_id: str, report: str, step_id: str, context: dict[str, Any]
+        self,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        context: dict[str, Any],
+        review_rounds: int = 0,
     ) -> dict[str, Any]:
         """Ask the step's agent, each reply in its own session. `context` holds what the
-        steps before this one produced. Returns the output and the step's session."""
+        steps before this one produced. With `review_rounds`, the brand reviewer checks the
+        draft and fixes go back to the same sessions. Returns the output and the step's
+        session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
+        if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+            raise ApplicationError(
+                "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
+            )
         await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
-                replies = [
-                    (
-                        await invoker.invoke(
-                            client,
-                            agent_url_for(self._settings.agent_url, self._settings.depth, role),
-                            session_key=session_key(campaign_id, step_id, variant),
-                            prompt=message_for(role, report, context, variant),
-                            schema=role.reply_schema,
-                        )
-                    ).output
-                    for variant in range(role.replies)
-                ]
+                job = ReviewJob(campaign_id, step_id, report, role, context)
+                output, usage, writer_sessions = await self._writer_outputs(client, job)
+                if review_rounds > 0:
+                    output, usage = await self._review_loop(
+                        client, job, (output, usage, writer_sessions), review_rounds
+                    )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        output: Any = replies if role.replies > 1 else replies[0]
-        if role.checks_citations:
+        if role.checks_citations and isinstance(output, dict):
             problems = citation_problems(output, report)
             if problems:
                 raise ApplicationError(
@@ -87,13 +107,109 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
-        return {"output": output, "session": session}
+        return {"output": output, "session": session, "usage": usage.as_dict()}
+
+    def _is_budget_spent(self, campaign_id: str) -> bool:
+        """True when the campaign has a budget and its model calls have used all of it."""
+        with Session(self._engine) as session:
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            return cost.is_budget_spent(
+                campaign.budget_micros, db.spent_micros(session, campaign.id)
+            )
+
+    async def _review_loop(
+        self,
+        client: httpx.AsyncClient,
+        job: ReviewJob,
+        draft: tuple[AgentOutput, cost.Usage, tuple[str, ...]],
+        review_rounds: int,
+    ) -> tuple[AgentOutput, cost.Usage]:
+        """Send the draft to the brand reviewer; on a fix verdict send the issues back to
+        the same writer sessions, for at most `review_rounds` rounds (never more than the
+        limit). What the reviewer still flags after the last round is flagged for a human.
+        `draft` is the writers' output, its tokens, and the sessions the agents issued.
+        Returns the output and the tokens of every call so far."""
+        output, usage, writer_sessions = draft
+        reviewer_session_id: str | None = None
+        writer_session = session_key(job.campaign_id, job.step_id)
+        reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
+        fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
+        for turn in range(fix_rounds + 1):
+            verdict = await invoker.invoke(
+                client,
+                self._settings.agent_url,
+                invoker.AgentCall(
+                    session_key=reviewer_session,
+                    prompt=brand_review.review_message(output, job.context, job.report),
+                    schema=brand_review.VERDICT_SCHEMA,
+                    turn=turn,
+                    session_id=reviewer_session_id,
+                ),
+            )
+            reviewer_session_id = verdict.session_id
+            usage = usage + verdict.usage
+            if verdict.output["verdict"] == brand_review.PASS:
+                break
+            issues = verdict.output["issues"]
+            is_last = turn == fix_rounds
+            status = db.FLAGGED if is_last else db.REVIEW_FIX
+            await asyncio.to_thread(
+                self._record,
+                job.campaign_id,
+                job.step_id,
+                status,
+                json.dumps(issues),
+                writer_session,
+            )
+            if is_last:
+                break
+            output, fix_usage, writer_sessions = await self._writer_outputs(
+                client, job, issues, turn + 1, writer_sessions
+            )
+            usage = usage + fix_usage
+        return output, usage
+
+    async def _writer_outputs(
+        self,
+        client: httpx.AsyncClient,
+        job: ReviewJob,
+        issues: list[dict[str, Any]] | None = None,
+        turn: int = 0,
+        sessions: tuple[str, ...] = (),
+    ) -> tuple[AgentOutput, cost.Usage, tuple[str, ...]]:
+        """Ask each of the writer's sessions: the first draft, or with `issues` the fixes the
+        reviewer asked for. The step's output (a list when the role replies more than once)
+        the tokens the calls used, and the sessions the agent issued (`sessions` are the ones
+        a fix goes back to)."""
+        outputs = []
+        issued = []
+        usage = cost.NO_USAGE
+        for variant in range(job.role.replies):
+            prompt = message_for(job.role, job.report, job.context, variant)
+            if issues is not None:
+                prompt = brand_review.fix_message(prompt, issues)
+            reply = await invoker.invoke(
+                client,
+                agent_url_for(self._settings.agent_url, self._settings.depth, job.role),
+                invoker.AgentCall(
+                    session_key=session_key(job.campaign_id, job.step_id, variant),
+                    prompt=prompt,
+                    schema=job.role.reply_schema,
+                    turn=turn,
+                    session_id=sessions[variant] if sessions else None,
+                ),
+            )
+            outputs.append(reply.output)
+            issued.append(reply.session_id)
+            usage = usage + reply.usage
+        return (outputs if job.role.replies > 1 else outputs[0]), usage, tuple(issued)
 
     @activity.defn
     def save_agent_output(self, campaign_id: str, step_id: str, result: dict[str, Any]) -> None:
         """Store an agent step's output and mark the step succeeded. The email writer's
         two emails become the campaign's draft and its A/B variant."""
         output, agent_session = result["output"], result["session"]
+        usage = cost.usage_from(result.get("usage"))
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             session.merge(
@@ -101,9 +217,22 @@ class Activities:
                     campaign_id=campaign.id, step=step_id, session=agent_session, output=output
                 )
             )
+            session.merge(
+                db.StepUsage(
+                    campaign_id=campaign.id,
+                    step=step_id,
+                    model=usage.model,
+                    input_tokens=usage.input_tokens,
+                    output_tokens=usage.output_tokens,
+                    cost_micros=usage.cost_micros,
+                )
+            )
             if role_for(step_id).writes_draft:
                 campaign.draft, campaign.variant_b = output
-            db.add_agent_event(session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session)
+            event = db.add_agent_event(
+                session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session
+            )
+            event.tokens = usage.total_tokens or None
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:
@@ -115,6 +244,28 @@ class Activities:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
             campaign.status = db.AWAITING_APPROVAL
             db.add_event(session, campaign.id, db.RUN_STEP, db.AWAITING_APPROVAL)
+
+    @activity.defn
+    def pause_for_budget(self, campaign_id: str) -> None:
+        """Hold the run at its budget until the owner raises it."""
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            spent = cost.to_dollars(db.spent_micros(session, campaign.id))
+            budget = cost.to_dollars(campaign.budget_micros or 0)
+            reason = f"budget of ${budget:.4f} reached: ${spent:.4f} spent"
+            campaign.status = db.BUDGET_PAUSED
+            db.add_event(session, campaign.id, db.RUN_STEP, db.BUDGET_PAUSED, reason)
+
+    @activity.defn
+    def resume_after_budget(self, campaign_id: str) -> None:
+        """The owner raised the budget: the paused run drafts again. Writers that waited
+        together each call this; only the first changes anything."""
+        with Session(self._engine) as session, session.begin():
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            if campaign.status != db.BUDGET_PAUSED:
+                return
+            campaign.status = db.DRAFTING
+            db.add_event(session, campaign.id, db.RUN_STEP, db.DRAFTING)
 
     @activity.defn
     def mark_failed(self, campaign_id: str, step_id: str, reason: str) -> None:

@@ -285,3 +285,15 @@ def workfront_signed_headers(
         WORKFRONT_SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
         "Content-Type": "application/json",
     }
+
+
+DAY_SPEED = 100_000.0  # simulated audience seconds per real second: days in seconds
+
+
+def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
+    """Create a campaign, let it draft, approve it, and wait until it is sent."""
+    campaign_id: str = create(api)["id"]
+    settle(api, campaign_id)
+    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
+    until_status(api, campaign_id, SENT)
+    return campaign_id
