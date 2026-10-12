@@ -1,28 +1,27 @@
 """OpenTelemetry for every process we run: one trace per campaign.
 
-A campaign's trace id is its UUID, so any service that knows the campaign id (the API on
-create and approve, then everything the workflow calls through Temporal and HTTP headers)
-lands in the same trace without a lookup. Spans are exported over OTLP/HTTP when the
-standard `OTEL_EXPORTER_OTLP_ENDPOINT` is set (the collector `make up FULL=1` installs);
-with it unset nothing is exported and the calls here cost almost nothing.
+`POST /campaigns` starts the campaign's trace: its request span is the root, and the
+workflow carries that context through Temporal. The API keeps the root's `traceparent` with
+the campaign (`db.CampaignTrace`), so a later request for the campaign (approve, a webhook,
+a read) joins the same trace. Spans are exported over OTLP/HTTP when the standard
+`OTEL_EXPORTER_OTLP_ENDPOINT` is set (the collector `make up FULL=1` installs); with it
+unset nothing is exported and the calls here cost almost nothing.
 """
 
 import os
-import uuid
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 
 from fastapi import FastAPI
 from opentelemetry import trace
-from opentelemetry.context import Context
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
 from opentelemetry.sdk.resources import Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor, SpanExporter
-from opentelemetry.trace import NonRecordingSpan, Span, SpanContext, TraceFlags
-from opentelemetry.trace.propagation import set_span_in_context
+from opentelemetry.trace import Span
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 from temporalio.contrib.opentelemetry import TracingInterceptor
 
 ENDPOINT_ENV = "OTEL_EXPORTER_OTLP_ENDPOINT"
@@ -34,36 +33,8 @@ CAMPAIGN_ATTRIBUTE = "ace.campaign_id"
 OPERATION_ATTRIBUTE = "gen_ai.operation.name"
 URL_ATTRIBUTES = ("http.url", "url.full", "http.target", "url.path")
 QUERY_ATTRIBUTE = "url.query"
-SPAN_ID_BITS = 64
+TRACEPARENT_HEADER = "traceparent"
 _tracer = trace.get_tracer("ace")
-
-
-def campaign_trace_id(campaign_id: uuid.UUID | str) -> int:
-    return uuid.UUID(str(campaign_id)).int
-
-
-def campaign_context(campaign_id: uuid.UUID | str) -> Context:
-    """A context whose current span is the campaign's trace root, so a span started under
-    it joins the campaign's trace. The root itself is never exported."""
-    trace_id = campaign_trace_id(campaign_id)
-    root = SpanContext(
-        trace_id=trace_id,
-        span_id=(trace_id & (2**SPAN_ID_BITS - 1)) or 1,
-        is_remote=True,
-        trace_flags=TraceFlags(TraceFlags.SAMPLED),
-    )
-    return set_span_in_context(NonRecordingSpan(root))
-
-
-@contextmanager
-def campaign_span(service: str, name: str, campaign_id: uuid.UUID | str) -> Iterator[Span]:
-    """A span in the campaign's trace, current for the block: calls made inside carry it."""
-    with _tracer.start_as_current_span(
-        name,
-        context=campaign_context(campaign_id),
-        attributes={SERVICE_ATTRIBUTE: service, CAMPAIGN_ATTRIBUTE: str(campaign_id)},
-    ) as span:
-        yield span
 
 
 @contextmanager
@@ -75,6 +46,14 @@ def span(service: str, name: str, operation: str | None = None) -> Iterator[Span
         attributes[OPERATION_ATTRIBUTE] = operation
     with _tracer.start_as_current_span(name, attributes=attributes) as made:
         yield made
+
+
+def current_traceparent() -> str | None:
+    """The W3C `traceparent` of the current span, or None outside a valid span. The API
+    stores it for a campaign, so later requests for that campaign join its trace."""
+    carrier: dict[str, str] = {}
+    TraceContextTextMapPropagator().inject(carrier)
+    return carrier.get(TRACEPARENT_HEADER)
 
 
 def exporter_from_environ(environ: Mapping[str, str]) -> SpanExporter | None:

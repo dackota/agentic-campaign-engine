@@ -1,31 +1,25 @@
-"""The shared telemetry module: a campaign's trace id, and an exporter only when asked."""
-
-import uuid
+"""The shared telemetry module: the traceparent of a span, and an exporter only when asked."""
 
 from ace_engine import telemetry
+from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
-from opentelemetry.trace import get_current_span
+from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
 
-TRACE_ID_BITS = 128
-
-
-def test_campaign_trace_id_is_the_campaign_uuid_as_a_number() -> None:
-    first, second = uuid.uuid4(), uuid.uuid4()
-
-    assert (
-        telemetry.campaign_trace_id(first) == first.int == telemetry.campaign_trace_id(str(first))
-    )
-    assert telemetry.campaign_trace_id(first) != telemetry.campaign_trace_id(second)
-    assert 0 < telemetry.campaign_trace_id(first) < 2**TRACE_ID_BITS
+TRACE_ID = 0x0AF7651916CD43DD8448EB211C80319C
+SPAN_ID = 0xB7AD6B7169203331
 
 
-def test_a_campaign_span_is_current_and_in_the_campaign_trace() -> None:
-    campaign_id = uuid.uuid4()
+def test_no_traceparent_outside_a_span() -> None:
+    assert telemetry.current_traceparent() is None
 
-    with telemetry.campaign_span("svc", "work", campaign_id):
-        context = get_current_span().get_span_context()
 
-    assert context.trace_id == campaign_id.int
+def test_current_traceparent_names_the_current_span() -> None:
+    context = SpanContext(TRACE_ID, SPAN_ID, True, TraceFlags(TraceFlags.SAMPLED))
+
+    with trace.use_span(NonRecordingSpan(context)):
+        header = telemetry.current_traceparent()
+
+    assert header == "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
 
 
 def test_no_exporter_without_an_endpoint() -> None:

@@ -79,6 +79,18 @@ class Campaign(Base):
     )
 
 
+class CampaignTrace(Base):
+    """The `traceparent` of the request span that created the campaign: the root of its
+    trace. Later requests for the campaign join it."""
+
+    __tablename__ = "campaign_traces"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    traceparent: Mapped[str] = mapped_column(String(100))
+
+
 class WorkflowVersion(Base):
     """One saved version of a workflow DAG. Versions are never edited, only added."""
 
@@ -325,6 +337,14 @@ def spent_micros(session: Session, campaign_id: uuid.UUID) -> int:
 def list_campaigns(session: Session) -> list[Campaign]:
     """Every campaign, newest first."""
     return list(session.scalars(select(Campaign).order_by(Campaign.created_at.desc())))
+
+
+def campaign_traceparent(engine: Engine, campaign_id: uuid.UUID) -> str | None:
+    """The traceparent a campaign's trace is joined by, or None when it has none."""
+    with Session(engine) as session:
+        return session.scalar(
+            select(CampaignTrace.traceparent).where(CampaignTrace.campaign_id == campaign_id)
+        )
 
 
 def make_engine(database_url: str) -> Engine:

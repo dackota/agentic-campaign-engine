@@ -163,6 +163,7 @@ def _export_tool_and_model_spans() -> None:
         with telemetry.span(SERVICE, f"{operation} {name}", operation=operation):
             pass
 
+
 def scripted_usage(message_text: str) -> dict[str, Any]:
     """The token usage a reply reports: the report's usage marker, else the default."""
     total = TOTAL_USAGE_MARKER.search(message_text)
