@@ -1,6 +1,8 @@
 # The AgentTemplates for the default workflow's roles, run at live depth. The prompt of
 # each is the role's prompt in apps/engine/ace_engine/agent_roles.py; a test keeps them equal.
-# They call the model through agentgateway (the gateway-model config). Apply them after
+# They call the model through agentgateway (the gateway-model config), except
+# ace-brand-reviewer: it is not run live (review_rounds defaults to 0 and agents.yaml has no
+# reviewer Agent), so it stays on mock-model. Apply them after
 # the model configs `make up` installs; agents.yaml turns each into a running Agent.
 ---
 apiVersion: api.kagent.dev/v1alpha3

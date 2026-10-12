@@ -7,8 +7,10 @@ Home for this part. Later tickets fill it.
 One AgentTemplate per role of the default workflow "Threat report to campaign":
 strategist, research, email writer, landing page writer, social writer, and one-pager
 writer. The system prompt in each template is the role's prompt in
-`apps/engine/ace_engine/agent_roles.py`, and a test keeps the two equal. Each template uses
-the `gateway-model` config, so every model call goes through agentgateway.
+`apps/engine/ace_engine/agent_roles.py`, and a test keeps the two equal. Each of those templates uses
+the `gateway-model` config, so every model call goes through agentgateway. The exception is
+`ace-brand-reviewer`: it is not run live (`review_rounds` defaults to 0 and `agents.yaml` has
+no reviewer Agent), so it stays on `mock-model`.
 
 ## agents.yaml
 
