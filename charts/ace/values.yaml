@@ -19,6 +19,11 @@ api:
   oidcIssuer: http://dex.ace.localhost:15656/dex
   oidcClientId: ace-web
 
+# Where the services send OTLP traces. `make up FULL=1` sets it to the collector; empty
+# exports nothing.
+otel:
+  endpoint: ""
+
 # fast: the worker calls the agent at worker.agentUrl. The run modes are in SPEC.md.
 depth: fast
 

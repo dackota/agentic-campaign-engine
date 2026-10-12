@@ -10,6 +10,7 @@
 import threading
 from typing import Any
 
+from ace_engine import telemetry
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -38,6 +39,7 @@ class _Store:
 def create_app() -> FastAPI:
     store = _Store()
     app = FastAPI()
+    telemetry.instrument_app(app, "fake-cms")
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:

@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from ace_engine import brand_review, cost, db, invoker
+from ace_engine import brand_review, cost, db, invoker, telemetry
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, message_for, role_for
 from ace_engine.contracts import AgentOutput, citation_problems
@@ -23,6 +23,7 @@ from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
+SERVICE = "campaign-worker"
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
@@ -90,11 +91,12 @@ class Activities:
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
                 job = ReviewJob(campaign_id, step_id, report, role, context)
-                output, usage = await self._writer_outputs(client, job)
-                if review_rounds > 0:
-                    output, usage = await self._review_loop(
-                        client, job, output, usage, review_rounds
-                    )
+                with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
+                    output, usage = await self._writer_outputs(client, job)
+                    if review_rounds > 0:
+                        output, usage = await self._review_loop(
+                            client, job, output, usage, review_rounds
+                        )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True

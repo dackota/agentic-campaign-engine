@@ -12,6 +12,7 @@ import threading
 from dataclasses import dataclass
 from typing import Any
 
+from ace_engine import telemetry
 from fastapi import FastAPI, Header
 from pydantic import BaseModel, Field
 
@@ -32,6 +33,7 @@ class Message(BaseModel):
 
 def create_app(config: SlackConfig) -> FastAPI:
     app = FastAPI(title="fake-slack")
+    telemetry.instrument_app(app, "fake-slack")
     messages: list[dict[str, str]] = []
     lock = threading.Lock()
 

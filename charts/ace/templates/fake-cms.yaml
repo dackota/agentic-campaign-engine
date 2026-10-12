@@ -23,6 +23,10 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if .Values.otel.endpoint }}
+          env:
+            {{- include "ace.otelEnv" (list . "fake-cms") | nindent 12 }}
+          {{- end }}
           readinessProbe:
             httpGet:
               path: /healthz

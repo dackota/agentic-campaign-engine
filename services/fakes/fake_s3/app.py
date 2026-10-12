@@ -13,6 +13,7 @@ import hashlib
 import threading
 from xml.sax.saxutils import escape
 
+from ace_engine import telemetry
 from fastapi import FastAPI, HTTPException, Request, Response
 from pydantic import BaseModel
 
@@ -112,6 +113,7 @@ def _add_listing_route(app: FastAPI, store: _Store) -> None:
 def create_app() -> FastAPI:
     store = _Store()
     app = FastAPI()
+    telemetry.instrument_app(app, "fake-s3")
     _add_bucket_routes(app, store)
     _add_object_routes(app, store)
     _add_listing_route(app, store)

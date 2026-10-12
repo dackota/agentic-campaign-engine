@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
-from ace_engine import cost, db
+from ace_engine import cost, db, telemetry
 from ace_engine import dag as graph
 from ace_engine.settings import (
     APPROVE_SIGNAL,
@@ -27,6 +27,7 @@ from ace_engine.settings import (
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from opentelemetry import trace
 from pydantic import BaseModel, Field, StringConstraints
 from render_service import assets
 from render_service.email import EmailTooLarge, render_email
@@ -38,6 +39,8 @@ from temporalio.client import Client
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
+from campaign_api.trace_middleware import install_campaign_trace
+from campaign_api.trace_middleware import remember as remember_trace
 from campaign_api.webhook_routes import (
     ActivityOut,
     activities,
@@ -54,6 +57,7 @@ from campaign_api.workflows import (
 
 logger = logging.getLogger(__name__)
 MAX_REPORT_CHARS = 100_000
+SERVICE = "campaign-api"
 EVENT_POLL_SECONDS = 0.1
 FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED, db.BUDGET_PAUSED}
 # A run in one of these has ended; no signal reaches it.
@@ -182,10 +186,12 @@ class Me(BaseModel):
     roles: list[str]
 
 
-def _insert(engine: Engine, campaign: db.Campaign) -> CampaignOut:
+def _insert(engine: Engine, campaign: db.Campaign, traceparent: str | None) -> CampaignOut:
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.add(campaign)
         session.flush()
+        if traceparent is not None:
+            session.add(db.CampaignTrace(campaign_id=campaign.id, traceparent=traceparent))
         return CampaignOut.of(campaign, [], None)
 
 
@@ -297,7 +303,8 @@ def _register_approval_route(app: FastAPI) -> None:
             raise HTTPException(status_code=409, detail="campaign is not waiting for approval")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
-            await handle.signal(APPROVE_SIGNAL)
+            with telemetry.span(SERVICE, "campaign.approve"):
+                await handle.signal(APPROVE_SIGNAL)
         except Exception:
             await run_in_threadpool(
                 _set_status, engine, campaign_id, db.SENDING, db.AWAITING_APPROVAL
@@ -319,7 +326,8 @@ def _register_retry_route(app: FastAPI) -> None:
             raise HTTPException(status_code=409, detail="only a failed run can retry its step")
         try:
             handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
-            await handle.signal(RETRY_SIGNAL)
+            with telemetry.span(SERVICE, "campaign.retry"):
+                await handle.signal(RETRY_SIGNAL)
         except Exception:
             await run_in_threadpool(_undo_retry, engine, campaign_id, campaign.failure_reason)
             raise
@@ -521,13 +529,20 @@ def _add_campaign_routes(app: FastAPI) -> None:
             dag=dag,
             budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
         )
-        created = await run_in_threadpool(_insert, engine, campaign)
-        await request.app.state.temporal.start_workflow(
-            WORKFLOW_NAME,
-            args=[str(created.id), body.report, dag],
-            id=f"campaign-{created.id}",
-            task_queue=TASK_QUEUE,
-        )
+        # This request's span is the root of the campaign's trace: keep it for later requests,
+        # and the workflow started below carries it through Temporal.
+        trace.get_current_span().set_attribute(telemetry.CAMPAIGN_ATTRIBUTE, str(campaign.id))
+        traceparent = telemetry.current_traceparent()
+        created = await run_in_threadpool(_insert, engine, campaign, traceparent)
+        if traceparent is not None:
+            remember_trace(campaign.id, traceparent)
+        with telemetry.span(SERVICE, "campaign.start"):
+            await request.app.state.temporal.start_workflow(
+                WORKFLOW_NAME,
+                args=[str(created.id), body.report, dag],
+                id=f"campaign-{created.id}",
+                task_queue=TASK_QUEUE,
+            )
         return created
 
     @app.get("/campaigns/{campaign_id}")
@@ -545,12 +560,16 @@ def create_app(settings: Settings) -> FastAPI:
         await run_in_threadpool(seed_default_workflow, app.state.engine)
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
-            settings.temporal_address, namespace=settings.temporal_namespace
+            settings.temporal_address,
+            namespace=settings.temporal_namespace,
+            interceptors=telemetry.temporal_interceptors(),
         )
         yield
         app.state.engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
+    telemetry.instrument_app(app, SERVICE)
+    install_campaign_trace(app)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
