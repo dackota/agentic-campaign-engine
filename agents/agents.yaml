@@ -50,3 +50,10 @@ metadata: {name: ace-brand-reviewer, namespace: kagent}
 spec:
   templateRef: {name: ace-brand-reviewer}
   harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-design-agent, namespace: kagent}
+spec:
+  templateRef: {name: ace-design-agent}
+  harnessRef: {name: spike-harness}

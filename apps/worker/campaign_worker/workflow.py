@@ -33,6 +33,7 @@ from temporalio.workflow import ActivityCancellationType
 
 with workflow.unsafe.imports_passed_through():
     from ace_engine import dag as graph
+    from ace_engine.agent_roles import role_for
     from ace_engine.cost import BUDGET_SPENT
     from ace_engine.db import STEP_STARTED, STEP_SUCCEEDED
 
@@ -267,8 +268,22 @@ class CampaignWorkflow:
             if s["id"] in before and s["id"] in self._outputs
         }
         result = await self._run_agent_within_budget(campaign_id, report, step, context)
+        if role_for(step_id).makes_cards:
+            await self._save_cards(campaign_id, step, result["output"])
         await self._db("save_agent_output", campaign_id, step_id, result)
         self._outputs[step_id] = result["output"]
+
+    async def _save_cards(self, campaign_id: str, step: dict[str, Any], output: Any) -> None:
+        policy = step_policy(step)
+        try:
+            await workflow.execute_activity(
+                "save_cards",
+                args=[campaign_id, output],
+                start_to_close_timeout=policy.timeout,
+                retry_policy=policy.retry_policy(),
+            )
+        except ActivityError as exc:
+            raise _failed(step["id"], policy, exc) from exc
 
     async def _run_agent_within_budget(
         self, campaign_id: str, report: str, step: dict[str, Any], context: dict[str, Any]

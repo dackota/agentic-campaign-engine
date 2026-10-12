@@ -88,3 +88,14 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | [OpenCode Go](https://opencode.ai/docs/go/) | Checked live 2026-10-12. Asks for a stable session ID in `x-opencode-session` "so we can optimize routing and prompt caching". Prices list a cached-read rate per model. `glm-5.3-flash` goes through `/v1/chat/completions`; the page documents no `cache_control` mark |
 | agentgateway access log on k3d-ace | Checked live 2026-10-12. Each model call logs `gen_ai.usage.input_tokens`, `gen_ai.usage.cache_read.input_tokens` and `agw.ai.time_to_first_token`. A repeat of a 5,755-token prompt read 5,440 tokens from the provider's cache. See `docs/decisions/prompt-caching.md` |
 | kagent A2A reply usage (`kagent.dev/a2a/usage`) | Checked live 2026-10-12. Holds `promptTokenCount`, `candidatesTokenCount`, `totalTokenCount` only: no cached-token count, so the cost ledger cannot show prompt-cache savings |
+
+## Sandbox design agent
+
+Taken from `docs/spike-log.md` section 16 (kagent 1.0.0-alpha9, measured on the spike
+cluster). Recorded 2026-10-12. Not re-checked against the live kagent pages or a cluster.
+
+| Source | What it told us |
+|---|---|
+| `docs/spike-log.md` section 16 | In a standalone sandbox, egress is deny-by-default through Substrate's proxy: HTTP to any host, in-cluster services and the metadata address answer 403. DNS resolves; ICMP is lost. Nothing reaches a sandbox but `kagent sandbox exec/upload/download` (inferred, not probed) |
+| `docs/spike-log.md` section 16 | The `SandboxTemplate` CRD (`api.kagent.dev/v1alpha3`) has only `workload.image`, `env` and `substrate`: no egress field to widen (draft bug 6) |
+| `docs/spike-log.md` section 15 | `kagent sandbox create/exec/delete` and `get` work on a template; a sandbox is `RUNTIME_STATE_READY` at once and `RUNTIME_STATE_DELETED` after delete; the default TTL is 1 h |
