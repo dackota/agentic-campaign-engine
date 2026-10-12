@@ -16,8 +16,16 @@ const STATUSES = [
   "failed",
   "retrying",
   "finished",
+  "budget_paused",
 ] as const;
 type CampaignStatus = (typeof STATUSES)[number];
+
+/** The A/B test's call: a winner with its confidence (0 to 1), or no decision yet. */
+export interface AbResult {
+  status: "winner" | "no_decision";
+  winner: string | null;
+  confidence: number | null;
+}
 
 export interface Campaign {
   id: string;
@@ -33,8 +41,62 @@ export interface Campaign {
   workflow_version: number | null;
   /** The pinned workflow's steps, in run order. */
   steps: WorkflowStep[];
+  /** What the run may spend on models, in dollars; null is no limit. */
+  budget_usd: number | null;
+  cost: CampaignCost;
   /** The pinned workflow's edges, for drawing the graph. */
   edges: WorkflowEdge[];
+  ab_result: AbResult;
+}
+
+function isAbResult(value: unknown): value is AbResult {
+  if (typeof value !== "object" || value === null) return false;
+  const r = value as Record<string, unknown>;
+  return (
+    (r.status === "winner" || r.status === "no_decision") &&
+    (r.winner === null || typeof r.winner === "string") &&
+    (r.confidence === null || typeof r.confidence === "number")
+  );
+}
+
+export interface Usage {
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  cost_usd: number;
+}
+
+export interface StepCost extends Usage {
+  step: string;
+  model: string;
+}
+
+/** Tokens and cost in total, and per agent step. */
+export interface CampaignCost extends Usage {
+  steps: StepCost[];
+}
+
+function isUsage(value: unknown): value is Usage {
+  if (typeof value !== "object" || value === null) return false;
+  const u = value as Record<string, unknown>;
+  return (
+    typeof u.input_tokens === "number" &&
+    typeof u.output_tokens === "number" &&
+    typeof u.total_tokens === "number" &&
+    typeof u.cost_usd === "number"
+  );
+}
+
+function isStepCost(value: unknown): value is StepCost {
+  if (!isUsage(value)) return false;
+  const s = value as unknown as Record<string, unknown>;
+  return typeof s.step === "string" && typeof s.model === "string";
+}
+
+function isCost(value: unknown): value is CampaignCost {
+  if (!isUsage(value)) return false;
+  const steps = (value as unknown as Record<string, unknown>).steps;
+  return Array.isArray(steps) && steps.every(isStepCost);
 }
 
 function isStep(value: unknown): value is WorkflowStep {
@@ -60,7 +122,10 @@ function isCampaign(value: unknown): value is Campaign {
     (c.workflow_version === null || typeof c.workflow_version === "number") &&
     Array.isArray(c.steps) &&
     c.steps.every(isStep) &&
-    Array.isArray(c.edges)
+    (c.budget_usd === null || typeof c.budget_usd === "number") &&
+    isCost(c.cost) &&
+    Array.isArray(c.edges) &&
+    isAbResult(c.ab_result)
   );
 }
 
@@ -116,13 +181,31 @@ export async function getMe(): Promise<Me> {
   return body;
 }
 
-/** Start a campaign; `workflow` names a saved workflow, empty runs the default one. */
-export function createCampaign(report: string, workflow = ""): Promise<Campaign> {
+/** Start a campaign; `workflow` names a saved workflow, empty runs the default one.
+ * `budgetUsd` caps what the run spends on models; null is no limit. */
+export function createCampaign(
+  report: string,
+  workflow = "",
+  budgetUsd: number | null = null,
+): Promise<Campaign> {
   const name = workflow.trim();
   return request("/campaigns", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(name ? { report, workflow: name } : { report }),
+    body: JSON.stringify({
+      report,
+      ...(name ? { workflow: name } : {}),
+      ...(budgetUsd === null ? {} : { budget_usd: budgetUsd }),
+    }),
+  });
+}
+
+/** Set a new budget; a run paused at its budget goes on. */
+export function raiseBudget(id: string, budgetUsd: number): Promise<Campaign> {
+  return request(`/campaigns/${id}/budget`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ budget_usd: budgetUsd }),
   });
 }
 
@@ -160,7 +243,7 @@ export interface RunEvent {
 }
 
 const RUN_STEP = "run";
-const RUN_FINAL_STATUSES = ["awaiting_approval", "failed", "sent", "finished"];
+const RUN_FINAL_STATUSES = ["awaiting_approval", "failed", "sent", "finished", "budget_paused"];
 
 export function isFinalEvent(event: RunEvent): boolean {
   return event.step === RUN_STEP && RUN_FINAL_STATUSES.includes(event.status);

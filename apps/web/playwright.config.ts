@@ -9,11 +9,13 @@ const root = resolve(import.meta.dirname, "../..");
 const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
   .map((p) => resolve(root, p))
   .join(delimiter);
+const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";
 const env = {
   ...process.env,
   ACE_API_PORT: apiPort,
   ACE_WEB_PORT: webPort,
   ACE_DEX_PORT: dexPort,
+  ACE_MARKETO_PORT: marketoPort,
   // The harness starts Dex on this port; the web app signs in against it.
   VITE_OIDC_ISSUER: `http://127.0.0.1:${dexPort}/dex`,
   PYTHONPATH: pythonPath,

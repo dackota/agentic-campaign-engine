@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     DateTime,
     ForeignKey,
     Integer,
@@ -30,8 +31,15 @@ FAILED = "failed"
 RETRYING = "retrying"
 # A run whose workflow has no publish step ends here.
 FINISHED = "finished"
+# A run that reached its budget: it waits before its next model step for the owner to
+# raise the budget.
+BUDGET_PAUSED = "budget_paused"
 
 # Run events: one row per step status change; the step "run" carries the final state.
+# A step the brand reviewer gave up on after its fix rounds.
+FLAGGED = "flagged"
+# A step the brand reviewer sent back to its writer for a fix.
+REVIEW_FIX = "review_fix"
 RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
@@ -64,6 +72,8 @@ class Campaign(Base):
     workflow_name: Mapped[str | None] = mapped_column(String(63), nullable=True)
     workflow_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     dag: Mapped[dict[str, Any]] = mapped_column(JSON)
+    # What the owner lets the run spend on models, in micro-dollars; None is no limit.
+    budget_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -110,6 +120,25 @@ class StepOutput(Base):
     step: Mapped[str] = mapped_column(String(40), primary_key=True)
     session: Mapped[str] = mapped_column(String(200))
     output: Mapped[Any] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepUsage(Base):
+    """The cost ledger: the tokens an agent step's model calls used and what they cost.
+    One row per step; a re-run of the step replaces it."""
+
+    __tablename__ = "step_usage"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    model: Mapped[str] = mapped_column(String(100))
+    input_tokens: Mapped[int] = mapped_column(BigInteger)
+    output_tokens: Mapped[int] = mapped_column(BigInteger)
+    cost_micros: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -168,8 +197,10 @@ def add_event(
     step: str,
     status: str,
     reason: str | None = None,
-) -> None:
-    session.add(RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason))
+) -> RunEvent:
+    event = RunEvent(campaign_id=campaign_id, step=step, status=status, reason=reason)
+    session.add(event)
+    return event
 
 
 def add_agent_event(
@@ -178,19 +209,13 @@ def add_agent_event(
     step: str,
     status: str,
     agent_session: str | None,
-    tokens: int | None = None,
-) -> None:
-    """A run event for an agent step, tagged with the agent session that ran it and,
-    once it has succeeded, the tokens it used."""
-    session.add(
-        RunEvent(
-            campaign_id=campaign_id,
-            step=step,
-            status=status,
-            session=agent_session,
-            tokens=tokens,
-        )
-    )
+) -> RunEvent:
+    """A run event for an agent step, tagged with the agent session that ran it. The
+    caller may set `reason` on the returned event (a review event carries the issues) or,
+    once the step has succeeded, the `tokens` it used."""
+    event = add_event(session, campaign_id, step, status)
+    event.session = agent_session
+    return event
 
 
 def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
@@ -214,6 +239,18 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
                 .order_by(RunEvent.seq)
             )
         )
+
+
+def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
+    """The events where a reviewer gave up on a step and flagged it for a human: the latest
+    one per step, so a retried step shows one flag."""
+    events = session.scalars(
+        select(RunEvent)
+        .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
+        .order_by(RunEvent.seq)
+    )
+    latest = {e.step: e for e in events}
+    return sorted(latest.values(), key=lambda e: e.seq)
 
 
 def save_receipt(
@@ -258,6 +295,31 @@ def task_statuses(session: Session, campaign_ids: Collection[uuid.UUID]) -> dict
         )
     )
     return {campaign_id: status for campaign_id, status in rows}
+
+
+def usage_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[StepUsage]]:
+    """The ledger rows of these campaigns, in one query, in the order the steps finished."""
+    found: dict[uuid.UUID, list[StepUsage]] = {}
+    rows = session.scalars(
+        select(StepUsage)
+        .where(StepUsage.campaign_id.in_(campaign_ids))
+        .order_by(StepUsage.created_at, StepUsage.step)
+    )
+    for row in rows:
+        found.setdefault(row.campaign_id, []).append(row)
+    return found
+
+
+def spent_micros(session: Session, campaign_id: uuid.UUID) -> int:
+    """What the campaign's model calls have cost so far."""
+    total = session.scalar(
+        select(func.coalesce(func.sum(StepUsage.cost_micros), 0)).where(
+            StepUsage.campaign_id == campaign_id
+        )
+    )
+    return int(total or 0)
 
 
 def list_campaigns(session: Session) -> list[Campaign]:

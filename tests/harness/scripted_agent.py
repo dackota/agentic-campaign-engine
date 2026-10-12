@@ -18,6 +18,7 @@ from typing import Any
 
 from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
+from ace_engine.brand_review import BRAND_REVIEWER
 from ace_engine.contracts import REPORT_MARKER
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
@@ -43,10 +44,18 @@ WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
 SERVICE = "scripted-agent"
-MODEL_NAME = "scripted-model"
 TOOL_NAME = "read_report"
-# What every scripted reply reports it used, as kagent reports usage in task metadata.
-SCRIPTED_USAGE = {"input_tokens": 120, "output_tokens": 45}
+
+# Every reply carries token usage on the A2A task, the way the ADR in
+# docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
+# sets the numbers for each reply on that report; the default applies otherwise.
+SCRIPTED_MODEL = "scripted-model"
+USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
+# "[agent:usage-total-N]" reports only a total, as some harnesses do (Google ADK's
+# totalTokenCount with no split).
+TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
+DEFAULT_INPUT_TOKENS = 1000
+DEFAULT_OUTPUT_TOKENS = 500
 
 
 class ScriptedAgent:
@@ -134,7 +143,7 @@ class ScriptedAgent:
                 "id": str(uuid.uuid4()),
                 "contextId": context_id,
                 "status": {"state": "completed"},
-                "metadata": {"usage": SCRIPTED_USAGE},
+                "metadata": {"usage": scripted_usage(text)},
                 "artifacts": [
                     {
                         "artifactId": str(uuid.uuid4()),
@@ -150,9 +159,22 @@ class ScriptedAgent:
 def _export_tool_and_model_spans() -> None:
     """What kagent exports on a real run: a tool call and a model call, as children of the
     request that carries the caller's trace context."""
-    for operation, name in (("execute_tool", TOOL_NAME), ("chat", MODEL_NAME)):
+    for operation, name in (("execute_tool", TOOL_NAME), ("chat", SCRIPTED_MODEL)):
         with telemetry.span(SERVICE, f"{operation} {name}", operation=operation):
             pass
+
+def scripted_usage(message_text: str) -> dict[str, Any]:
+    """The token usage a reply reports: the report's usage marker, else the default."""
+    total = TOTAL_USAGE_MARKER.search(message_text)
+    if total:
+        return {"model": SCRIPTED_MODEL, "totalTokenCount": int(total.group(1))}
+    found = USAGE_MARKER.search(message_text)
+    input_tokens, output_tokens = (
+        (int(found.group(1)), int(found.group(2)))
+        if found
+        else (DEFAULT_INPUT_TOKENS, DEFAULT_OUTPUT_TOKENS)
+    )
+    return {"model": SCRIPTED_MODEL, "input_tokens": input_tokens, "output_tokens": output_tokens}
 
 
 def _report_of(message_text: str) -> str:
@@ -164,6 +186,8 @@ def _report_of(message_text: str) -> str:
 def default_reply(message_text: str) -> Any:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
+    if BRAND_REVIEWER.prompt in message_text:
+        return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)
     match role.step_id if role else "email_writer":

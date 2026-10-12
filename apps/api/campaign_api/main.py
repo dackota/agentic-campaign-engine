@@ -6,15 +6,19 @@ role rules."""
 
 import asyncio
 import json
+import logging
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
-from typing import Annotated, Any
+from dataclasses import dataclass, field
+from types import MappingProxyType
+from typing import Annotated, Any, Literal
 
+from ace_engine import cost, db, telemetry
 from ace_engine import dag as graph
-from ace_engine import db, telemetry
 from ace_engine.settings import (
     APPROVE_SIGNAL,
+    RAISE_BUDGET_SIGNAL,
     RETRY_SIGNAL,
     TASK_QUEUE,
     WORKFLOW_NAME,
@@ -22,15 +26,18 @@ from ace_engine.settings import (
 )
 from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from pydantic import BaseModel, Field, StringConstraints
+from render_service import assets
 from render_service.email import EmailTooLarge, render_email
 from sqlalchemy import update
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio.client import Client
 
+from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
+from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.webhook_routes import (
     ActivityOut,
     activities,
@@ -45,10 +52,13 @@ from campaign_api.workflows import (
     seed_default_workflow,
 )
 
+logger = logging.getLogger(__name__)
 MAX_REPORT_CHARS = 100_000
 SERVICE = "campaign-api"
 EVENT_POLL_SECONDS = 0.1
-FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED}
+FINAL_STATES = {db.AWAITING_APPROVAL, db.FAILED, db.SENT, db.FINISHED, db.BUDGET_PAUSED}
+# A run in one of these has ended; no signal reaches it.
+ENDED_STATES = {db.SENT, db.FINISHED}
 Report = Annotated[
     str, StringConstraints(strip_whitespace=False, min_length=1, max_length=MAX_REPORT_CHARS)
 ]
@@ -58,6 +68,8 @@ class NewCampaign(BaseModel):
     report: Report
     # The saved workflow to run, at its latest version; None runs the default workflow.
     workflow: str | None = Field(default=None, pattern=NAME_PATTERN)
+    # What the run may spend on models, in dollars; None is no limit.
+    budget_usd: BudgetUsd | None = None
 
     def model_post_init(self, _context: Any) -> None:
         if not self.report.strip():
@@ -68,6 +80,35 @@ class ReceiptOut(BaseModel):
     target: str
     receipt_id: str
     url: str
+
+
+class FlagOut(BaseModel):
+    """A step the brand reviewer could not fix in its rounds, left for a human."""
+
+    step: str
+    issues: list[dict[str, Any]]
+
+
+class AbResultOut(BaseModel):
+    status: Literal["winner", "no_decision"]
+    winner: str | None
+    confidence: float | None
+
+    @classmethod
+    def of(cls, result: AbResult) -> "AbResultOut":
+        status: Literal["winner", "no_decision"] = (
+            "no_decision" if result.winner is None else "winner"
+        )
+        return cls(status=status, winner=result.winner, confidence=result.confidence)
+
+
+@dataclass(frozen=True)
+class RunDetail:
+    """What a run's view adds to the campaign row: engagement, reviewer flags, step usage."""
+
+    engagement: dict[str, dict[str, int]] = field(default_factory=dict)
+    flags: list[FlagOut] = field(default_factory=list)
+    usage: list[db.StepUsage] = field(default_factory=list)
 
 
 class CampaignOut(BaseModel):
@@ -90,6 +131,12 @@ class CampaignOut(BaseModel):
     edges: list[dict[str, str]] = Field(default_factory=list)
     # Opens and clicks per variant label, from the marketing system's activity webhooks.
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
+    # What the brand reviewer still flags after its fix rounds, by step.
+    flags: list[FlagOut] = Field(default_factory=list)
+    ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
+    budget_usd: float | None = None
+    # Tokens and cost per agent step and in total.
+    cost: CostOut = Field(default_factory=CostOut)
 
     @classmethod
     def of(
@@ -97,8 +144,9 @@ class CampaignOut(BaseModel):
         c: db.Campaign,
         receipts: list[db.Receipt],
         task_status: str | None,
-        engagement: dict[str, dict[str, int]] | None = None,
+        detail: RunDetail | None = None,
     ) -> "CampaignOut":
+        detail = detail or RunDetail()
         return cls(
             id=c.id,
             report=c.report,
@@ -120,7 +168,11 @@ class CampaignOut(BaseModel):
                 for s in graph.ordered(c.dag)
             ],
             edges=list(c.dag.get("edges", [])),
-            engagement=engagement or {},
+            engagement=detail.engagement,
+            flags=detail.flags,
+            ab_result=AbResultOut.of(decide(detail.engagement)),
+            budget_usd=budget_usd(c),
+            cost=CostOut.of(detail.usage),
         )
 
 
@@ -144,7 +196,16 @@ def _list(engine: Engine) -> list[CampaignOut]:
         ids = [c.id for c in campaigns]
         receipts = db.receipts_by_campaign(session, ids)
         statuses = db.task_statuses(session, ids)
-        return [CampaignOut.of(c, receipts.get(c.id, []), statuses.get(c.id)) for c in campaigns]
+        usage = db.usage_by_campaign(session, ids)
+        return [
+            CampaignOut.of(
+                c,
+                receipts.get(c.id, []),
+                statuses.get(c.id),
+                RunDetail(usage=usage.get(c.id, [])),
+            )
+            for c in campaigns
+        ]
 
 
 async def _pinned(engine: Engine, workflow: str | None) -> tuple[str | None, int | None, Any]:
@@ -203,7 +264,14 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
             campaign,
             receipts.get(campaign_id, []),
             statuses.get(campaign_id),
-            engagement_by_variant(session, campaign_id),
+            RunDetail(
+                engagement=engagement_by_variant(session, campaign_id),
+                flags=[
+                    FlagOut(step=e.step, issues=json.loads(e.reason or "[]"))
+                    for e in db.review_flags(session, campaign_id)
+                ],
+                usage=db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
+            ),
         )
 
 
@@ -257,6 +325,38 @@ def _register_retry_route(app: FastAPI) -> None:
                 await handle.signal(RETRY_SIGNAL)
         except Exception:
             await run_in_threadpool(_undo_retry, engine, campaign_id, campaign.failure_reason)
+            raise
+        return await _found(engine, campaign_id)
+
+
+def _register_budget_route(app: FastAPI) -> None:
+    @app.post("/campaigns/{campaign_id}/budget")
+    async def raise_budget(
+        campaign_id: uuid.UUID, body: NewBudget, request: Request, user: CurrentUser
+    ) -> CampaignOut:
+        """Set a new budget; a run paused at its budget goes on. The new budget must be
+        above what the campaign has spent, or the run would pause again at once."""
+        engine = request.app.state.engine
+        campaign = await _found(engine, campaign_id)
+        authorize(user, Action.CREATE)
+        if campaign.status in ENDED_STATES:
+            raise HTTPException(status_code=409, detail="the run has ended")
+        change = await run_in_threadpool(
+            set_budget, engine, campaign_id, cost.to_micros(body.budget_usd)
+        )
+        if change.too_low_for is not None:
+            spent = cost.to_dollars(change.too_low_for)
+            raise HTTPException(
+                status_code=422, detail=f"the budget must be above the ${spent:.4f} spent"
+            )
+        try:
+            handle = request.app.state.temporal.get_workflow_handle(f"campaign-{campaign_id}")
+            await handle.signal(RAISE_BUDGET_SIGNAL)
+        except Exception:
+            if change.was_paused:
+                await run_in_threadpool(
+                    _set_status, engine, campaign_id, db.DRAFTING, db.BUDGET_PAUSED
+                )
             raise
         return await _found(engine, campaign_id)
 
@@ -355,6 +455,47 @@ def _add_preview_route(app: FastAPI) -> None:
         return HTMLResponse(html)
 
 
+PPTX_TYPE = "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+# Preview kind -> (steps whose output it renders, renderer, content type).
+_ASSET_KINDS: Mapping[str, tuple[tuple[str, ...], Callable[..., str | bytes], str]] = (
+    MappingProxyType(
+        {
+            "one-pager": (("one_pager",), assets.render_one_pager_pdf, "application/pdf"),
+            "deck": (("one_pager", "landing_page"), assets.render_deck_pptx, PPTX_TYPE),
+            "landing-page": (("landing_page",), assets.render_landing_page_html, "text/html"),
+            "graphic": (("one_pager",), assets.render_graphic_svg, "image/svg+xml"),
+        }
+    )
+)
+
+
+def _add_asset_preview_route(app: FastAPI) -> None:
+    @app.get("/campaigns/{campaign_id}/preview/{kind}")
+    async def preview_asset(
+        campaign_id: uuid.UUID, kind: str, request: Request, user: BrowserUser
+    ) -> Response:
+        """The brand-rendered one-pager (PDF), deck (PPTX), landing page (HTML), or graphic
+        (SVG), made from what the campaign's writer steps produced."""
+        authorize(user, Action.READ)
+        if kind not in _ASSET_KINDS:
+            raise HTTPException(status_code=404, detail="unknown asset kind")
+        engine = request.app.state.engine
+        await _found(engine, campaign_id)
+        needed, render, media_type = _ASSET_KINDS[kind]
+        rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
+        outputs = {r.step: r.output for r in rows}
+        if not all(step in outputs for step in needed):
+            raise HTTPException(status_code=409, detail=f"campaign has no {kind} content yet")
+        try:
+            content = await run_in_threadpool(render, *(outputs[step] for step in needed))
+        except (KeyError, TypeError) as e:
+            logger.exception("malformed stored %s content for campaign %s", kind, campaign_id)
+            raise HTTPException(
+                status_code=422, detail=f"stored {kind} content is malformed"
+            ) from e
+        return Response(content, media_type=media_type)
+
+
 def _add_campaign_routes(app: FastAPI) -> None:
     @app.get("/me")
     def me(user: CurrentUser) -> Me:
@@ -381,6 +522,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
             workflow_name=name,
             workflow_version=version,
             dag=dag,
+            budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
         )
         created = await run_in_threadpool(_insert, engine, campaign)
         with telemetry.campaign_span(SERVICE, "campaign.start", created.id):
@@ -424,10 +566,12 @@ def create_app(settings: Settings) -> FastAPI:
     _add_campaign_routes(app)
     _register_approval_route(app)
     _register_retry_route(app)
+    _register_budget_route(app)
     _add_event_routes(app)
     _add_step_routes(app)
     _add_activity_routes(app, settings)
     _add_preview_route(app)
+    _add_asset_preview_route(app)
     register_workflow_routes(app)
 
     return app

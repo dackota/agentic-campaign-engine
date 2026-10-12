@@ -15,6 +15,7 @@ from typing import Any
 import httpx
 
 from ace_engine.contracts import violations
+from ace_engine.cost import Usage, usage_from
 
 _FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL)
 
@@ -31,7 +32,8 @@ class AgentCallFailed(Exception):
 class Invocation:
     output: dict[str, Any]
     session_id: str
-    usage: dict[str, Any] | None
+    # The tokens every call of this invocation used, the repair attempt's included.
+    usage: Usage
 
 
 def _reply_text(result: dict[str, Any]) -> str:
@@ -90,15 +92,23 @@ async def _send(
     return result
 
 
-async def invoke(
-    client: httpx.AsyncClient,
-    agent_url: str,
-    session_key: str,
-    prompt: str,
-    schema: dict[str, Any],
-) -> Invocation:
-    session_id = session_key
-    result = await _send(client, agent_url, session_id, f"{session_key}:1", prompt)
+@dataclass(frozen=True)
+class AgentCall:
+    """One question to an agent. A later `turn` in the same session (a fix the reviewer
+    asked for) gets message ids of its own."""
+
+    session_key: str
+    prompt: str
+    schema: dict[str, Any]
+    turn: int = 0
+
+
+async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> Invocation:
+    """Ask in the session `call.session_key`."""
+    session_id, prompt, schema = call.session_key, call.prompt, call.schema
+    prefix = session_id if call.turn == 0 else f"{session_id}:r{call.turn}"
+    result = await _send(client, agent_url, session_id, f"{prefix}:1", prompt)
+    usage = _usage_of(result)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:
         repair = (
@@ -106,7 +116,8 @@ async def invoke(
             + "; ".join(problems)
             + ". Reply again with only the corrected JSON."
         )
-        result = await _send(client, agent_url, session_id, f"{session_key}:2", repair)
+        result = await _send(client, agent_url, session_id, f"{prefix}:2", repair)
+        usage = usage + _usage_of(result)
         output, problems = _parse(_reply_text(result), schema)
     if output is None:
         raise AgentOutputInvalid(
@@ -115,8 +126,15 @@ async def invoke(
     return Invocation(
         output=output,
         session_id=result.get("contextId", session_id),
-        usage=result.get("metadata", {}).get("usage"),
+        usage=usage,
     )
+
+
+def _usage_of(result: dict[str, Any]) -> Usage:
+    """The token usage on an A2A task reply: `metadata.usage`, as the ADR in
+    docs/decisions/token-usage-per-campaign.md decides."""
+    metadata = result.get("metadata")
+    return usage_from(metadata.get("usage") if isinstance(metadata, dict) else None)
 
 
 def new_session_key() -> str:

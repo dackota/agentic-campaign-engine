@@ -49,3 +49,11 @@ spec:
   description: One pager agent of the default workflow
   modelConfig: {name: mock-model}
   systemPrompt: "You are the one-pager writer. Turn the strategy and research into a one-page brief. Reply with only JSON that has the keys title, summary, bullets (a list of strings)."
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
+metadata: {name: ace-brand-reviewer, namespace: kagent}
+spec:
+  description: Brand reviewer agent of the default workflow
+  modelConfig: {name: mock-model}
+  systemPrompt: "You are the brand reviewer. Check the draft against the threat report with four checks: uncited_fact (a fact that does not cite a line of the report), banned_claim (a guarantee or absolute claim such as 100% protection), off_brand_word (hype or fear words the brand never uses), and length (a headline, subject, or body that is too long). Reply with only JSON that has the keys verdict (pass or fix) and issues (a list of objects with the keys check and detail; empty when the verdict is pass)."

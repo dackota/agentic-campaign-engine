@@ -7,22 +7,13 @@ from typing import Any
 
 import httpx
 
-from tests.api.helpers import SENT, create, settle, until_status
+from tests.api.helpers import DAY_SPEED, send_campaign
 from tests.harness.stack import Stack
 
 SEED = 4747
-DAY_SPEED = 100_000.0
 DELIVERY_SECONDS = 20
 POLL_SECONDS = 0.2
 SECONDS_PER_DAY = 86_400
-
-
-def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
-    campaign_id: str = create(api)["id"]
-    settle(api, campaign_id)
-    assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
-    until_status(api, campaign_id, SENT)
-    return campaign_id
 
 
 def planned(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
