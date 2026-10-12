@@ -52,6 +52,8 @@ KAGENT_CONTROLLER_PORT = 8083
 KAGENT_AGENTS_PATH = f"/agents/{KAGENT_NAMESPACE}"
 KAGENT_READY_AGENT = "ace-email-writer"
 KAGENT_READY_SECONDS = 60
+KAGENT_PROBE_TIMEOUT_SECONDS = 5
+KAGENT_PROBE_INTERVAL_SECONDS = 1
 # A real model takes seconds per reply, where the scripted agent takes none.
 LIVE_AGENT_TIMEOUT_SECONDS = 180.0
 
@@ -257,11 +259,11 @@ class Stack:
         deadline = time.monotonic() + KAGENT_READY_SECONDS
         while time.monotonic() < deadline:
             try:
-                if httpx.get(card, timeout=5).status_code == 200:
+                if httpx.get(card, timeout=KAGENT_PROBE_TIMEOUT_SECONDS).status_code == 200:
                     return
             except httpx.HTTPError:
                 pass
-            time.sleep(1)
+            time.sleep(KAGENT_PROBE_INTERVAL_SECONDS)
         self._close_kagent()
         raise RuntimeError(f"kagent Agent {KAGENT_READY_AGENT} not reachable on {KAGENT_CONTEXT}")
 

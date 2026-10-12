@@ -117,7 +117,9 @@ async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> 
     prompt, schema = call.prompt, call.schema
     prefix = call.session_key if call.turn == 0 else f"{call.session_key}:r{call.turn}"
     result = await _send(client, agent_url, call.session_id, f"{prefix}:1", prompt)
-    session_id: str = result["contextId"]
+    session_id = result.get("contextId")
+    if not isinstance(session_id, str):
+        raise AgentCallFailed("agent reply carries no contextId")
     usage = _usage_of(result)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:
