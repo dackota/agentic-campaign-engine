@@ -22,6 +22,10 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import uvicorn
 from ace_engine.settings import Depth
+from opentelemetry import trace
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 
@@ -67,6 +71,19 @@ def kagent_port_forward_command(local_port: int) -> list[str]:
     ]
 
 
+_SPAN_EXPORTER = InMemorySpanExporter()
+
+
+def _install_span_exporter() -> InMemorySpanExporter:
+    """The test exporter, set as the process's tracer provider the first time a stack is built
+    (OpenTelemetry allows one provider per process)."""
+    if not isinstance(trace.get_tracer_provider(), TracerProvider):
+        provider = TracerProvider()
+        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
+        trace.set_tracer_provider(provider)
+    return _SPAN_EXPORTER
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -84,6 +101,8 @@ class Stack:
         marketo_port: int | None = None,
     ) -> None:
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
+        # Every service runs in this process, so one in-memory exporter holds every span.
+        self.spans = _install_span_exporter()
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = marketo_port or free_port()
@@ -290,7 +309,11 @@ class Stack:
         self._restart_requested = asyncio.Event()
         agent_port = free_port()
         is_live = self.depth is Depth.LIVE
-        env = await WorkflowEnvironment.start_time_skipping()
+        from ace_engine import telemetry
+
+        env = await WorkflowEnvironment.start_time_skipping(
+            interceptors=telemetry.temporal_interceptors()
+        )
         try:
             settings = Settings(
                 depth=self.depth,

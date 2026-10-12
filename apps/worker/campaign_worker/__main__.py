@@ -7,6 +7,7 @@ import os
 import signal
 from concurrent.futures import ThreadPoolExecutor
 
+from ace_engine import telemetry
 from ace_engine.env import settings_from_env
 from ace_engine.settings import Settings
 from temporalio.client import Client
@@ -23,7 +24,11 @@ async def run(settings: Settings) -> None:
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, stop.set)
-    client = await Client.connect(settings.temporal_address, namespace=settings.temporal_namespace)
+    client = await Client.connect(
+        settings.temporal_address,
+        namespace=settings.temporal_namespace,
+        interceptors=telemetry.temporal_interceptors(),
+    )
     with ThreadPoolExecutor(max_workers=ACTIVITY_THREADS) as executor:
         async with build_worker(client, settings, executor):
             log.info("worker polling task queue")

@@ -27,6 +27,7 @@ spec:
               containerPort: 8000
           env:
             {{- include "ace.engineEnv" . | nindent 12 }}
+            {{- include "ace.otelEnv" (list . "campaign-api") | nindent 12 }}
             - name: ACE_OIDC_ISSUER
               value: {{ .Values.api.oidcIssuer | quote }}
             - name: ACE_OIDC_CLIENT_ID

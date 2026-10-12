@@ -100,7 +100,7 @@ exit 0
 ATE_STUB = "#!/bin/sh\nexit 0\n"
 SPIKE_STUB = """#!/bin/sh
 echo "SPIKE $(basename "$0") KCTX=$KCTX AGENT=$AGENT HARNESS=$HARNESS \\
-WORKER_IMAGE=${WORKER_IMAGE:+set}" >> "$STUB_LOG"
+WORKER_IMAGE=${WORKER_IMAGE:+set} OTEL=${ACE_OTEL_ENDPOINT:+set}" >> "$STUB_LOG"
 [ "$(basename "$0")" = "$STUB_SPIKE_FAIL" ] && { echo "$0 failed" >&2; exit 1; }
 if [ "$(basename "$0")" = a2a-smoke.sh ]; then
   n="$(cat "$STUB_LOG.smoke" 2>/dev/null || echo 0)"

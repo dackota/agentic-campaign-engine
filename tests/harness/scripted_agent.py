@@ -19,6 +19,7 @@ import threading
 import uuid
 from typing import Any
 
+from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
 from ace_engine.brand_review import BRAND_REVIEWER
 from ace_engine.contracts import REPORT_MARKER
@@ -52,6 +53,9 @@ VARIANT_B_PHRASE = "variant B"
 WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
+SERVICE = "scripted-agent"
+TOOL_NAME = "read_report"
+
 # Every reply carries token usage on the A2A task, the way the ADR in
 # docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
 # sets the numbers for each reply on that report; the default applies otherwise.
@@ -121,6 +125,7 @@ class ScriptedAgent:
 
     def _build_app(self) -> FastAPI:
         app = FastAPI()
+        telemetry.instrument_app(app, SERVICE)
 
         @app.get("/readyz")
         def readyz() -> dict[str, str]:
@@ -142,6 +147,7 @@ class ScriptedAgent:
             if self._is_down(text, str(message.get("messageId", ""))):
                 return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
             reply, is_slow = self._next_reply(text, context_id)
+            _export_tool_and_model_spans()
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
@@ -166,6 +172,14 @@ def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
     return JSONResponse(
         {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
     )
+
+
+def _export_tool_and_model_spans() -> None:
+    """What kagent exports on a real run: a tool call and a model call, as children of the
+    request that carries the caller's trace context."""
+    for operation, name in (("execute_tool", TOOL_NAME), ("chat", SCRIPTED_MODEL)):
+        with telemetry.span(SERVICE, f"{operation} {name}", operation=operation):
+            pass
 
 
 def scripted_usage(message_text: str) -> dict[str, Any]:

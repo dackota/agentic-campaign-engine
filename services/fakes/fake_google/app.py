@@ -17,6 +17,7 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import parse_qs
 
+from ace_engine import telemetry
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi import Request as HttpRequest
 from pydantic import BaseModel
@@ -51,6 +52,7 @@ class BatchUpdate(BaseModel):
 
 def create_app(config: GoogleConfig) -> FastAPI:
     app = FastAPI(title="fake-google")
+    telemetry.instrument_app(app, "fake-google")
     access_tokens: set[str] = set()
     documents: dict[str, dict[str, str]] = {}
     lock = threading.Lock()
