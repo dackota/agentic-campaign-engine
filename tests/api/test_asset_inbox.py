@@ -40,6 +40,23 @@ FIX = {
     "issues": [{"check": "banned_claim", "detail": "100% protection is a banned claim"}],
 }
 COMMENT = "Drop the hype"
+PASS = {"verdict": "pass", "issues": []}
+BUDGET_PAUSED = "budget_paused"
+# 1000 input and 500 output tokens per reply cost $0.0105, past a $0.01 budget.
+SPENT_AFTER_ONE_REPLY = "[agent:usage-1000-500]"
+
+
+def reviewed_page_workflow(owner: httpx.Client) -> str:
+    name = workflow_name("inbox-review")
+    save_workflow(
+        owner,
+        name,
+        {
+            "steps": [step("landing_page", "agent", review_rounds=2), step("approval", "approval")],
+            "edges": [edge("landing_page", "approval")],
+        },
+    )
+    return name
 
 
 def waiting_default(owner: httpx.Client) -> str:
@@ -167,7 +184,10 @@ def test_reject_returns_to_the_same_writer_session_and_redoes_only_that_asset(
     for untouched in set(before) - {"landing_page"}:
         assert after[untouched] == before[untouched], untouched
     calls = stack.agent.message_ids()[len(seen) :]
-    assert len(calls) == 1 and calls[0].startswith(before["landing_page"]["session"])
+    # One writer call, to the same session, and the brand reviewer's check of the redo.
+    assert all(c.startswith(before["landing_page"]["session"]) for c in calls)
+    assert len([c for c in calls if ":review:" not in c]) == 1
+    assert len([c for c in calls if ":review:" in c]) == 1
     events = events_after_redo(owner, campaign_id)
     rejection = [e for e in events if e["status"] == "rejected"]
     assert [(e["step"], e["reason"]) for e in rejection] == [("landing_page", COMMENT)]
@@ -244,3 +264,64 @@ def test_a_decision_on_a_campaign_that_is_not_waiting_is_refused(
     until_status(owner, campaign_id, SENT)
 
     assert decide(approver, campaign_id, "draft", "approve").status_code == 409
+
+
+def test_a_redone_asset_goes_through_the_brand_reviewer_again(
+    stack: Stack, sign_in: SignIn
+) -> None:
+    owner, approver = sign_in(DG_OWNER), sign_in(DG_APPROVER)
+    stack.agent.script([json.dumps(r) for r in (PAGE, FIX, PAGE, FIX, PAGE, FIX)])
+    campaign_id = create_on(owner, reviewed_page_workflow(owner))["id"]
+    until_status(owner, campaign_id, AWAITING)
+    assert [f["check"] for f in inbox(approver, campaign_id)[0]["flags"]] == ["banned_claim"]
+    seen = len(stack.agent.message_ids())
+    fixed = {**PAGE, "body": "Calm and checked"}
+    # The redo, the reviewer's fix, the writer's fix, and the reviewer's pass.
+    stack.agent.script([json.dumps(r) for r in (REDONE_PAGE, FIX, fixed, PASS)])
+
+    assert decide(approver, campaign_id, "landing_page", "reject", COMMENT).status_code == 200
+
+    until_status(owner, campaign_id, AWAITING)
+    [item] = inbox(approver, campaign_id)
+    assert item["output"] == fixed
+    assert item["flags"] == []
+    assert len(stack.agent.message_ids()) - seen == 4
+
+
+def test_a_redo_stops_at_the_budget_until_the_owner_raises_it(
+    stack: Stack, sign_in: SignIn
+) -> None:
+    stack.agent.script([])
+    owner, approver = sign_in(DG_OWNER), sign_in(DG_APPROVER)
+    name = workflow_name("inbox-budget")
+    save_workflow(
+        owner,
+        name,
+        {
+            "steps": [step("landing_page", "agent"), step("approval", "approval")],
+            "edges": [edge("landing_page", "approval")],
+        },
+    )
+    created = owner.post(
+        "/campaigns",
+        json={
+            "report": f"{SPENT_AFTER_ONE_REPLY}\nVolt Typhoon",
+            "workflow": name,
+            "budget_usd": 0.01,
+        },
+    )
+    assert created.status_code == 201, created.text
+    campaign_id = created.json()["id"]
+    until_status(owner, campaign_id, AWAITING)
+    seen = len(stack.agent.message_ids())
+    stack.agent.script([json.dumps(REDONE_PAGE)])
+
+    assert decide(approver, campaign_id, "landing_page", "reject", COMMENT).status_code == 200
+
+    until_status(owner, campaign_id, BUDGET_PAUSED)
+    assert len(stack.agent.message_ids()) == seen
+    raised = owner.post(f"/campaigns/{campaign_id}/budget", json={"budget_usd": 1})
+    assert raised.status_code == 200, raised.text
+    until_status(owner, campaign_id, AWAITING)
+    assert len(stack.agent.message_ids()) - seen == 1
+    assert inbox(approver, campaign_id)[0]["output"] == REDONE_PAGE

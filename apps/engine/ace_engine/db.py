@@ -357,13 +357,22 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
 
 def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
     """The events where a reviewer gave up on a step and flagged it for a human: the latest
-    one per step, so a retried step shows one flag."""
+    one per step, from the step's latest run only. A step that started again (a retry, or a
+    redo after a rejection) drops the flags of the run before it."""
     events = session.scalars(
         select(RunEvent)
-        .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
+        .where(
+            RunEvent.campaign_id == campaign_id,
+            RunEvent.status.in_((FLAGGED, STEP_STARTED)),
+        )
         .order_by(RunEvent.seq)
     )
-    latest = {e.step: e for e in events}
+    latest: dict[str, RunEvent] = {}
+    for event in events:
+        if event.status == STEP_STARTED:
+            latest.pop(event.step, None)
+        else:
+            latest[event.step] = event
     return sorted(latest.values(), key=lambda e: e.seq)
 
 

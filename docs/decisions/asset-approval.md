@@ -1,5 +1,7 @@
 # Per-asset approval
 
+Date: 2026-10-12. Status: accepted.
+
 An approver decides each asset of a campaign on its own. This records the choices behind that.
 
 ## Decision
@@ -26,6 +28,12 @@ An approver decides each asset of a campaign on its own. This records the choice
 
 ## Limits
 
-- The reviewer's flags stay on an asset after a redo until a new review runs; a redo is not
-  reviewed again.
-- A redo does not check the campaign's budget.
+- A redo goes through the brand reviewer as a first draft does, for the step's `review_rounds`
+  (at most two fix rounds), so the flags on a redone asset are the new draft's. A step that
+  starts again drops the flags of its earlier run.
+- A redo checks the campaign's budget before it calls the model. At the budget the run pauses
+  as any agent step does, and a raise of the budget resumes the redo.
+- The inbox leaves out campaigns the approver created, as `authorize` refuses an approver
+  their own campaign.
+- A rejection that names a step that is not an agent step is logged and dropped. The API
+  accepts only asset steps, so no request reaches that path.

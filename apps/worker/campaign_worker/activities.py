@@ -24,6 +24,8 @@ from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
 SERVICE = "campaign-worker"
+# Turns one redo can use: the writer's, then up to MAX_FIX_ROUNDS + 1 reviews with a fix between.
+REDO_TURNS = brand_review.MAX_FIX_ROUNDS + 2
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
@@ -130,18 +132,22 @@ class Activities:
         job: ReviewJob,
         draft: tuple[AgentOutput, cost.Usage, tuple[str, ...]],
         review_rounds: int,
+        first_turn: int = 0,
     ) -> tuple[AgentOutput, cost.Usage]:
         """Send the draft to the brand reviewer; on a fix verdict send the issues back to
         the same writer sessions, for at most `review_rounds` rounds (never more than the
         limit). What the reviewer still flags after the last round is flagged for a human.
         `draft` is the writers' output, its tokens, and the sessions the agents issued.
-        Returns the output and the tokens of every call so far."""
+        `first_turn` is the turn of the first review, so a redo's messages never repeat the
+        ids of an earlier draft's. Returns the output and the tokens of every call so far."""
         output, usage, writer_sessions = draft
         reviewer_session_id: str | None = None
         writer_session = session_key(job.campaign_id, job.step_id)
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
         for turn in range(fix_rounds + 1):
-            verdict = await self._review(client, job, output, turn, reviewer_session_id)
+            verdict = await self._review(
+                client, job, output, first_turn + turn, reviewer_session_id
+            )
             reviewer_session_id = verdict.session_id
             usage = usage + verdict.usage
             if verdict.output["verdict"] == brand_review.PASS:
@@ -160,7 +166,7 @@ class Activities:
             if is_last:
                 break
             output, fix_usage, writer_sessions = await self._writer_outputs(
-                client, job, issues, turn + 1, writer_sessions
+                client, job, issues, first_turn + turn + 1, writer_sessions
             )
             usage = usage + fix_usage
         return output, usage
@@ -260,12 +266,19 @@ class Activities:
         step_id: str,
         comment: str,
         context: dict[str, Any],
+        review_rounds: int = 0,
     ) -> dict[str, Any]:
         """Send a rejected asset back to the writer sessions that made it, with the
-        approver's comment, and store the corrected output. Only this step's agent is
-        asked; nothing else in the campaign is redone."""
+        approver's comment, and store the corrected output. With `review_rounds` the brand
+        reviewer checks the redo as it checks a first draft. Only this step's agent is
+        asked; nothing else in the campaign is redone. Stops before the model call when the
+        campaign's budget is spent."""
         role = role_for(step_id)
         campaign_uuid = uuid.UUID(campaign_id)
+        if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+            raise ApplicationError(
+                "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
+            )
         sessions = await asyncio.to_thread(db.asset_sessions, self._engine, campaign_uuid, step_id)
         if len(sessions) != role.replies:
             raise ApplicationError(
@@ -285,10 +298,16 @@ class Activities:
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
                 with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
-                    # Its own turn, so its message ids never repeat the draft's or a review fix's.
-                    output, usage, _ = await self._writer_outputs(
-                        client, job, issues, brand_review.MAX_FIX_ROUNDS + rejections, sessions
+                    # Each redo has a block of turns, so its message ids never repeat the
+                    # draft's, a review fix's, or an earlier redo's.
+                    turn = (rejections + 1) * REDO_TURNS
+                    output, usage, redone = await self._writer_outputs(
+                        client, job, issues, turn, sessions
                     )
+                    if review_rounds > 0:
+                        output, usage = await self._review_loop(
+                            client, job, (output, usage, redone), review_rounds, turn + 1
+                        )
             except invoker.AgentOutputInvalid as exc:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True

@@ -294,16 +294,20 @@ class CampaignWorkflow:
         if step is None or step["kind"] != graph.AGENT:
             workflow.logger.warning("a rejection named %r, which is not an agent step", step_id)
             return
-        policy = step_policy(step)
-        try:
-            result = await workflow.execute_activity(
-                "redo_asset",
-                args=[campaign_id, report, step_id, comment, self._context_for(dag, step_id)],
-                start_to_close_timeout=policy.timeout,
-                retry_policy=policy.retry_policy(),
-            )
-        except ActivityError as exc:
-            raise _failed(step_id, policy, exc) from exc
+        result = await self._within_budget(
+            step_id,
+            step_policy(step),
+            "redo_asset",
+            [
+                campaign_id,
+                report,
+                step_id,
+                comment,
+                self._context_for(dag, step_id),
+                step.get("review_rounds", 0),
+            ],
+            campaign_id,
+        )
         self._outputs[step_id] = result["output"]
 
     async def _agent(
@@ -318,17 +322,31 @@ class CampaignWorkflow:
     async def _run_agent_within_budget(
         self, campaign_id: str, report: str, step: dict[str, Any], context: dict[str, Any]
     ) -> Any:
-        """Run the agent step. The activity checks the budget before it calls the model;
-        while the budget is spent the run pauses, and each raise of the budget tries again.
-        Writers that start together each wait, and one raise wakes them all."""
-        step_id, policy = step["id"], step_policy(step)
+        """Run the agent step within the campaign's budget."""
+        step_id = step["id"]
+        args = [campaign_id, report, step_id, context, step.get("review_rounds", 0)]
+        return await self._within_budget(
+            step_id, step_policy(step), "run_agent_step", args, campaign_id
+        )
+
+    async def _within_budget(
+        self,
+        step_id: str,
+        policy: StepPolicy,
+        activity_name: str,
+        args: list[Any],
+        campaign_id: str,
+    ) -> Any:
+        """Run an activity that calls the model. The activity checks the budget before it
+        calls; while the budget is spent the run pauses, and each raise of the budget tries
+        again. Writers that start together each wait, and one raise wakes them all."""
         while True:
             # Read before the call, so a raise that lands during the call still counts.
             raises_seen = self._budget_raises
             try:
                 return await workflow.execute_activity(
-                    "run_agent_step",
-                    args=[campaign_id, report, step_id, context, step.get("review_rounds", 0)],
+                    activity_name,
+                    args=args,
                     start_to_close_timeout=policy.timeout,
                     retry_policy=policy.retry_policy(),
                 )
