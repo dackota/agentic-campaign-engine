@@ -14,7 +14,8 @@ import pytest
 from ace_engine import db, row_security
 from ace_engine.default_workflow import DEFAULT_WORKFLOW_NAME
 from ace_engine.step_cache import CacheKey, StepCache, input_hash
-from sqlalchemy import create_engine, event, text
+from sqlalchemy import column, create_engine, event, func, select, text
+from sqlalchemy import table as sql_table
 from sqlalchemy.engine import Engine
 
 from tests.api.conftest import SignIn
@@ -62,17 +63,21 @@ def _rows_seen_as(database: Engine, team: str, campaign_id: str) -> dict[str, in
     """How many rows of the campaign each team table shows to a request of `team`."""
     counts: dict[str, int] = {}
     with database.connect() as conn, conn.begin():
-        conn.execute(text(f"SET LOCAL ROLE {TEAM_ROLE}"))
+        role = conn.dialect.identifier_preparer.quote_identifier(TEAM_ROLE)
+        conn.execute(text("SET LOCAL ROLE " + role))
         conn.execute(
             text("SELECT set_config(:name, :team, true)"), {"name": TEAM_SETTING, "team": team}
         )
         counts["campaigns"] = conn.execute(
             text("SELECT count(*) FROM campaigns WHERE id = :id"), {"id": campaign_id}
         ).scalar_one()
-        for table in ("run_events", "step_outputs", "step_usage", "campaign_traces"):
-            counts[table] = conn.execute(
-                text(f"SELECT count(*) FROM {table} WHERE campaign_id = :id"), {"id": campaign_id}
-            ).scalar_one()
+        for name in ("run_events", "step_outputs", "step_usage", "campaign_traces"):
+            counted = (
+                select(func.count())
+                .select_from(sql_table(name, column("campaign_id")))
+                .where(column("campaign_id") == uuid.UUID(campaign_id))
+            )
+            counts[name] = conn.execute(counted).scalar_one()
     return counts
 
 
