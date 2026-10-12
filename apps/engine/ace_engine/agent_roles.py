@@ -88,8 +88,10 @@ ROLES: Mapping[str, Role] = MappingProxyType(
             _role(
                 "research",
                 "ace-research",
-                "You are the research agent. Pull the facts out of the threat report. Number its "
-                "lines from 1. Every fact must cite the line it comes from and quote that text "
+                "You are the research agent. Pull the facts out of the threat report. Before you "
+                "answer, look up the campaign's Workfront project with the get_project tool "
+                "(search_projects finds it), for context only. Number the report's lines from 1. "
+                "Every fact must cite the line it comes from and quote that text "
                 f"exactly. {_JSON_ONLY} the key facts: a list of objects with the keys claim, "
                 "line, quote.",
                 RESEARCH_SCHEMA,

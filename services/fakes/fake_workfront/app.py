@@ -6,8 +6,9 @@ approvals, plus signed status webhooks to the Campaign API.
 - Every `/attask/api/v15.0/...` call needs that token; without it the fake answers 401.
 - `POST /proj`, `POST /task`, and `POST /appr` are idempotent: a project and a task by their
   `externalID` (a repeat updates the task and returns the same one), an approval by its task.
-- `GET /proj/search`, `/task/search`, and `/appr/search` filter by field; `GET /task/{id}`
-  reads one task. A test can check from the outside what was published.
+- `GET /proj/search`, `/task/search`, and `/appr/search` filter by field; `GET /proj/{id}`
+  and `GET /task/{id}` read one project or task. A test can check from the outside what was
+  published.
 - `PUT /task/{id}` changes the task. A new `status` posts one signed status event, with the
   task's `externalID` as `campaignId`, to the webhook URL.
 """
@@ -198,6 +199,14 @@ def _add_project_routes(app: FastAPI, store: _Store, authorized: list[Any]) -> N
     def search_projects(externalID: str | None = None) -> dict[str, Any]:  # noqa: N803
         with store.lock:
             return {"data": _matching(store.projects, {"externalID": externalID})}
+
+    @app.get(API_PREFIX + "/proj/{project_id}", dependencies=authorized)
+    def get_project(project_id: str) -> dict[str, Any]:
+        with store.lock:
+            project = store.projects.get(project_id)
+            if project is None:
+                raise HTTPException(status_code=404, detail="project not found")
+            return {"data": _copy(project)}
 
 
 def _add_task_routes(app: FastAPI, store: _Store, authorized: list[Any]) -> None:

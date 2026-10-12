@@ -78,3 +78,13 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | `cosign sign` round trip (v3.1.3) | `--tlog-upload=false` alone fails: "--tlog-upload=false is not supported with --signing-config or --use-signing-config". `--use-signing-config=false --tlog-upload=false` signs, uploads nothing to Rekor, and stores the signature in the new bundle format as an OCI referrer next to the image |
 | `cosign verify --help` (v3.1.3) | `--insecure-ignore-tlog` defaults to false: "ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log". With `--insecure-ignore-tlog=true`, `cosign verify --key <pub>` exits 0 on a signature made as above; without it, verify exits 1 |
 | [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |
+
+## Agents bind MCP tools (#38)
+
+Checked on 2026-10-12 against the CRDs on the k3d-ace cluster (`kubectl --context k3d-ace explain`, read only).
+
+| Source | What it told us |
+|---|---|
+| `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
+| `kubectl explain agenttemplates.spec.tools --recursive --api-version=api.kagent.dev/v1alpha3` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {apiGroup, kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use |
+| MCP spec 2025-03-26, Streamable HTTP | A client POSTs JSON-RPC to one endpoint and may take a plain JSON reply; a notification gets 202. Tool annotations carry `readOnlyHint` |

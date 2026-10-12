@@ -1,0 +1,35 @@
+# One read-only MCP server per fake, registered in kagent as a RemoteMCPServer. The servers
+# run in the ace namespace (charts/ace/templates/mcp.yaml); a tool is a read, and an
+# AgentTemplate binds only the tools it needs (templates.yaml). Apply before templates.yaml.
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata: {name: ace-mcp-workfront, namespace: kagent}
+spec:
+  description: Read-only tools for the Workfront-shaped fake
+  protocol: STREAMABLE_HTTP
+  url: http://ace-mcp-workfront.ace.svc.cluster.local:8000/mcp
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata: {name: ace-mcp-marketo, namespace: kagent}
+spec:
+  description: Read-only tools for the Marketo-shaped fake
+  protocol: STREAMABLE_HTTP
+  url: http://ace-mcp-marketo.ace.svc.cluster.local:8000/mcp
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata: {name: ace-mcp-cms, namespace: kagent}
+spec:
+  description: Read-only tools for the CMS fake
+  protocol: STREAMABLE_HTTP
+  url: http://ace-mcp-cms.ace.svc.cluster.local:8000/mcp
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata: {name: ace-mcp-assets, namespace: kagent}
+spec:
+  description: Read-only tools for the asset library
+  protocol: STREAMABLE_HTTP
+  url: http://ace-mcp-assets.ace.svc.cluster.local:8000/mcp

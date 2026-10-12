@@ -44,6 +44,8 @@ RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
 STEP_SUCCEEDED = "succeeded"
+# An agent step read through an MCP tool; the event's reason is the tool's name.
+TOOL_READ = "tool_read"
 STEP_FAILED = "failed"
 # A failed run the owner asked to retry: it re-runs the step that stopped it.
 RETRYING = "retrying"

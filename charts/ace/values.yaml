@@ -47,6 +47,16 @@ marketo:
   # Not a secret: Marketo's OAuth2 client id. Its secret is in the app Secret.
   clientId: ace-demo
 
+# The Workfront-shaped fake and the MCP servers that read it (and the other fakes).
+workfront:
+  serviceName: fake-workfront
+  port: 8000
+  clientId: ace-demo
+
+# One read-only MCP server per fake, registered in kagent by agents/mcp.yaml.
+mcp:
+  port: 8000
+
 # The CMS and the S3 store are fakes (docs/decisions/cms-and-asset-store.md).
 cms:
   serviceName: fake-cms

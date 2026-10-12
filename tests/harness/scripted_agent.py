@@ -55,6 +55,8 @@ CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
 SERVICE = "scripted-agent"
 TOOL_NAME = "read_report"
+# The research agent reads the campaign's Workfront project through MCP before it answers.
+RESEARCH_TOOL = "get_project"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
 # docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
@@ -163,6 +165,8 @@ class ScriptedAgent:
                 "status": {"state": COMPLETED},
                 "artifacts": [artifact],
             }
+            if ROLES["research"].prompt in text:
+                task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
             return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
         return app
@@ -172,6 +176,15 @@ def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
     return JSONResponse(
         {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
     )
+
+
+def _tool_call_message(name: str, args: dict[str, Any]) -> dict[str, Any]:
+    """An agent message in a task's history that records one tool call, the way kagent does."""
+    call = {
+        "data": {"id": str(uuid.uuid4()), "name": name, "args": args},
+        "metadata": {"kagent_type": "function_call"},
+    }
+    return {"messageId": str(uuid.uuid4()), "role": "ROLE_AGENT", "parts": [call]}
 
 
 def _export_tool_and_model_spans() -> None:

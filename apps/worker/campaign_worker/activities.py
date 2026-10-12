@@ -211,6 +211,15 @@ class Activities:
                     session_id=sessions[variant] if sessions else None,
                 ),
             )
+            for tool in reply.tool_calls:
+                await asyncio.to_thread(
+                    self._record,
+                    job.campaign_id,
+                    job.step_id,
+                    db.TOOL_READ,
+                    tool,
+                    session_key(job.campaign_id, job.step_id),
+                )
             outputs.append(reply.output)
             issued.append(reply.session_id)
             usage = usage + reply.usage

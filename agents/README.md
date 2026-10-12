@@ -22,3 +22,10 @@ picks it by the role's template name.
 
 At fast depth the scripted agent (`tests/harness/scripted_agent.py`) plays every role and
 speaks the same A2A contract as kagent's controller.
+
+## mcp.yaml
+
+One `RemoteMCPServer` per read-only MCP server (`services/mcp`): Workfront, Marketo, the CMS,
+and the asset library. `make up` applies it before `templates.yaml`. An AgentTemplate binds
+only the tools it needs under `spec.tools`: the research agent binds the Workfront reads, no
+other agent binds any. No agent has a write tool, and a test proves it.

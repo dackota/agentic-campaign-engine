@@ -1,4 +1,4 @@
-# One Python image for the Campaign API, the worker, and the fake Marketo; the chart picks
+# One Python image for the Campaign API, the worker, and the fakes and the MCP servers; the chart picks
 # the process with `python -m <package>`. Build from the repo root:
 #   docker build -f apps/python.Dockerfile .
 # Base images are pinned by index digest (docs/pinned-versions.md).
@@ -23,7 +23,7 @@ COPY --chown=10001:10001 services /app/services
 ENV PATH=/opt/venv/bin:$PATH \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONPATH=/app/apps/engine:/app/apps/api:/app/apps/worker:/app/services/fakes:/app/services/render
+    PYTHONPATH=/app/apps/engine:/app/apps/api:/app/apps/worker:/app/services/fakes:/app/services/render:/app/services/mcp
 USER 10001:10001
 EXPOSE 8000
 CMD ["python", "-m", "campaign_api"]

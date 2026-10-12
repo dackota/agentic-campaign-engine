@@ -33,8 +33,8 @@ Fake third-party services. Later tickets add more.
   Campaign API webhook (`X-Workfront-Timestamp`,
   `X-Workfront-Signature: sha256=<hex of timestamp "." body>`), naming the task's
   `externalID` as `campaignId`. The client id, secret, and webhook key come from
-  `WorkfrontConfig` (`ACE_WORKFRONT_*`), never from code. The chart does not deploy it yet;
-  the worker and API publish to it only when `ACE_WORKFRONT_URL` is set.
+  `WorkfrontConfig` (`ACE_WORKFRONT_*`), never from code. The chart deploys it for the MCP server
+  to read; the worker and API publish to it only when `ACE_WORKFRONT_URL` is set.
 - `fake_slack`: a Slack with `POST /chat.postMessage` (bearer token, `channel` and `text`).
   A wrong token gets `{"ok": false, "error": "invalid_auth"}`. `GET /_messages` lists what it
   received. The token comes from `SlackConfig`, never from code.
