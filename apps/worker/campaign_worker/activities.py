@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import os
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -17,7 +18,7 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import notify, publisher
+from campaign_worker import cards, notify, publisher, sandbox
 from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
@@ -27,6 +28,8 @@ SERVICE = "campaign-worker"
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
+
+KAGENT_API_URL_ENV = "ACE_KAGENT_API_URL"
 
 
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
@@ -146,9 +149,16 @@ class Activities:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        if role.makes_cards and isinstance(output, dict) and "program" in output:
+            # Live depth: the agent wrote the program; the engine runs it in the sandbox.
+            output = await self._run_design_program(output["program"])
         _check_citations(role, output, report)
         await self._save_unless_flagged(cache, output, usage, is_flagged)
         return {"output": output, "session": session, "usage": usage.as_dict()}
+
+    async def _run_design_program(self, program: str) -> dict[str, Any]:
+        api_url = os.environ.get(KAGENT_API_URL_ENV) or self._settings.agent_url
+        return await sandbox.run_design_program(program, sandbox.SandboxConfig(api_url=api_url))
 
     @staticmethod
     async def _save_unless_flagged(
@@ -327,6 +337,15 @@ class Activities:
                 session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session
             )
             event.tokens = usage.total_tokens or None
+
+    @activity.defn
+    async def save_cards(self, campaign_id: str, output: dict[str, Any]) -> None:
+        """Save the design agent's cards to the asset library and keep a receipt for each.
+        The agent only makes the cards; the engine stores them."""
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await cards.save_cards(client, self._settings, campaign_id, output)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:

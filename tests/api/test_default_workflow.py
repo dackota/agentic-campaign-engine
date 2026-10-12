@@ -58,7 +58,7 @@ def test_every_step_event_names_its_own_session(run: dict[str, Any]) -> None:
         assert e["session"], e
         by_step.setdefault(e["step"], set()).add(e["session"])
 
-    assert len(by_step) == 6
+    assert len(by_step) == 7
     assert all(len(ids) == 1 for ids in by_step.values())
     all_ids = [next(iter(ids)) for ids in by_step.values()]
     assert len(set(all_ids)) == len(all_ids)
