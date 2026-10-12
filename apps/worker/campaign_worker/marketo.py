@@ -88,7 +88,7 @@ def _variants(emails: tuple[dict[str, Any], ...]) -> list[dict[str, Any]]:
     ]
 
 
-def _first(response: httpx.Response, key: str) -> Any:
+def _first(response: httpx.Response, key: str) -> object:
     """`result[0][key]` of a Marketo reply, or a non-retryable error naming what is wrong."""
     try:
         value = response.json()["result"][0][key]

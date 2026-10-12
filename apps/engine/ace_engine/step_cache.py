@@ -39,7 +39,7 @@ class CachedStep:
     model: str
 
 
-def _digest(value: Any) -> str:
+def _digest(value: object) -> str:
     canonical = json.dumps(value, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
@@ -72,7 +72,7 @@ class StepCache:
             row = session.scalars(select(db.StepCacheEntry).filter_by(**self._where(key))).first()
             return None if row is None else CachedStep(output=row.output, model=row.model)
 
-    def put(self, key: CacheKey, output: Any, model: str) -> None:
+    def put(self, key: CacheKey, output: object, model: str) -> None:
         """Save the output. The first entry for a key stays: racing writers agree."""
         values = {**self._where(key), "output": output, "model": model}
         dialect = self._engine.dialect.name

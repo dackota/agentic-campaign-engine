@@ -95,7 +95,7 @@ def test_putting_the_same_key_twice_keeps_one_entry(engine: Engine) -> None:
     assert found is not None and found.output == {"n": 1}
 
 
-def revision_of(card: Any, url: str = "http://agent/agents/kagent/a") -> str | None:
+def revision_of(card: object, url: str = "http://agent/agents/kagent/a") -> str | None:
     """The revision digest the engine reads for an agent whose card is `card` (a status
     code makes the card request fail with it)."""
 

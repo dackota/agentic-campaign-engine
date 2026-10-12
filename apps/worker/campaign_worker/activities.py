@@ -70,7 +70,7 @@ class StepCacheLookup:
     def lookup(self) -> step_cache.CachedStep | None:
         return self.cache.get(self.key)
 
-    def save(self, output: Any, model: str) -> None:
+    def save(self, output: object, model: str) -> None:
         self.cache.put(self.key, output, model)
 
 

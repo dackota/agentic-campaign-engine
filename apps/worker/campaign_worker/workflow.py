@@ -206,12 +206,12 @@ class CampaignWorkflow:
             raise errors[0]
         return succeeded, None
 
-    async def _db(self, activity: str, *args: Any) -> Any:
+    async def _db(self, activity: str, *args: object) -> object:
         return await workflow.execute_activity(
             activity, args=list(args), start_to_close_timeout=DB_STEP_TIMEOUT
         )
 
-    async def _announce(self, activity: str, *args: Any) -> None:
+    async def _announce(self, activity: str, *args: object) -> None:
         """Slack and Google notices: one try, and a failure never fails the run."""
         try:
             await workflow.execute_activity(
@@ -273,7 +273,7 @@ class CampaignWorkflow:
         await self._db("save_agent_output", campaign_id, step_id, result)
         self._outputs[step_id] = result["output"]
 
-    async def _save_cards(self, campaign_id: str, step: dict[str, Any], output: Any) -> None:
+    async def _save_cards(self, campaign_id: str, step: dict[str, Any], output: object) -> None:
         policy = step_policy(step)
         try:
             await workflow.execute_activity(
@@ -287,7 +287,7 @@ class CampaignWorkflow:
 
     async def _run_agent_within_budget(
         self, campaign_id: str, report: str, step: dict[str, Any], context: dict[str, Any]
-    ) -> Any:
+    ) -> dict[str, Any]:
         """Run the agent step. The activity checks the budget before it calls the model;
         while the budget is spent the run pauses, and each raise of the budget tries again.
         Writers that start together each wait, and one raise wakes them all."""
@@ -296,12 +296,13 @@ class CampaignWorkflow:
             # Read before the call, so a raise that lands during the call still counts.
             raises_seen = self._budget_raises
             try:
-                return await workflow.execute_activity(
+                result: dict[str, Any] = await workflow.execute_activity(
                     "run_agent_step",
                     args=[campaign_id, report, step_id, context, step.get("review_rounds", 0)],
                     start_to_close_timeout=policy.timeout,
                     retry_policy=policy.retry_policy(),
                 )
+                return result
             except ActivityError as exc:
                 if not _is_budget_spent(exc):
                     raise _failed(step_id, policy, exc) from exc

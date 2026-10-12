@@ -10,6 +10,7 @@ from typing import Any
 import httpx
 import pytest
 
+from tests.api.conftest import SignIn
 from tests.api.helpers import OWNER, POLL_INTERVAL_SECONDS, POLL_SECONDS
 from tests.harness.stack import Stack
 
@@ -44,7 +45,7 @@ def send(stack: Stack, *alerts: dict[str, Any], token: str | None = None) -> htt
     )
 
 
-def firing(stack: Stack, sign_in: Any) -> list[dict[str, Any]]:
+def firing(stack: Stack, sign_in: SignIn) -> list[dict[str, Any]]:
     response = sign_in(OWNER).get("/alerts")
     assert response.status_code == 200, response.text
     rows: list[dict[str, Any]] = response.json()
@@ -68,7 +69,7 @@ def slack_texts(stack: Stack, name: str) -> list[str]:
 
 
 def test_webhook_without_the_token_is_refused_and_records_nothing(
-    stack: Stack, sign_in: Any
+    stack: Stack, sign_in: SignIn
 ) -> None:
     name = unique("gateway-failover")
 
@@ -78,7 +79,7 @@ def test_webhook_without_the_token_is_refused_and_records_nothing(
     assert name not in [a["name"] for a in firing(stack, sign_in)]
 
 
-def test_a_fired_alert_shows_in_the_banner_list(stack: Stack, sign_in: Any) -> None:
+def test_a_fired_alert_shows_in_the_banner_list(stack: Stack, sign_in: SignIn) -> None:
     name = unique("run-failure-rate")
 
     assert (
@@ -92,7 +93,7 @@ def test_a_fired_alert_shows_in_the_banner_list(stack: Stack, sign_in: Any) -> N
     assert shown["summary"] == "30% of runs failed"
 
 
-def test_a_resolved_alert_leaves_the_banner_list(stack: Stack, sign_in: Any) -> None:
+def test_a_resolved_alert_leaves_the_banner_list(stack: Stack, sign_in: SignIn) -> None:
     name = unique("cost-spike")
     token = stack.alert_webhook_token
     assert send(stack, alert(name), token=token).status_code == 202
@@ -118,7 +119,7 @@ def test_a_malformed_alert_body_is_refused(stack: Stack) -> None:
 
 
 def test_slack_gets_one_notice_per_firing_and_one_when_it_resolves(
-    wired: Stack, sign_in: Any
+    wired: Stack, sign_in: SignIn
 ) -> None:
     name = unique("eval-score-drop")
     token = wired.alert_webhook_token
@@ -138,7 +139,7 @@ def test_slack_gets_one_notice_per_firing_and_one_when_it_resolves(
     assert wired.slack_token not in str(texts)
 
 
-def test_slack_off_still_records_the_alert(stack: Stack, sign_in: Any) -> None:
+def test_slack_off_still_records_the_alert(stack: Stack, sign_in: SignIn) -> None:
     assert stack.integrations is False
     name = unique("gateway-failover")
 

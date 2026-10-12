@@ -2,7 +2,6 @@
 
 import re
 from pathlib import Path
-from typing import Any
 
 from tests.tooling.platform_stubs import ROOT
 from tests.tooling.platform_stubs import run_make as _run
@@ -19,8 +18,12 @@ def _code(path: Path) -> str:
     )
 
 
-def _up(tmp_path: Path, **env: Any) -> tuple[int, list[str], str]:
-    result, calls = _run(tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1", **env)
+def _up(tmp_path: Path, build_fails: bool = False) -> tuple[int, list[str], str]:
+    # The docker stub fails a build when STUB_BUILD_FAIL is non-empty.
+    build_fail = "1" if build_fails else ""
+    result, calls = _run(
+        tmp_path, "up", STUB_CLUSTER="1", STUB_INSTALLED="1", STUB_BUILD_FAIL=build_fail
+    )
     return result.returncode, calls, result.stderr
 
 
@@ -72,7 +75,7 @@ def test_install_waits_for_rollout(tmp_path: Path) -> None:
 
 
 def test_build_failure_stops_up_before_helm(tmp_path: Path) -> None:
-    code, calls, _ = _up(tmp_path, STUB_BUILD_FAIL="1")
+    code, calls, _ = _up(tmp_path, build_fails=True)
     assert code != 0
     assert not [c for c in calls if "upgrade" in c and "--install" in c]
     assert not _docker(calls, "push")

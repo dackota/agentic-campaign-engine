@@ -78,7 +78,7 @@ class NewCampaign(BaseModel):
     # revision and input (docs/decisions/step-cache.md). Off unless asked.
     use_step_cache: bool = False
 
-    def model_post_init(self, _context: Any) -> None:
+    def model_post_init(self, _context: object) -> None:
         if not self.report.strip():
             raise ValueError("report must not be blank")
 
