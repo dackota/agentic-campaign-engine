@@ -3,7 +3,6 @@ template under the controller's base URL; at fast depth to the one scripted URL.
 
 import asyncio
 import json
-from typing import Any
 
 import httpx
 import pytest
@@ -11,9 +10,12 @@ from ace_engine import brand_review, db
 from ace_engine.agent_roles import ROLES
 from ace_engine.contracts import AgentOutput
 from ace_engine.settings import Depth, Settings
-from campaign_worker.activities import Activities, ReviewJob
+from campaign_worker.activities import Activities, ReviewJob, StepCacheLookup
 
 BASE = "http://kagent-controller.kagent:8083/agents/kagent"
+AGENTS_PREFIX = "/agents/kagent/"
+AGENT_DIGEST_LENGTH = 64
+PASS = json.dumps({"verdict": "pass", "issues": []})
 
 
 def _settings(depth: Depth, agent_url: str) -> Settings:
@@ -28,10 +30,6 @@ def _settings(depth: Depth, agent_url: str) -> Settings:
         marketo_client_secret="client-secret",
         marketo_webhook_secret="webhook-secret",
     )
-
-
-AGENT_DIGEST_LENGTH = 64
-PASS = json.dumps({"verdict": "pass", "issues": []})
 
 
 def _review_paths(depth: Depth, base: str) -> list[str]:
@@ -91,17 +89,21 @@ def test_live_depth_reads_the_reviewer_agents_card_for_the_cache_key(
 
 def _cache_digest(monkeypatch: pytest.MonkeyPatch, cards: dict[str, str]) -> str:
     def reply(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json={"version": cards[request.url.path.split("/")[3]]})
+        return httpx.Response(
+            200,
+            json={"version": cards[request.url.path.removeprefix(AGENTS_PREFIX).split("/", 1)[0]]},
+        )
 
     activities = Activities(_settings(Depth.LIVE, BASE), db.make_engine("sqlite://"))
     monkeypatch.setattr(activities, "_cache_team", lambda _campaign_id: "team")
     job = ReviewJob("camp-1", "email_writer", "report", ROLES["email_writer"], {})
 
-    async def go() -> Any:
+    async def go() -> StepCacheLookup | None:
         async with httpx.AsyncClient(transport=httpx.MockTransport(reply)) as client:
             return await activities._open_cache(client, job, 2)  # noqa: SLF001
 
     lookup = asyncio.run(go())
+    assert lookup is not None
     return str(lookup.key.agent_digest)
 
 
