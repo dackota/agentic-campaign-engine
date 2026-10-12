@@ -47,3 +47,8 @@ pooled connection never carries a team into the next request.
 - The trace middleware reads a campaign's `traceparent` before sign-in, as the owner. A
   team B request for a team A campaign id still gets a 404, but its span joins team A's
   trace. Only the trace store sees that.
+- The team namespaces and gateway routes split Agents and token budgets; they are not a
+  security boundary. There is no NetworkPolicy, ResourceQuota, or RBAC per team
+  namespace, and a route is picked by its URL path, so a pod that can reach the gateway
+  can spend another team's budget. A default-deny NetworkPolicy per namespace and a
+  gateway policy that ties each route to its namespace would close that.

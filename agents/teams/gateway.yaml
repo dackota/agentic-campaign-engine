@@ -1,6 +1,7 @@
 # S6: each team's own route to the model, with its own token limit, so a busy team cannot
 # starve another. A team's ModelConfig (agents/teams/<team>/team.yaml) points at its route;
-# the route sets x-team for the access log, so a client cannot pick its budget. The backend
+# the route sets x-team for the access log. The route is picked by path, so the split is a
+# budget split, not a security boundary (docs/decisions/team-isolation.md). The backend
 # and the gateway are the ones manifests/spike/gateway.yaml installs.
 ---
 apiVersion: gateway.networking.k8s.io/v1
