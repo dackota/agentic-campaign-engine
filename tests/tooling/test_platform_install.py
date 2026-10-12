@@ -572,7 +572,7 @@ def _run_spike_install(tmp_path: Path, existing: set[str]) -> tuple[int, list[st
     kubectl = (
         f'#!/bin/sh\necho "kubectl $*" >> {log}\n'
         'case "$*" in *"get secret"*"-o name"*)\n'
-        f'  for s in {" ".join(sorted(existing))}; do\n'
+        f"  for s in {' '.join(sorted(existing))}; do\n"
         '    case "$*" in *" $s "*) echo "secret/$s"; exit 0 ;; esac\n'
         "  done\n  exit 1 ;;\nesac\nexit 0\n"
     )
@@ -597,11 +597,30 @@ def _pool_creations(calls: list[str]) -> list[str]:
     return [c for c in calls if "admin make-ca-pool" in c]
 
 
-def test_spike_install_skips_ca_pools_whose_secret_exists(tmp_path: Path) -> None:
+def _jwt_creations(calls: list[str]) -> list[str]:
+    return [c for c in calls if "admin make-jwt-pool" in c]
+
+
+def test_spike_install_skips_the_jwt_pool_whose_secret_exists(tmp_path: Path) -> None:
+    code, calls = _run_spike_install(tmp_path, {"actor-id-jwt-pool"})
+    assert code == 0
+    assert _jwt_creations(calls) == []
+
+
+def test_spike_install_creates_the_jwt_pool_when_its_secret_is_absent(tmp_path: Path) -> None:
     code, calls = _run_spike_install(tmp_path, set(CA_POOLS))
     assert code == 0
+    (created,) = _jwt_creations(calls)
+    assert created.endswith(
+        "admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system"
+    )
+
+
+def test_spike_install_skips_ca_pools_whose_secret_exists(tmp_path: Path) -> None:
+    code, calls = _run_spike_install(tmp_path, {*CA_POOLS, "actor-id-jwt-pool"})
+    assert code == 0
     assert _pool_creations(calls) == []
-    assert any("admin make-jwt-pool" in c for c in calls)
+    assert _jwt_creations(calls) == []
 
 
 def test_spike_install_creates_ca_pools_whose_secret_is_absent(tmp_path: Path) -> None:

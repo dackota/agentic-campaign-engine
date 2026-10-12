@@ -18,23 +18,24 @@ helm --kube-context "$KCTX" upgrade --install substrate \
   --version "$SUBSTRATE_VERSION" -n ate-system \
   -f "$(dirname "$0")/../../manifests/spike/substrate-values.yaml"
 
-# make-ca-pool fails when the pool Secret exists, so a re-run creates only the missing pools.
-# The check reads the Secret's name only, never its data.
-ensure_ca_pool() { # <name> <secret-namespace> [extra make-ca-pool args]
-  local name="$1" namespace="$2"
-  shift 2
+# make-ca-pool and make-jwt-pool fail when the pool Secret exists, so a re-run creates only the
+# missing pools. The check reads the Secret's name only, never its data.
+ensure_pool() { # <ca|jwt> <name> <secret-namespace> [extra args]
+  local kind="$1" name="$2" namespace="$3" id_flag="--ca-id=1"
+  [ "$kind" = jwt ] && id_flag="--key-id=1"
+  shift 3
   if k get secret "$name" -n "$namespace" -o name >/dev/null 2>&1; then
     echo "$name exists, skipping"
   else
-    ate admin make-ca-pool --ca-id=1 --name="$name" --secret-namespace="$namespace" "$@"
+    ate admin "make-$kind-pool" "$id_flag" --name="$name" --secret-namespace="$namespace" "$@"
   fi
 }
 
-ensure_ca_pool service-dns-ca-pool podcertificate-controller-system
-ensure_ca_pool pod-identity-ca-pool podcertificate-controller-system
-ate admin make-jwt-pool --key-id=1 --name=actor-id-jwt-pool --secret-namespace=ate-system
-ensure_ca_pool actor-id-ca-pool ate-system
-ensure_ca_pool egress-mitm-ca-pool ate-system --key-type=ECDSAP256
+ensure_pool ca service-dns-ca-pool podcertificate-controller-system
+ensure_pool ca pod-identity-ca-pool podcertificate-controller-system
+ensure_pool jwt actor-id-jwt-pool ate-system
+ensure_pool ca actor-id-ca-pool ate-system
+ensure_pool ca egress-mitm-ca-pool ate-system --key-type=ECDSAP256
 
 root="$(k get secret actor-id-ca-pool -n ate-system -o jsonpath='{.data.pool}' | base64 --decode \
   | jq -r '.CAs[0].RootCertificateDER' | base64 --decode | openssl x509 -inform der -outform pem)"
