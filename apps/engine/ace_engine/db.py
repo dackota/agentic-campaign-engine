@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -76,6 +77,8 @@ class Campaign(Base):
     dag: Mapped[dict[str, Any]] = mapped_column(JSON)
     # What the owner lets the run spend on models, in micro-dollars; None is no limit.
     budget_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Whether the run reuses saved agent step results (the step cache).
+    use_step_cache: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -153,6 +156,25 @@ class StepUsage(Base):
     input_tokens: Mapped[int] = mapped_column(BigInteger)
     output_tokens: Mapped[int] = mapped_column(BigInteger)
     cost_micros: Mapped[int] = mapped_column(BigInteger)
+    # The step reused a saved result, so it used no tokens.
+    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepCacheEntry(Base):
+    """A saved agent step result, found again by the step type, the agent revision digest and
+    the hash of the input. Kept per team."""
+
+    __tablename__ = "step_cache"
+
+    team: Mapped[str] = mapped_column(String(100), primary_key=True)
+    step_type: Mapped[str] = mapped_column(String(80), primary_key=True)
+    agent_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    output: Mapped[Any] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -203,6 +225,22 @@ class TaskStatusEvent(Base):
     received_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class Alert(Base):
+    """An alert Grafana raised, kept once per fingerprint. Firing alerts show as the in-app
+    banner; a resolved one stays as history."""
+
+    __tablename__ = "alerts"
+
+    fingerprint: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    fired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def add_event(

@@ -1,0 +1,150 @@
+# Alert rules, the contact point, and the notification policy for Grafana (provisioned into
+# grafana/otel-lgtm by `make up FULL=1`). Every alert goes to the Campaign API's webhook,
+# which shows it as the in-app banner and posts it to Slack when Slack is on. The webhook's
+# bearer token is read from the container's environment (Secret alert-webhook), not from here.
+# Thresholds are demo numbers: change them here and re-run `make up FULL=1`.
+apiVersion: 1
+groups:
+- orgId: 1
+  name: ace
+  folder: ACE
+  interval: 30s
+  rules:
+  - uid: ace-run-failure-rate
+    title: run-failure-rate
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange: {from: 900, to: 0}
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 'sum(increase(ace_runs_total{outcome="failed"}[15m])) / clamp_min(sum(increase(ace_runs_total[15m])), 1)'
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model: {refId: B, type: reduce, expression: A, reducer: last, datasource: {type: __expr__, uid: __expr__}}
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        datasource: {type: __expr__, uid: __expr__}
+        conditions:
+        - evaluator: {type: gt, params: [0.25]}
+    noDataState: OK
+    execErrState: OK
+    for: 1m
+    annotations:
+      summary: "More than 25% of the campaign runs that ended in the last 15 minutes failed."
+      dashboard: ace-pipeline-health
+    labels: {severity: warning}
+  - uid: ace-cost-spike
+    title: cost-spike
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange: {from: 900, to: 0}
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 'sum(increase(ace_cost_dollars_total[15m]))'
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model: {refId: B, type: reduce, expression: A, reducer: last, datasource: {type: __expr__, uid: __expr__}}
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        datasource: {type: __expr__, uid: __expr__}
+        conditions:
+        - evaluator: {type: gt, params: [5]}
+    noDataState: OK
+    execErrState: OK
+    for: 0s
+    annotations:
+      summary: "Agent steps cost more than $5 in the last 15 minutes."
+      dashboard: ace-cost
+    labels: {severity: warning}
+  - uid: ace-eval-score-drop
+    title: eval-score-drop
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange: {from: 3600, to: 0}
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 'sum(increase(ace_eval_score_sum[1h])) / sum(increase(ace_eval_score_count[1h]))'
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model: {refId: B, type: reduce, expression: A, reducer: last, datasource: {type: __expr__, uid: __expr__}}
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        datasource: {type: __expr__, uid: __expr__}
+        conditions:
+        - evaluator: {type: lt, params: [0.5]}
+    noDataState: OK
+    execErrState: OK
+    for: 0s
+    annotations:
+      summary: "The brand reviewer passed fewer than half of the drafts in the last hour."
+      dashboard: ace-quality
+    labels: {severity: warning}
+  - uid: ace-gateway-failover
+    title: gateway-failover
+    condition: C
+    data:
+    - refId: A
+      relativeTimeRange: {from: 300, to: 0}
+      datasourceUid: prometheus
+      model:
+        refId: A
+        expr: 'sum(increase(traces_span_metrics_calls_total{gen_ai_provider_name="anthropic"}[5m]))'
+        instant: true
+    - refId: B
+      datasourceUid: __expr__
+      model: {refId: B, type: reduce, expression: A, reducer: last, datasource: {type: __expr__, uid: __expr__}}
+    - refId: C
+      datasourceUid: __expr__
+      model:
+        refId: C
+        type: threshold
+        expression: B
+        datasource: {type: __expr__, uid: __expr__}
+        conditions:
+        - evaluator: {type: gt, params: [0]}
+    noDataState: OK
+    execErrState: OK
+    for: 0s
+    annotations:
+      summary: "Model calls failed over from OpenCode Go to the backup provider."
+      dashboard: ace-failovers
+    labels: {severity: warning}
+contactPoints:
+- orgId: 1
+  name: ace-api
+  receivers:
+  - uid: ace-api-webhook
+    type: webhook
+    settings:
+      url: http://api.ace.svc.cluster.local:8000/alerts/webhook
+      httpMethod: POST
+      authorization_scheme: Bearer
+      authorization_credentials: $__env{ACE_ALERT_WEBHOOK_TOKEN}
+policies:
+- orgId: 1
+  receiver: ace-api
+  group_by: [alertname]
+  group_wait: 0s
+  group_interval: 30s
+  repeat_interval: 4h

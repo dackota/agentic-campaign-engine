@@ -21,6 +21,7 @@ SECRET_KEYS = {
 }
 MCP_SERVERS = {"ace-mcp-workfront", "ace-mcp-marketo", "ace-mcp-cms", "ace-mcp-assets"}
 PYTHON_COMPONENTS = {"api": "campaign_api", "worker": "campaign_worker"}
+ALERT_TOKEN_ENV = "ACE_ALERT_WEBHOOK_TOKEN"
 SECRET_WORDS = ("SECRET", "PASSWORD", "TOKEN", "KEY")
 
 
@@ -193,7 +194,12 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
     secret_name = _secret(docs)["metadata"]["name"]
     wanted = {
         "postgres": {"POSTGRES_PASSWORD"},
-        "api": {"ACE_DATABASE_PASSWORD", "ACE_MARKETO_CLIENT_SECRET", "ACE_MARKETO_WEBHOOK_SECRET"},
+        "api": {
+            "ACE_DATABASE_PASSWORD",
+            "ACE_MARKETO_CLIENT_SECRET",
+            "ACE_MARKETO_WEBHOOK_SECRET",
+            ALERT_TOKEN_ENV,
+        },
         "worker": {
             "ACE_DATABASE_PASSWORD",
             "ACE_MARKETO_CLIENT_SECRET",
@@ -212,6 +218,14 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
         for key in secretish:
             assert "value" not in env[key], (name, key)
             ref = env[key]["valueFrom"]["secretKeyRef"]
+            if key == ALERT_TOKEN_ENV:
+                # Made by platform/observability.sh, not by the chart; the API runs without it.
+                assert (ref["name"], ref["key"], ref["optional"]) == (
+                    "alert-webhook",
+                    "token",
+                    True,
+                )
+                continue
             assert ref["name"] == secret_name and ref["key"] in SECRET_KEYS, (name, key)
 
 

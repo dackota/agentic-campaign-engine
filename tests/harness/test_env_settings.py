@@ -49,6 +49,7 @@ FULL_ENV = {
     "ACE_SLACK_TOKEN": "sentinel-slack-token-31d2",
     "ACE_SLACK_CHANNEL": "#ace",
     "ACE_SLACK_URL": "http://fake-slack:8000",
+    "ACE_ALERT_WEBHOOK_TOKEN": "sentinel-alert-token-6c3b",
     "ACE_GOOGLE_CLIENT_ID": "gid",
     "ACE_GOOGLE_CLIENT_SECRET": "sentinel-google-secret-8e07",
     "ACE_GOOGLE_REFRESH_TOKEN": "sentinel-google-refresh-52aa",
@@ -112,6 +113,7 @@ def test_api_loader_reads_every_settings_field() -> None:
         s3_url="http://fake-s3:8000",
         s3_bucket="other-bucket",
         content_timeout_seconds=9.0,
+        alert_webhook_token="sentinel-alert-token-6c3b",
     )
     # Every field differs from its default above, so a field the loader skipped would show.
     for f in dataclasses.fields(Settings):

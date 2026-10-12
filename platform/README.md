@@ -78,4 +78,9 @@ Home for this part. Later tickets fill it.
   worker, and fakes export too.
 - See Grafana: `kubectl --context k3d-ace -n observability port-forward svc/lgtm 3000:3000`, then
   Explore, Tempo, and the campaign's id as the trace id (hex, no dashes).
+- The same script provisions the dashboards and alert rules from `manifests/observability/grafana`
+  (Grafana folder ACE) and the alert webhook token (Secret `alert-webhook`). Alerts show as a
+  banner in the app and, when Slack is on, in Slack. See `docs/decisions/dashboards-and-alerts.md`.
+- Honeycomb: set `HONEYCOMB_API_KEY` in `.env` (or the environment) before `make up FULL=1` and the
+  collector also exports there. With no key it does not.
 - Without `FULL=1` nothing is installed and no service exports.

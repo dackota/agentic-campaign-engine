@@ -22,6 +22,8 @@ class StepCostOut(BaseModel):
     output_tokens: int
     total_tokens: int
     cost_usd: float
+    # The step reused a saved result instead of calling the agent.
+    cache_hit: bool = False
 
     @classmethod
     def of(cls, row: db.StepUsage) -> "StepCostOut":
@@ -32,6 +34,7 @@ class StepCostOut(BaseModel):
             output_tokens=row.output_tokens,
             total_tokens=row.input_tokens + row.output_tokens,
             cost_usd=cost.to_dollars(row.cost_micros),
+            cache_hit=bool(row.cache_hit),
         )
 
 
