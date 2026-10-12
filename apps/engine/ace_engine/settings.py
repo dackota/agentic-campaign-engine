@@ -78,6 +78,9 @@ class Settings:
     google_token_url: str = "https://oauth2.googleapis.com/token"
     google_docs_url: str = "https://docs.googleapis.com"
 
+    # The bearer token Grafana's alert webhook sends. Blank turns the webhook off.
+    alert_webhook_token: str = field(default="", repr=False)
+
     @property
     def slack_enabled(self) -> bool:
         return bool(self.slack_token.strip() and self.slack_channel.strip())

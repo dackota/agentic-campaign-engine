@@ -27,6 +27,8 @@ commit a value.
 - `OPENCODE_KEY`: required. The key for OpenCode Go.
 - `ANTHROPIC_API_KEY`: optional. Left empty, agentgateway's backup route is the
   in-cluster mock.
+- `HONEYCOMB_API_KEY`: optional. Set, `make up FULL=1` also exports traces and metrics
+  to Honeycomb; empty, it does not.
 
 A key you add later reaches the cluster on the next `make up`.
 

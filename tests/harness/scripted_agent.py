@@ -66,6 +66,8 @@ FIXED_CARDS = tuple(
     }
     for n in (1, 2)
 )
+# The version on the agent card until a test publishes another.
+DEFAULT_REVISION = "1"
 TOOL_NAME = "read_report"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
@@ -88,12 +90,23 @@ class ScriptedAgent:
         self._failed: dict[str, int] = {}
         self._message_ids: list[str] = []
         self._sessions: set[str] = set()
+        self._revision = DEFAULT_REVISION
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
         """Queue exact reply texts; they are used before the default writer."""
         with self._lock:
             self._replies = list(replies)
+
+    def set_revision(self, revision: str) -> None:
+        """Publish a new agent revision: the agent card's version changes, as it does when
+        the Agent resource is updated."""
+        with self._lock:
+            self._revision = revision
+
+    def card(self) -> dict[str, Any]:
+        with self._lock:
+            return {"name": SERVICE, "version": self._revision, "skills": []}
 
     def message_ids(self) -> list[str]:
         """The A2A messageId of every call so far, in arrival order."""
@@ -142,6 +155,10 @@ class ScriptedAgent:
         @app.get("/readyz")
         def readyz() -> dict[str, str]:
             return {"status": "ok"}
+
+        @app.get("/.well-known/agent-card.json")
+        def agent_card() -> dict[str, Any]:
+            return self.card()
 
         @app.post("/")
         async def rpc(request: Request) -> JSONResponse:
