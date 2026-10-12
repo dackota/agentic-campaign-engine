@@ -5,7 +5,7 @@ Date: 2026-10-11. Status: accepted.
 Decision: the one-pager PDF is built with **reportlab**, not a headless browser. The root
 `SPEC.md` Render row names "MJML, Playwright, python-pptx"; this keeps MJML for email and
 python-pptx for the deck, and swaps Playwright for reportlab for the PDF only. The
-`SPEC.md` row is unchanged.
+`SPEC.md` row now names reportlab (user confirmed 2026-10-11).
 
 ## Why
 
