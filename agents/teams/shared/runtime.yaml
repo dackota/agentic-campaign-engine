@@ -3,7 +3,11 @@
 # The worker image is the one platform/install.sh installs Substrate with.
 apiVersion: ate.dev/v1alpha1
 kind: WorkerPool
-metadata: {name: team-pool}
+# kagent's ActorTemplate picks workers by this label (as the kagent chart sets on
+# kagent-default). Without it the team's Agents wait at ActorTemplatePending forever.
+metadata:
+  name: team-pool
+  labels: {kagent.dev/worker-pool: team-pool}
 spec:
   replicas: 1
   sandboxClass: gvisor

@@ -88,6 +88,9 @@ def test_the_shared_team_parts_match_the_kagent_namespace() -> None:
     harness = _named(shared, "Harness", "spike-harness")
     pool = _named(shared, "WorkerPool", harness["spec"]["substrate"]["workerPoolRef"]["name"])
     assert harness["spec"]["workload"] == spike_harness["spec"]["workload"]
+    # kagent picks a harness's workers by this label on the pool, not by the pool's name:
+    # without it the Agent waits for its golden snapshot forever (ActorTemplatePending).
+    assert pool["metadata"]["labels"]["kagent.dev/worker-pool"] == pool["metadata"]["name"]
     assert worker_image and pool["spec"]["workerImage"] == worker_image.group(1)
     secret = _named(shared, "Secret", "kagent-openai")
     # A placeholder the gateway ignores: the real key lives only in the gateway.
