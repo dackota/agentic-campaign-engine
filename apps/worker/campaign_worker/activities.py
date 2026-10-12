@@ -34,6 +34,18 @@ def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
 
 
+def _check_citations(role: Role, output: AgentOutput, report: str) -> None:
+    """Fail the step, without a retry, when a research output breaks the citation rule."""
+    if role.checks_citations and isinstance(output, dict):
+        problems = citation_problems(output, report)
+        if problems:
+            raise ApplicationError(
+                "research broke the citation rule: " + "; ".join(problems),
+                type=AGENT_OUTPUT_INVALID,
+                non_retryable=True,
+            )
+
+
 def _cache_hit_result(hit: step_cache.CachedStep, session: str) -> dict[str, Any]:
     """The activity result for a saved output: no tokens, so no cost."""
     usage = cost.Usage(model=hit.model, input_tokens=0, output_tokens=0)
@@ -134,14 +146,7 @@ class Activities:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
-        if role.checks_citations and isinstance(output, dict):
-            problems = citation_problems(output, report)
-            if problems:
-                raise ApplicationError(
-                    "research broke the citation rule: " + "; ".join(problems),
-                    type=AGENT_OUTPUT_INVALID,
-                    non_retryable=True,
-                )
+        _check_citations(role, output, report)
         await self._save_unless_flagged(cache, output, usage, is_flagged)
         return {"output": output, "session": session, "usage": usage.as_dict()}
 
