@@ -76,6 +76,7 @@ def test_each_step_reports_the_scripted_tokens_and_cost(api: httpx.Client) -> No
             "output_tokens": 600,
             "total_tokens": 3000,
             "cost_usd": pytest.approx(0.0162),
+            "cache_hit": False,
         }
     ]
 

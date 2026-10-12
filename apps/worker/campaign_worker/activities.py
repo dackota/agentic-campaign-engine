@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from ace_engine import brand_review, cost, db, invoker, telemetry
+from ace_engine import brand_review, cost, db, invoker, step_cache, telemetry
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for
 from ace_engine.contracts import AgentOutput, citation_problems
@@ -32,6 +32,20 @@ SERVICE = "campaign-worker"
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
     suffix = "" if variant == 0 else f":v{variant}"
     return f"{graph.step_key(campaign_id, step_id)}{suffix}"
+
+
+@dataclass(frozen=True)
+class StepCacheLookup:
+    """One step's cache and its key."""
+
+    cache: step_cache.StepCache
+    key: step_cache.CacheKey
+
+    def lookup(self) -> step_cache.CachedStep | None:
+        return self.cache.get(self.key)
+
+    def save(self, output: Any, model: str) -> None:
+        self.cache.put(self.key, output, model)
 
 
 @dataclass(frozen=True)
@@ -83,18 +97,36 @@ class Activities:
         session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
-        if await asyncio.to_thread(self._is_budget_spent, campaign_id):
-            raise ApplicationError(
-                "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
-            )
-        await asyncio.to_thread(self._record, campaign_id, step_id, db.STEP_STARTED, None, session)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+            cache = await self._open_cache(
+                client, campaign_id, role, context, review_rounds, report
+            )
+            if cache is not None and (hit := await asyncio.to_thread(cache.lookup)) is not None:
+                # A saved result costs nothing, so a spent budget does not stop it.
+                await asyncio.to_thread(
+                    self._record, campaign_id, step_id, db.STEP_STARTED, None, session
+                )
+                usage = cost.Usage(model=hit.model, input_tokens=0, output_tokens=0)
+                return {
+                    "output": hit.output,
+                    "session": session,
+                    "usage": usage.as_dict(),
+                    "cache_hit": True,
+                }
+            if await asyncio.to_thread(self._is_budget_spent, campaign_id):
+                raise ApplicationError(
+                    "the campaign's budget is spent", type=cost.BUDGET_SPENT, non_retryable=True
+                )
+            await asyncio.to_thread(
+                self._record, campaign_id, step_id, db.STEP_STARTED, None, session
+            )
+            is_flagged = False
             try:
                 job = ReviewJob(campaign_id, step_id, report, role, context)
                 with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
                     output, usage, writer_sessions = await self._writer_outputs(client, job)
                     if review_rounds > 0:
-                        output, usage = await self._review_loop(
+                        output, usage, is_flagged = await self._review_loop(
                             client, job, (output, usage, writer_sessions), review_rounds
                         )
             except invoker.AgentOutputInvalid as exc:
@@ -109,7 +141,43 @@ class Activities:
                     type=AGENT_OUTPUT_INVALID,
                     non_retryable=True,
                 )
+        # An output the reviewer still flags is left for a human, never saved for reuse.
+        if cache is not None and not is_flagged:
+            await asyncio.to_thread(cache.save, output, usage.model)
         return {"output": output, "session": session, "usage": usage.as_dict()}
+
+    async def _open_cache(
+        self,
+        client: httpx.AsyncClient,
+        campaign_id: str,
+        role: Role,
+        context: dict[str, Any],
+        review_rounds: int,
+        report: str,
+    ) -> StepCacheLookup | None:
+        """The step's cache entry, or None when the campaign did not opt in or the agent's
+        revision cannot be read (such a step always runs)."""
+        team = await asyncio.to_thread(self._cache_team, campaign_id)
+        if team is None:
+            return None
+        urls = [agent_url_for(self._settings.agent_url, self._settings.depth, role)]
+        if review_rounds > 0:
+            urls.append(self._settings.agent_url)
+        revisions = [await step_cache.agent_revision(client, url) for url in urls]
+        if any(r is None for r in revisions):
+            return None
+        key = step_cache.CacheKey(
+            step_type=role.template,
+            agent_digest=":".join(r for r in revisions if r is not None),
+            input_hash=step_cache.input_hash(report, context, review_rounds),
+        )
+        return StepCacheLookup(step_cache.StepCache(self._engine, team), key)
+
+    def _cache_team(self, campaign_id: str) -> str | None:
+        """The campaign's team when it uses the step cache, else None."""
+        with Session(self._engine) as session:
+            campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
+            return campaign.team if campaign.use_step_cache else None
 
     def _is_budget_spent(self, campaign_id: str) -> bool:
         """True when the campaign has a budget and its model calls have used all of it."""
@@ -125,13 +193,15 @@ class Activities:
         job: ReviewJob,
         draft: tuple[AgentOutput, cost.Usage, tuple[str, ...]],
         review_rounds: int,
-    ) -> tuple[AgentOutput, cost.Usage]:
+    ) -> tuple[AgentOutput, cost.Usage, bool]:
         """Send the draft to the brand reviewer; on a fix verdict send the issues back to
         the same writer sessions, for at most `review_rounds` rounds (never more than the
         limit). What the reviewer still flags after the last round is flagged for a human.
         `draft` is the writers' output, its tokens, and the sessions the agents issued.
-        Returns the output and the tokens of every call so far."""
+        Returns the output, the tokens of every call so far, and whether a human is left to
+        look at what the reviewer still flags."""
         output, usage, writer_sessions = draft
+        is_flagged = False
         reviewer_session_id: str | None = None
         writer_session = session_key(job.campaign_id, job.step_id)
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
@@ -153,12 +223,13 @@ class Activities:
                 writer_session,
             )
             if is_last:
+                is_flagged = True
                 break
             output, fix_usage, writer_sessions = await self._writer_outputs(
                 client, job, issues, turn + 1, writer_sessions
             )
             usage = usage + fix_usage
-        return output, usage
+        return output, usage, is_flagged
 
     async def _review(
         self,
@@ -237,6 +308,7 @@ class Activities:
                     input_tokens=usage.input_tokens,
                     output_tokens=usage.output_tokens,
                     cost_micros=usage.cost_micros,
+                    cache_hit=bool(result.get("cache_hit")),
                 )
             )
             if role_for(step_id).writes_draft:

@@ -73,6 +73,9 @@ class NewCampaign(BaseModel):
     workflow: str | None = Field(default=None, pattern=NAME_PATTERN)
     # What the run may spend on models, in dollars; None is no limit.
     budget_usd: BudgetUsd | None = None
+    # Reuse the saved result of an agent step this team has run before with the same agent
+    # revision and input (docs/decisions/step-cache.md). Off unless asked.
+    use_step_cache: bool = False
 
     def model_post_init(self, _context: Any) -> None:
         if not self.report.strip():
@@ -528,6 +531,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
             workflow_version=version,
             dag=dag,
             budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
+            use_step_cache=body.use_step_cache,
         )
         # This request's span is the root of the campaign's trace: keep it for later requests,
         # and the workflow started below carries it through Temporal.
