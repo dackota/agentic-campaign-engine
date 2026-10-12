@@ -1,5 +1,6 @@
 """Run the fast-depth stack until killed, for the browser seam (Playwright)."""
 
+import contextlib
 import os
 import signal
 import threading
@@ -19,12 +20,11 @@ def main() -> None:
         # The browser spec for the alert banner posts to the alert webhook with this token.
         alert_webhook_token=os.environ.get("ACE_ALERT_WEBHOOK_TOKEN"),
     )
-    stack = Stack(pinned=pinned).start()
-    done = threading.Event()
-    signal.signal(signal.SIGTERM, lambda *_: done.set())
-    signal.signal(signal.SIGINT, lambda *_: done.set())
-    done.wait()
-    stack.stop()
+    # SIGTERM (Playwright's graceful shutdown) raises KeyboardInterrupt as SIGINT does, so the
+    # stack stops even when the signal comes while it is still starting.
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
+    with contextlib.suppress(KeyboardInterrupt), Stack(pinned=pinned):
+        threading.Event().wait()
 
 
 if __name__ == "__main__":

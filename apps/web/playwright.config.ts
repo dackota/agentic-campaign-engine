@@ -28,6 +28,7 @@ const env = {
 } as Record<string, string>;
 
 const STACK_START_TIMEOUT_MS = 240_000;
+const STACK_STOP_TIMEOUT_MS = 30_000;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -41,6 +42,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${apiPort}/healthz`,
       timeout: STACK_START_TIMEOUT_MS,
       reuseExistingServer: false,
+      // SIGTERM lets the stack remove its containers; the default SIGKILL leaves that to Ryuk.
+      gracefulShutdown: { signal: "SIGTERM", timeout: STACK_STOP_TIMEOUT_MS },
     },
     {
       command: `pnpm exec vite --host 127.0.0.1 --port ${webPort} --strictPort`,
