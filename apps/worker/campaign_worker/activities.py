@@ -128,11 +128,6 @@ class Activities:
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
         team, uses_cache = await asyncio.to_thread(self._team_and_cache, campaign_id)
-        if self._settings.depth is Depth.LIVE:
-            try:
-                team_namespace(team)
-            except ValueError as exc:
-                raise ApplicationError(str(exc), type=TEAM_REFUSED, non_retryable=True) from exc
         job = ReviewJob(campaign_id, step_id, report, role, context, team)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             cache = await self._open_cache(client, job, review_rounds) if uses_cache else None
@@ -198,10 +193,17 @@ class Activities:
         return StepCacheLookup(step_cache.StepCache(self._engine, job.team), key)
 
     def _team_and_cache(self, campaign_id: str) -> tuple[str, bool]:
-        """The campaign's team, and whether it uses the step cache."""
+        """The campaign's team, and whether it uses the step cache. At live depth a team
+        with no namespace is refused."""
         with Session(self._engine) as session:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
-            return campaign.team, campaign.use_step_cache
+            team, uses_cache = campaign.team, campaign.use_step_cache
+        if self._settings.depth is Depth.LIVE:
+            try:
+                team_namespace(team)
+            except ValueError as exc:
+                raise ApplicationError(str(exc), type=TEAM_REFUSED, non_retryable=True) from exc
+        return team, uses_cache
 
     def _is_budget_spent(self, campaign_id: str) -> bool:
         """True when the campaign has a budget and its model calls have used all of it."""
