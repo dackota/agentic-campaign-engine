@@ -17,9 +17,9 @@ An approver decides each asset of a campaign on its own. This records the choice
   as the brand reviewer's fixes already do. Only that step's agent is asked. The run stays in
   the approval wait, shows as drafting while the redo runs, and waits for approval again. The
   redo's tokens add to the step's row in the cost ledger.
-- **The team filter is in the API for now.** Row-level security (spec decision 19) is not in
-  the database yet, so the inbox and the decision routes check the campaign's team themselves
-  and answer 404 for another team's campaign. Move the check into a policy when RLS lands.
+- **Row-level security is the team filter** (spec decision 19,
+  `apps/engine/ace_engine/row_security.py`). The inbox and decision routes name no team;
+  another team's campaign is not found and answers 404.
 - **Slack links to the inbox.** With `ACE_WEB_URL` set, the approval message ends with
   `<web url>/?inbox=<campaign id>`; the web app keeps the id through sign-in and opens the
   inbox with that campaign first. With it unset, the message has no link.
