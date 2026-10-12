@@ -11,9 +11,9 @@ import httpx
 import pytest
 
 from tests.api.helpers import AWAITING, bucket_keys, create_on, read_events
+from tests.harness.fake_kagent import FAKE
 from tests.harness.scripted_agent import PROGRAM_MARKER
 from tests.harness.stack import Stack
-from tests.tooling.test_sandbox_program import FAKE
 
 CARD_NAMES = ("social-card-1.svg", "social-card-2.svg")
 
