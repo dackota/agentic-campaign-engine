@@ -9,6 +9,7 @@ model calls go through agentgateway. The cluster must be up (`make up`).
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import secrets
 import socket
@@ -30,6 +31,7 @@ from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.core.docker_client import DockerClient
 
 from tests.harness.dex import CLIENT_ID, Dex
 from tests.harness.scripted_agent import ScriptedAgent
@@ -39,6 +41,9 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 POSTGRES_IMAGE = "postgres:16-alpine"
+# Every container a stack makes carries this label with the stack's own run id, so stop()
+# finds it even when a start was cut off before testcontainers had a handle to it.
+RUN_LABEL = "ace.harness.run"
 START_TIMEOUT_SECONDS = 180
 STOP_TIMEOUT_SECONDS = 60
 WORKER_THREADS = 8
@@ -141,7 +146,8 @@ class Stack:
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
         self.web_origin = pinned.web_origin
-        self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin)
+        self._labels = {RUN_LABEL: secrets.token_hex(8)}
+        self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin, self._labels)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
         self.slack_port = free_port()
@@ -299,16 +305,23 @@ class Stack:
             raise RuntimeError("worker did not restart")
 
     def start(self) -> "Stack":
-        if self.depth is Depth.LIVE:
-            self._open_kagent()
-        self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg")
-        self._postgres.start()
-        self.dex.start()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
+        # A failed start removes what it started: testcontainers' atexit hook removes Ryuk
+        # before Ryuk can, so nothing else would.
+        try:
+            if self.depth is Depth.LIVE:
+                self._open_kagent()
+            self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(
+                labels=self._labels
+            )
+            self._postgres.start()
+            self.dex.start()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
+                raise RuntimeError(f"stack did not start: {self._error!r}")
+        except BaseException:
             self.stop()
-            raise RuntimeError(f"stack did not start: {self._error!r}")
+            raise
         return self
 
     def _open_kagent(self) -> None:
@@ -334,21 +347,41 @@ class Stack:
         raise RuntimeError(f"kagent Agent {KAGENT_READY_AGENT} not reachable on {KAGENT_CONTEXT}")
 
     def _close_kagent(self) -> None:
-        if self._port_forward is not None:
-            self._port_forward.terminate()
-            self._port_forward.wait(timeout=STOP_TIMEOUT_SECONDS)
-            self._port_forward = None
+        forward, self._port_forward = self._port_forward, None
+        if forward is not None:
+            forward.terminate()
+            try:
+                forward.wait(timeout=STOP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                forward.kill()
 
-    def stop(self) -> None:
-        self._close_kagent()
+    def _stop_services(self) -> None:
+        thread, self._thread = self._thread, None
+        if thread is None:
+            return
         if self._loop is not None and self._stop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)
-        if self._thread is not None:
-            self._thread.join(timeout=STOP_TIMEOUT_SECONDS)
-        if self._postgres is not None:
-            self._postgres.stop()
-            self._postgres = None
-        self.dex.stop()
+        thread.join(timeout=STOP_TIMEOUT_SECONDS)
+
+    def _remove_containers(self) -> None:
+        self._postgres = None
+        ((key, run_id),) = self._labels.items()
+        client = DockerClient().client
+        try:
+            for container in client.containers.list(all=True, filters={"label": f"{key}={run_id}"}):
+                container.remove(force=True, v=True)
+        finally:
+            client.close()
+
+    def stop(self) -> None:
+        """Remove whatever start made, even after a part failed. Safe to call twice."""
+        # An ExitStack runs every step, last first, even when one raises. The label sweep
+        # runs last: it removes only what the steps before it could not.
+        with contextlib.ExitStack() as steps:
+            steps.callback(self._remove_containers)
+            steps.callback(self.dex.stop)
+            steps.callback(self._stop_services)
+            steps.callback(self._close_kagent)
 
     def __enter__(self) -> "Stack":
         return self.start()
