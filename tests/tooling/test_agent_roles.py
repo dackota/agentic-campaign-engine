@@ -8,7 +8,15 @@ from ace_engine.contracts import citation_problems
 from tests.tooling.gateway_files import ROOT, yaml_docs
 
 TEMPLATES = ROOT / "agents/templates.yaml"
-EXPECTED_STEPS = {"strategist", "research", "email_writer", "landing_page", "social", "one_pager"}
+EXPECTED_STEPS = {
+    "strategist",
+    "research",
+    "email_writer",
+    "landing_page",
+    "social",
+    "one_pager",
+    "design",
+}
 
 
 def test_every_role_has_a_contract_and_an_agent_template() -> None:

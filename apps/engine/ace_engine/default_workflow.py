@@ -1,6 +1,6 @@
 """The workflow every deployment seeds: "Threat report to campaign". A strategist and a
-research agent run first, then four writers at the same time, then a human approves and
-the email goes out."""
+research agent run first, then the design agent and four writers at the same time, then a
+human approves and the email goes out."""
 
 from typing import Any
 
@@ -19,13 +19,17 @@ def default_workflow_dag() -> dict[str, Any]:
         "steps": [
             {"id": "strategist", "kind": "agent"},
             {"id": "research", "kind": "agent"},
+            # Declared before the writers: the publish step sends the last agent step's output.
+            {"id": "design", "kind": "agent"},
             *({"id": w, "kind": "agent", "review_rounds": REVIEW_ROUNDS} for w in _WRITERS),
             {"id": "approval", "kind": "approval"},
             {"id": "publish", "kind": "publish"},
         ],
         "edges": [
             {"from": "strategist", "to": "research"},
+            {"from": "research", "to": "design"},
             *({"from": "research", "to": w} for w in _WRITERS),
+            {"from": "design", "to": "approval"},
             *({"from": w, "to": "approval"} for w in _WRITERS),
             {"from": "approval", "to": "publish"},
         ],

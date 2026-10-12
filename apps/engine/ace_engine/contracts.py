@@ -30,6 +30,20 @@ RESEARCH_SCHEMA = _contract("research")
 LANDING_PAGE_SCHEMA = _contract("landing_page")
 SOCIAL_POSTS_SCHEMA = _contract("social_posts")
 ONE_PAGER_SCHEMA = _contract("one_pager")
+DESIGN_CARDS_SCHEMA = _contract("design_cards")
+# What the design agent may reply: the cards, or at live depth the program that draws them,
+# which the engine runs in the sandbox (docs/decisions/sandbox-design-agent.md).
+DESIGN_REPLY_SCHEMA: dict[str, Any] = {
+    "anyOf": [
+        DESIGN_CARDS_SCHEMA,
+        {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["program"],
+            "properties": {"program": {"type": "string", "minLength": 1, "maxLength": 20000}},
+        },
+    ]
+}
 
 
 def violations(instance: object, schema: dict[str, Any]) -> list[str]:

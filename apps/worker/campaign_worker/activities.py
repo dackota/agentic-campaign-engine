@@ -1,7 +1,9 @@
 """Activities: the side-effecting steps the campaign workflow runs."""
 
 import asyncio
+import hashlib
 import json
+import os
 import uuid
 from dataclasses import dataclass
 from typing import Any
@@ -17,7 +19,7 @@ from sqlalchemy.orm import Session
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from campaign_worker import notify, publisher
+from campaign_worker import cards, notify, publisher, sandbox
 from campaign_worker.content import content_adapters
 from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
@@ -29,6 +31,8 @@ REDO_TURNS = brand_review.MAX_FIX_ROUNDS + 2
 # An agent step's session: the step's idempotency key, so no two steps share a conversation
 # or a message id and a retry of the step reuses them. A second reply in the same step
 # (variant B) gets its own, suffixed with the variant.
+
+KAGENT_API_URL_ENV = "ACE_KAGENT_API_URL"
 
 
 def session_key(campaign_id: str, step_id: str, variant: int = 0) -> str:
@@ -161,6 +165,9 @@ class Activities:
                 raise ApplicationError(
                     str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
                 ) from exc
+        if role.makes_cards and isinstance(output, dict) and "program" in output:
+            # Live depth: the agent wrote the program; the engine runs it in the sandbox.
+            output = await self._run_design_program(output["program"])
         _check_citations(role, output, report)
         await self._save_unless_flagged(cache, output, usage, is_flagged)
         return {
@@ -170,6 +177,10 @@ class Activities:
             "writer_sessions": list(writer_sessions),
         }
 
+    async def _run_design_program(self, program: str) -> dict[str, Any]:
+        api_url = os.environ.get(KAGENT_API_URL_ENV) or self._settings.agent_url
+        return await sandbox.run_design_program(program, sandbox.SandboxConfig(api_url=api_url))
+
     @staticmethod
     async def _save_unless_flagged(
         cache: StepCacheLookup | None, output: AgentOutput, usage: cost.Usage, is_flagged: bool
@@ -177,6 +188,10 @@ class Activities:
         """Save a clean output for reuse. One the reviewer still flags is left for a human."""
         if cache is not None and not is_flagged:
             await asyncio.to_thread(cache.save, output, usage.model)
+
+    def _agent_url(self, role: Role) -> str:
+        """Where the role's agent is reached, for its calls and for its cache revision."""
+        return agent_url_for(self._settings.agent_url, self._settings.depth, role)
 
     async def _open_cache(
         self, client: httpx.AsyncClient, job: ReviewJob, review_rounds: int
@@ -186,16 +201,17 @@ class Activities:
         team = await asyncio.to_thread(self._cache_team, job.campaign_id)
         if team is None:
             return None
-        urls = [agent_url_for(self._settings.agent_url, self._settings.depth, job.role)]
+        urls = [self._agent_url(job.role)]
         if review_rounds > 0:
-            urls.append(self._settings.agent_url)
+            urls.append(self._agent_url(brand_review.BRAND_REVIEWER))
         revisions = [await step_cache.agent_revision(client, url) for url in urls]
         digests = [r for r in revisions if r is not None]
         if len(digests) < len(revisions):
             return None
         key = step_cache.CacheKey(
             step_type=job.role.template,
-            agent_digest=":".join(digests),
+            # One fixed-width digest: the column is 64 characters, one card digest each.
+            agent_digest=hashlib.sha256(":".join(digests).encode()).hexdigest(),
             input_hash=step_cache.input_hash(job.report, job.context, review_rounds),
         )
         return StepCacheLookup(step_cache.StepCache(self._engine, team), key)
@@ -275,7 +291,7 @@ class Activities:
         reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         return await invoker.invoke(
             client,
-            self._settings.agent_url,
+            self._agent_url(brand_review.BRAND_REVIEWER),
             invoker.AgentCall(
                 session_key=reviewer_session,
                 prompt=brand_review.review_message(output, job.context, job.report),
@@ -306,7 +322,7 @@ class Activities:
                 prompt = brand_review.fix_message(prompt, issues)
             reply = await invoker.invoke(
                 client,
-                agent_url_for(self._settings.agent_url, self._settings.depth, job.role),
+                self._agent_url(job.role),
                 invoker.AgentCall(
                     session_key=session_key(job.campaign_id, job.step_id, variant),
                     prompt=prompt,
@@ -461,6 +477,15 @@ class Activities:
                 session, campaign.id, step_id, db.STEP_SUCCEEDED, agent_session
             )
             event.tokens = usage.total_tokens or None
+
+    @activity.defn
+    async def save_cards(self, campaign_id: str, output: dict[str, Any]) -> None:
+        """Save the design agent's cards to the asset library and keep a receipt for each.
+        The agent only makes the cards; the engine stores them."""
+        timeout = self._settings.content_timeout_seconds
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            receipts = await cards.save_cards(client, self._settings, campaign_id, output)
+        await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
 
     @activity.defn
     def mark_step(self, campaign_id: str, step_id: str, status: str) -> None:

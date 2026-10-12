@@ -9,9 +9,10 @@ input reuses its saved output and makes no model call. The key is exactly those 
 (`ace_engine/step_cache.py`):
 
 - **Step type**: the role's template name (`ace-email-writer`, `ace-research`, ...).
-- **Agent revision digest**: the SHA-256 of the agent's card, read from
+- **Agent revision digest**: the SHA-256 of the agent's card digest, read from
   `<agent url>/.well-known/agent-card.json` before the step. A step with a brand reviewer
-  also hashes the reviewer's card. A card that cannot be read means no cache for that step.
+  also reads the reviewer's card, and the stored digest is the SHA-256 of the card digests
+  joined together. A card that cannot be read means no cache for that step.
 - **Input hash**: the SHA-256 of the report, the outputs of the steps before it, and the
   step's review rounds, as canonical JSON.
 
