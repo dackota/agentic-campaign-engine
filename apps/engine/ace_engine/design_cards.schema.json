@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Design cards",
+  "description": "The design contract: the two social cards the design agent made. The engine saves them; an SVG that can run script is refused.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["cards"],
+  "properties": {
+    "cards": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "svg"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,60}\\.svg$" },
+          "svg": {
+            "type": "string",
+            "pattern": "^\\s*<svg",
+            "maxLength": 200000,
+            "not": { "pattern": "(?i)<script|\\son[a-z]+\\s*=|javascript:|<foreignObject|<!ENTITY" }
+          }
+        }
+      }
+    }
+  }
+}
