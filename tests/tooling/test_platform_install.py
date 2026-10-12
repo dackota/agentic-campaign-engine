@@ -553,3 +553,72 @@ def test_config_missing_a_rewrite_target_stops_the_dex_step(tmp_path: Path) -> N
     assert result.returncode != 0
     assert log.read_text() == ""
     assert "dex is up" not in result.stdout
+
+
+CA_POOLS = {
+    "service-dns-ca-pool": "podcertificate-controller-system",
+    "pod-identity-ca-pool": "podcertificate-controller-system",
+    "actor-id-ca-pool": "ate-system",
+    "egress-mitm-ca-pool": "ate-system",
+}
+
+
+def _run_spike_install(tmp_path: Path, existing: set[str]) -> tuple[int, list[str]]:
+    """Run scripts/spike/install.sh with stub tools; `existing` names the pool Secrets present."""
+    bin_dir = tmp_path / "bin"
+    bin_dir.mkdir()
+    log = tmp_path / "calls.log"
+    log.touch()
+    kubectl = (
+        f'#!/bin/sh\necho "kubectl $*" >> {log}\n'
+        'case "$*" in *"get secret"*"-o name"*)\n'
+        f'  for s in {" ".join(sorted(existing))}; do\n'
+        '    case "$*" in *" $s "*) echo "secret/$s"; exit 0 ;; esac\n'
+        "  done\n  exit 1 ;;\nesac\nexit 0\n"
+    )
+    stubs = {
+        "kubectl": kubectl,
+        "kubectl-ate": f'#!/bin/sh\necho "ate $*" >> {log}\n',
+        "helm": "#!/bin/sh\nexit 0\n",
+        "jq": "#!/bin/sh\nexit 0\n",
+        "openssl": "#!/bin/sh\nexit 0\n",
+    }
+    for name, body in stubs.items():
+        (bin_dir / name).write_text(body)
+        (bin_dir / name).chmod(0o755)
+    env = {"PATH": f"{bin_dir}:/usr/bin:/bin", "WORKER_IMAGE": "w@sha256:0"}
+    result = subprocess.run(
+        ["bash", str(ROOT / "scripts/spike/install.sh")], env=env, capture_output=True, text=True
+    )
+    return result.returncode, log.read_text().splitlines()
+
+
+def _pool_creations(calls: list[str]) -> list[str]:
+    return [c for c in calls if "admin make-ca-pool" in c]
+
+
+def test_spike_install_skips_ca_pools_whose_secret_exists(tmp_path: Path) -> None:
+    code, calls = _run_spike_install(tmp_path, set(CA_POOLS))
+    assert code == 0
+    assert _pool_creations(calls) == []
+    assert any("admin make-jwt-pool" in c for c in calls)
+
+
+def test_spike_install_creates_ca_pools_whose_secret_is_absent(tmp_path: Path) -> None:
+    code, calls = _run_spike_install(tmp_path, set())
+    assert code == 0
+    created = _pool_creations(calls)
+    assert len(created) == len(CA_POOLS)
+    for name, namespace in CA_POOLS.items():
+        assert any(
+            f"--name={name} " in c + " " and f"--secret-namespace={namespace}" in c for c in created
+        ), name
+    assert "admin make-ca-pool --ca-id=1 --name=service-dns-ca-pool " in created[0] + " "
+
+
+def test_spike_install_creates_only_the_missing_ca_pool(tmp_path: Path) -> None:
+    present = set(CA_POOLS) - {"actor-id-ca-pool"}
+    code, calls = _run_spike_install(tmp_path, present)
+    assert code == 0
+    created = _pool_creations(calls)
+    assert len(created) == 1 and "--name=actor-id-ca-pool " in created[0] + " "
