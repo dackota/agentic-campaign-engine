@@ -137,16 +137,8 @@ class Activities:
         reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         fix_rounds = min(review_rounds, brand_review.MAX_FIX_ROUNDS)
         for turn in range(fix_rounds + 1):
-            verdict = await invoker.invoke(
-                client,
-                self._settings.agent_url,
-                invoker.AgentCall(
-                    session_key=reviewer_session,
-                    prompt=brand_review.review_message(output, job.context, job.report),
-                    schema=brand_review.VERDICT_SCHEMA,
-                    turn=turn,
-                    session_id=reviewer_session_id,
-                ),
+            verdict = await self._review(
+                client, job, output, reviewer_session, turn, reviewer_session_id
             )
             reviewer_session_id = verdict.session_id
             usage = usage + verdict.usage
@@ -170,6 +162,27 @@ class Activities:
             )
             usage = usage + fix_usage
         return output, usage
+
+    async def _review(
+        self,
+        client: httpx.AsyncClient,
+        job: ReviewJob,
+        output: AgentOutput,
+        reviewer_session: str,
+        turn: int,
+        session_id: str | None,
+    ) -> invoker.Invocation:
+        return await invoker.invoke(
+            client,
+            self._settings.agent_url,
+            invoker.AgentCall(
+                session_key=reviewer_session,
+                prompt=brand_review.review_message(output, job.context, job.report),
+                schema=brand_review.VERDICT_SCHEMA,
+                turn=turn,
+                session_id=session_id,
+            ),
+        )
 
     async def _writer_outputs(
         self,

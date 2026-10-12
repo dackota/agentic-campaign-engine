@@ -303,55 +303,19 @@ class Stack:
             self._ready.set()
 
     async def _main(self) -> None:
-        from ace_engine.settings import Settings
 
         assert self._postgres is not None
         self._loop = asyncio.get_running_loop()
         self._stop = asyncio.Event()
         self._restart_requested = asyncio.Event()
         agent_port = free_port()
-        is_live = self.depth is Depth.LIVE
         from ace_engine import telemetry
 
         env = await WorkflowEnvironment.start_time_skipping(
             interceptors=telemetry.temporal_interceptors()
         )
         try:
-            settings = Settings(
-                depth=self.depth,
-                database_url=self._postgres.get_connection_url(),
-                temporal_address=env.client.service_client.config.target_host,
-                temporal_namespace=env.client.namespace,
-                agent_url=self._kagent_url if is_live else f"http://127.0.0.1:{agent_port}",
-                agent_timeout_seconds=(
-                    LIVE_AGENT_TIMEOUT_SECONDS if is_live else Settings.agent_timeout_seconds
-                ),
-                marketo_url=self.marketo_url,
-                cms_url=self.cms_url,
-                s3_url=self.s3_url,
-                s3_bucket=self.s3_bucket,
-                oidc_issuer=self.dex.issuer,
-                oidc_client_id=CLIENT_ID,
-                marketo_client_id=self.marketo_client_id,
-                marketo_client_secret=self.marketo_client_secret,
-                marketo_webhook_secret=self.marketo_webhook_secret,
-                workfront_url=self.workfront_url,
-                workfront_client_id=self.workfront_client_id,
-                workfront_client_secret=self.workfront_client_secret,
-                workfront_webhook_secret=self.workfront_webhook_secret,
-            )
-            if self.integrations:
-                settings = dataclasses.replace(
-                    settings,
-                    slack_token=self.slack_token,
-                    slack_channel=self.slack_channel,
-                    slack_url=self.slack_url,
-                    google_client_id=self.google_client_id,
-                    google_client_secret=self.google_client_secret,
-                    google_refresh_token=self.google_refresh_token,
-                    google_token_url=f"{self.google_url}/token",
-                    google_docs_url=self.google_url,
-                )
+            settings = self._settings(env, agent_port)
             servers = self._servers(settings, agent_port)
             tasks = [asyncio.create_task(s.serve()) for s in servers]
             with ThreadPoolExecutor(max_workers=WORKER_THREADS) as executor:
@@ -362,6 +326,48 @@ class Stack:
             await asyncio.gather(*tasks)
         finally:
             await env.shutdown()
+
+    def _settings(self, env: WorkflowEnvironment, agent_port: int) -> "Settings":
+        from ace_engine.settings import Settings
+
+        assert self._postgres is not None
+        is_live = self.depth is Depth.LIVE
+        settings = Settings(
+            depth=self.depth,
+            database_url=self._postgres.get_connection_url(),
+            temporal_address=env.client.service_client.config.target_host,
+            temporal_namespace=env.client.namespace,
+            agent_url=self._kagent_url if is_live else f"http://127.0.0.1:{agent_port}",
+            agent_timeout_seconds=(
+                LIVE_AGENT_TIMEOUT_SECONDS if is_live else Settings.agent_timeout_seconds
+            ),
+            marketo_url=self.marketo_url,
+            cms_url=self.cms_url,
+            s3_url=self.s3_url,
+            s3_bucket=self.s3_bucket,
+            oidc_issuer=self.dex.issuer,
+            oidc_client_id=CLIENT_ID,
+            marketo_client_id=self.marketo_client_id,
+            marketo_client_secret=self.marketo_client_secret,
+            marketo_webhook_secret=self.marketo_webhook_secret,
+            workfront_url=self.workfront_url,
+            workfront_client_id=self.workfront_client_id,
+            workfront_client_secret=self.workfront_client_secret,
+            workfront_webhook_secret=self.workfront_webhook_secret,
+        )
+        if self.integrations:
+            settings = dataclasses.replace(
+                settings,
+                slack_token=self.slack_token,
+                slack_channel=self.slack_channel,
+                slack_url=self.slack_url,
+                google_client_id=self.google_client_id,
+                google_client_secret=self.google_client_secret,
+                google_refresh_token=self.google_refresh_token,
+                google_token_url=f"{self.google_url}/token",
+                google_docs_url=self.google_url,
+            )
+        return settings
 
     def _servers(self, settings: "Settings", agent_port: int) -> list[uvicorn.Server]:
         from campaign_api.main import create_app
