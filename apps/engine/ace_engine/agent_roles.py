@@ -9,6 +9,8 @@ from types import MappingProxyType
 from typing import Any
 
 from ace_engine.contracts import (
+    DESIGN_CARDS_SCHEMA,
+    DESIGN_REPLY_SCHEMA,
     EMAIL_DRAFT_SCHEMA,
     LANDING_PAGE_SCHEMA,
     ONE_PAGER_SCHEMA,
@@ -25,6 +27,14 @@ VARIANT_B_INSTRUCTION = (
     "Write variant B of an A/B test: the same facts, a different subject line and angle."
 )
 _JSON_ONLY = "Reply with only JSON that has"
+DESIGN_PROMPT = (
+    "You are the design agent. Turn the strategy and research into two social cards, each an "
+    "SVG image of 1200 by 630 pixels. Write a shell script that draws them and prints, for "
+    "each card n (1 or 2), one line: CARD n followed by a space and the base64 of the SVG on "
+    "one line. The engine runs your script in a sandbox with no network and reads the cards "
+    "from what it prints, so use no outside file, package or font and put no script in the "
+    f"SVG. {_JSON_ONLY} the key program: your script as one string."
+)
 # A team's Agents live in the namespace `team-<team>`; the whole name is a DNS label.
 TEAM_NAMESPACE_PREFIX = "team-"
 TEAM_NAME = re.compile(r"[a-z0-9](?:[-a-z0-9]{0,56}[a-z0-9])?")
@@ -46,6 +56,8 @@ class Role:
     checks_citations: bool = False
     # Whether the output is the campaign's email draft and its A/B variant.
     writes_draft: bool = False
+    # Whether the output is the two social cards the engine saves to the asset library.
+    makes_cards: bool = False
 
 
 def _role(
@@ -120,6 +132,14 @@ ROLES: Mapping[str, Role] = MappingProxyType(
                 "You are the one-pager writer. Turn the strategy and research into a one-page "
                 f"brief. {_JSON_ONLY} the keys title, summary, bullets (a list of strings).",
                 ONE_PAGER_SCHEMA,
+            ),
+            Role(
+                step_id="design",
+                template="ace-design-agent",
+                prompt=DESIGN_PROMPT,
+                schema=DESIGN_CARDS_SCHEMA,
+                reply_schema=DESIGN_REPLY_SCHEMA,
+                makes_cards=True,
             ),
         )
     }

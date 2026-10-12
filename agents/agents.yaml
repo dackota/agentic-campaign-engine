@@ -43,3 +43,10 @@ metadata: {name: ace-one-pager-writer, namespace: kagent}
 spec:
   templateRef: {name: ace-one-pager-writer}
   harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
+metadata: {name: ace-design-agent, namespace: kagent}
+spec:
+  templateRef: {name: ace-design-agent}
+  harnessRef: {name: spike-harness}

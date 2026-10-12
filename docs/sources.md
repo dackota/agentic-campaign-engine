@@ -91,3 +91,14 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | `kubectl kustomize` (kubectl v1.36.3, checked 2026-10-12) | A kustomization under `agents/teams/<team>` that lists `../..` fails: "cycle detected: candidate root ... contains visited root". Naming the files (`../../templates.yaml`) needs `--load-restrictor LoadRestrictionsNone`, which `kubectl apply -k` does not take, so install pipes `kubectl kustomize` into `kubectl apply -f -` |
 | `kubectl get workerpools -A` on k3d-ace (2026-10-12) | `WorkerPool` (`ate.dev/v1alpha1`) is namespaced. A team namespace needs its own pool: spec `replicas`, `sandboxClass: gvisor`, `workerImage` |
 | ActorTemplate `worker_selector` and WorkerPool labels on k3d-ace (2026-10-12) | kagent 1.0.0-alpha9 gives an Agent's ActorTemplate the selector `kagent.dev/worker-pool: <workerPoolRef name>`, matched against the WorkerPool's own labels. The kagent chart sets that label on `kagent-default`; a hand-made pool without it never runs the golden actor, and the Agent sits at `ActorTemplatePending` with no error. Adding the label made a team-namespace Agent Ready in about 30s |
+
+## Sandbox design agent
+
+Taken from `docs/spike-log.md` section 16 (kagent 1.0.0-alpha9, measured on the spike
+cluster). Recorded 2026-10-12. Not re-checked against the live kagent pages or a cluster.
+
+| Source | What it told us |
+|---|---|
+| `docs/spike-log.md` section 16 | In a standalone sandbox, egress is deny-by-default through Substrate's proxy: HTTP to any host, in-cluster services and the metadata address answer 403. DNS resolves; ICMP is lost. Nothing reaches a sandbox but `kagent sandbox exec/upload/download` (inferred, not probed) |
+| `docs/spike-log.md` section 16 | The `SandboxTemplate` CRD (`api.kagent.dev/v1alpha3`) has only `workload.image`, `env` and `substrate`: no egress field to widen (draft bug 6) |
+| `docs/spike-log.md` section 15 | `kagent sandbox create/exec/delete` and `get` work on a template; a sandbox is `RUNTIME_STATE_READY` at once and `RUNTIME_STATE_DELETED` after delete; the default TTL is 1 h |
