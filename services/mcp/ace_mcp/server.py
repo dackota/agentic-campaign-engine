@@ -80,7 +80,7 @@ def _reply(
     return JSONResponse(envelope)
 
 
-def _call(tools: dict[str, Tool], reader: Reader, params: dict[str, Any]) -> Any:
+def _call(tools: dict[str, Tool], reader: Reader, params: dict[str, Any]) -> dict[str, Any] | None:
     tool = tools.get(str(params.get("name")))
     if tool is None:
         return None

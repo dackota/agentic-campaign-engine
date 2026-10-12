@@ -8,7 +8,7 @@ import httpx
 import pytest
 from ace_mcp import assets, cms, marketo, workfront
 from ace_mcp.registry import SERVERS
-from ace_mcp.server import Tool, create_app, schema
+from ace_mcp.server import Reader, Tool, create_app, schema
 from ace_mcp.upstream import HttpReader
 from fake_cms.app import create_app as create_cms
 from fake_marketo.app import MarketoConfig
@@ -234,7 +234,7 @@ def test_an_id_that_escapes_its_path_segment_is_a_tool_error_with_no_upstream_ca
 
 
 def test_a_tool_runs_off_the_event_loop() -> None:
-    def run(reader: Any, args: dict[str, Any]) -> Any:
+    def run(reader: Reader, args: dict[str, Any]) -> Any:
         try:
             asyncio.get_running_loop()
         except RuntimeError:

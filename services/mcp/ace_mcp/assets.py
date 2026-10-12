@@ -20,7 +20,7 @@ TEXT_PREVIEW_BYTES = 8_000
 
 
 def _list_assets(bucket: str) -> ToolRun:
-    def run(reader: Reader, args: dict[str, Any]) -> Any:
+    def run(reader: Reader, args: dict[str, Any]) -> dict[str, Any]:
         listing = reader.get_response(
             f"/{bucket}", **{"list-type": "2", "prefix": str(args.get("prefix", ""))}
         )
@@ -39,7 +39,7 @@ def _list_assets(bucket: str) -> ToolRun:
 
 
 def _get_asset(bucket: str) -> ToolRun:
-    def run(reader: Reader, args: dict[str, Any]) -> Any:
+    def run(reader: Reader, args: dict[str, Any]) -> dict[str, Any]:
         response = reader.get_response(f"/{bucket}/{quote(key_path(args, 'key'), safe='/')}")
         content_type = response.headers.get("content-type", "")
         reply: dict[str, Any] = {
