@@ -140,13 +140,7 @@ class Stack:
         self.google_client_id = f"gid-{secrets.token_hex(4)}"
         self.google_client_secret = secrets.token_urlsafe(24)
         self.google_refresh_token = secrets.token_urlsafe(24)
-        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
-        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
-        self.marketo_client_secret = secrets.token_urlsafe(24)
-        self.marketo_webhook_secret = secrets.token_urlsafe(24)
-        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
-        self.workfront_client_secret = secrets.token_urlsafe(24)
-        self.workfront_webhook_secret = secrets.token_urlsafe(24)
+        self._fresh_secrets()
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -157,6 +151,15 @@ class Stack:
         self._postgres: PostgresContainer | None = None
         self._port_forward: subprocess.Popen[bytes] | None = None
         self._kagent_url = ""
+
+    def _fresh_secrets(self) -> None:
+        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
+        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
+        self.marketo_client_secret = secrets.token_urlsafe(24)
+        self.marketo_webhook_secret = secrets.token_urlsafe(24)
+        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
+        self.workfront_client_secret = secrets.token_urlsafe(24)
+        self.workfront_webhook_secret = secrets.token_urlsafe(24)
 
     def _metric_points(self, name: str, **attributes: str) -> list[Any]:
         data = self._metric_reader.get_metrics_data()

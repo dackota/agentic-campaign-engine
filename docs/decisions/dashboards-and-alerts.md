@@ -24,6 +24,11 @@ Date: 2026-10-11. Status: accepted.
   stores it in Secret `honeycomb` and applies `collector-honeycomb.yaml`, the base
   collector config plus one exporter. With no key the collector sends to Grafana alone.
 
+Test seam exception: the dashboards, alert rules, and Honeycomb overlay are repo files,
+so their tests read the files and run `make up` against a stub kubectl. The ticket adds
+this repo-files seam to the two in the spec; the alert banner and Slack notice are still
+tested through the Campaign API and the browser.
+
 ## Why
 
 - Files in the repo review and roll back like code; clicked-together dashboards do not.

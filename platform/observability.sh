@@ -20,7 +20,11 @@ ENV_FILE="${ENV_FILE:-$MAIN/.env}"
 
 k() { kubectl --context "$CTX" "$@"; }
 
-has_secret() { k get secret -n "$1" -o name | grep -qx "secret/$2"; }
+has_secret() {
+  local names
+  names="$(k get secret -n "$1" -o name)"
+  grep -qx "secret/$2" <<<"$names"
+}
 
 # The webhook token is made once. If either copy is missing, both are made again, so the two
 # always agree. Delete and create, not apply: apply would copy the token into an annotation.

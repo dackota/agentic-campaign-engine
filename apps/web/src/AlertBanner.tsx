@@ -38,7 +38,11 @@ function useFiringAlerts(onSignedOut: () => void) {
 }
 
 /** A banner for each alert Grafana has fired and not yet resolved. Shows nothing when all is well. */
-export function AlertBanner({ onSignedOut }: { onSignedOut: () => void }) {
+interface AlertBannerProps {
+  onSignedOut: () => void;
+}
+
+export function AlertBanner({ onSignedOut }: AlertBannerProps): React.JSX.Element | null {
   const { alerts, error } = useFiringAlerts(onSignedOut);
   if (alerts.length === 0 && error === null) return null;
   return (

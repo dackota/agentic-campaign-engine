@@ -141,7 +141,7 @@ class Activities:
             is_pass = verdict.output["verdict"] == brand_review.PASS
             metrics.eval_score(metrics.PASS_SCORE if is_pass else metrics.FIX_SCORE, "brand-review")
             usage = usage + verdict.usage
-            if verdict.output["verdict"] == brand_review.PASS:
+            if is_pass:
                 break
             issues = verdict.output["issues"]
             is_last = turn == fix_rounds

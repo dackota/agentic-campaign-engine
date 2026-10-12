@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { delimiter, resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
 
@@ -10,9 +11,9 @@ const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fak
   .map((p) => resolve(root, p))
   .join(delimiter);
 const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";
-// The alert-banner spec posts to the alert webhook with this demo-only token, so it is set in
-// this process (inherited by the test workers) as well as passed to the stack.
-process.env.ACE_ALERT_WEBHOOK_TOKEN ??= "e2e-alert-webhook-token";
+// The alert-banner spec posts to the alert webhook with this token, so it is made fresh here
+// (inherited by the test workers) and passed to the stack.
+process.env.ACE_ALERT_WEBHOOK_TOKEN ??= randomBytes(24).toString("hex");
 const alertToken = process.env.ACE_ALERT_WEBHOOK_TOKEN;
 const env = {
   ...process.env,
