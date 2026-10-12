@@ -8,6 +8,9 @@ RELEASES="substrate-crds substrate kagent-crds kagent agentgateway-crds agentgat
 ROLLOUTS="ate-system/ate-controller ate-system/ate-api-server kagent/kagent-controller agentgateway-system/agentgateway-proxy"
 APP_NAMESPACE="ace"
 APP_DEPLOYMENTS="api worker fake-marketo fake-cms fake-s3 web postgres temporal"
+# Each team runs the role Agents in its own namespace team-<team> (agents/teams).
+TEAMS="demand-gen product-marketing"
+ROLE_AGENTS="ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent"
 AGENTS="spike-agent spike-agent-mock ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent"
 ISSUER_FILE="$(cd "$(dirname "$0")" && pwd)/oidc-issuer.txt"
 DEX_TIMEOUT="${DEX_TIMEOUT:-5}"
@@ -55,15 +58,22 @@ check_app() {
   done
 }
 
+# check_agent NAMESPACE AGENT: ok when the Agent's Ready condition is True.
+check_agent() {
+  local ready
+  if ready="$(k get agent "$2" -n "$1" -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
+    [ "$ready" = True ]; then
+    pass "agent $2 Ready in $1"
+  else
+    flunk "agent $2 Ready in $1 (saw: $(first_line "$ready"))"
+  fi
+}
+
 check_agents() {
-  local agent ready
-  for agent in $AGENTS; do
-    if ready="$(k get agent "$agent" -n kagent -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
-      [ "$ready" = True ]; then
-      pass "agent $agent Ready"
-    else
-      flunk "agent $agent Ready (saw: $(first_line "$ready"))"
-    fi
+  local agent team
+  for agent in $AGENTS; do check_agent kagent "$agent"; done
+  for team in $TEAMS; do
+    for agent in $ROLE_AGENTS; do check_agent "team-$team" "$agent"; done
   done
 }
 

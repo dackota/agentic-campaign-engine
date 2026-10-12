@@ -11,9 +11,9 @@ from typing import Any
 import httpx
 from ace_engine import brand_review, cost, db, invoker, metrics, step_cache, telemetry
 from ace_engine import dag as graph
-from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for
+from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for, team_namespace
 from ace_engine.contracts import AgentOutput, citation_problems
-from ace_engine.settings import Settings
+from ace_engine.settings import Depth, Settings
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 from temporalio import activity
@@ -25,6 +25,8 @@ from campaign_worker.marketo import MarketoAdapter
 from campaign_worker.workfront import WorkfrontAdapter
 
 AGENT_OUTPUT_INVALID = "AgentOutputInvalid"
+# A campaign whose team names no namespace has no Agents to run its steps.
+TEAM_REFUSED = "TeamRefused"
 SERVICE = "campaign-worker"
 # Turns one redo can use: the writer's, then up to MAX_FIX_ROUNDS + 1 reviews with a fix between.
 REDO_TURNS = brand_review.MAX_FIX_ROUNDS + 2
@@ -86,6 +88,8 @@ class ReviewJob:
     report: str
     role: Role
     context: dict[str, Any]
+    # The campaign's team: at live depth its Agents are the ones in the team's namespace.
+    team: str
 
 
 @dataclass(frozen=True)
@@ -139,9 +143,10 @@ class Activities:
         session."""
         role = role_for(step_id)
         session = session_key(campaign_id, step_id)
-        job = ReviewJob(campaign_id, step_id, report, role, context)
+        team, uses_cache = await asyncio.to_thread(self._team_and_cache, campaign_id)
+        job = ReviewJob(campaign_id, step_id, report, role, context, team)
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
-            cache = await self._open_cache(client, job, review_rounds)
+            cache = await self._open_cache(client, job, review_rounds) if uses_cache else None
             hit = await asyncio.to_thread(cache.lookup) if cache is not None else None
             # A saved result costs nothing, so a spent budget does not stop it.
             if hit is None and await asyncio.to_thread(self._is_budget_spent, campaign_id):
@@ -189,21 +194,19 @@ class Activities:
         if cache is not None and not is_flagged:
             await asyncio.to_thread(cache.save, output, usage.model)
 
-    def _agent_url(self, role: Role) -> str:
-        """Where the role's agent is reached, for its calls and for its cache revision."""
-        return agent_url_for(self._settings.agent_url, self._settings.depth, role)
+    def _agent_url(self, role: Role, team: str) -> str:
+        """Where the role's agent in the team's namespace is reached, for its calls and for
+        its cache revision."""
+        return agent_url_for(self._settings.agent_url, self._settings.depth, role, team)
 
     async def _open_cache(
         self, client: httpx.AsyncClient, job: ReviewJob, review_rounds: int
     ) -> StepCacheLookup | None:
-        """The step's cache entry, or None when the campaign did not opt in or the agent's
-        revision cannot be read (such a step always runs)."""
-        team = await asyncio.to_thread(self._cache_team, job.campaign_id)
-        if team is None:
-            return None
-        urls = [self._agent_url(job.role)]
+        """The step's cache entry, or None when the agent's revision cannot be read (such a
+        step always runs)."""
+        urls = [self._agent_url(job.role, job.team)]
         if review_rounds > 0:
-            urls.append(self._agent_url(brand_review.BRAND_REVIEWER))
+            urls.append(self._agent_url(brand_review.BRAND_REVIEWER, job.team))
         revisions = [await step_cache.agent_revision(client, url) for url in urls]
         digests = [r for r in revisions if r is not None]
         if len(digests) < len(revisions):
@@ -214,13 +217,20 @@ class Activities:
             agent_digest=hashlib.sha256(":".join(digests).encode()).hexdigest(),
             input_hash=step_cache.input_hash(job.report, job.context, review_rounds),
         )
-        return StepCacheLookup(step_cache.StepCache(self._engine, team), key)
+        return StepCacheLookup(step_cache.StepCache(self._engine, job.team), key)
 
-    def _cache_team(self, campaign_id: str) -> str | None:
-        """The campaign's team when it uses the step cache, else None."""
+    def _team_and_cache(self, campaign_id: str) -> tuple[str, bool]:
+        """The campaign's team, and whether it uses the step cache. At live depth a team
+        with no namespace is refused."""
         with Session(self._engine) as session:
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
-            return campaign.team if campaign.use_step_cache else None
+            team, uses_cache = campaign.team, campaign.use_step_cache
+        if self._settings.depth is Depth.LIVE:
+            try:
+                team_namespace(team)
+            except ValueError as exc:
+                raise ApplicationError(str(exc), type=TEAM_REFUSED, non_retryable=True) from exc
+        return team, uses_cache
 
     def _is_budget_spent(self, campaign_id: str) -> bool:
         """True when the campaign has a budget and its model calls have used all of it."""
@@ -291,7 +301,7 @@ class Activities:
         reviewer_session = f"{graph.step_key(job.campaign_id, job.step_id)}:review"
         return await invoker.invoke(
             client,
-            self._agent_url(brand_review.BRAND_REVIEWER),
+            self._agent_url(brand_review.BRAND_REVIEWER, job.team),
             invoker.AgentCall(
                 session_key=reviewer_session,
                 prompt=brand_review.review_message(output, job.context, job.report),
@@ -322,7 +332,7 @@ class Activities:
                 prompt = brand_review.fix_message(prompt, issues)
             reply = await invoker.invoke(
                 client,
-                self._agent_url(job.role),
+                self._agent_url(job.role, job.team),
                 invoker.AgentCall(
                     session_key=session_key(job.campaign_id, job.step_id, variant),
                     prompt=prompt,

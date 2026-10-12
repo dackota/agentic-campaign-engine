@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
-from ace_engine import cost, db, telemetry
+from ace_engine import cost, db, row_security, telemetry
 from ace_engine import dag as graph
 from ace_engine.settings import (
     APPROVE_SIGNAL,
@@ -38,7 +38,14 @@ from temporalio.client import Client
 
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
 from campaign_api.alerts import register_alert_routes
-from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
+from campaign_api.auth import (
+    Action,
+    BrowserUser,
+    CurrentUser,
+    TokenVerifier,
+    User,
+    authorize,
+)
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.inbox import register_inbox_routes
 from campaign_api.trace_middleware import install_campaign_trace
@@ -191,6 +198,12 @@ class Me(BaseModel):
     roles: list[str]
 
 
+def _team_engine(request: Request, user: User) -> Engine:
+    """The database as the signed-in user's team sees it: row-level security shows the
+    request only its team's rows, so no query here names a team."""
+    return row_security.for_team(request.app.state.engine, user.team)
+
+
 def _insert(engine: Engine, campaign: db.Campaign, traceparent: str | None) -> CampaignOut:
     with Session(engine, expire_on_commit=False) as session, session.begin():
         session.add(campaign)
@@ -298,7 +311,7 @@ def _register_approval_route(app: FastAPI) -> None:
     async def approve_campaign(
         campaign_id: uuid.UUID, request: Request, user: CurrentUser
     ) -> CampaignOut:
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         campaign = await _found(engine, campaign_id)
         authorize(user, Action.APPROVE, created_by=campaign.created_by)
         is_claimed = await run_in_threadpool(
@@ -324,7 +337,7 @@ def _register_retry_route(app: FastAPI) -> None:
         campaign_id: uuid.UUID, request: Request, user: CurrentUser
     ) -> CampaignOut:
         """The retry-step action: re-run the step that stopped a failed run."""
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         campaign = await _found(engine, campaign_id)
         authorize(user, Action.CREATE)
         if not await run_in_threadpool(_claim_retry, engine, campaign_id):
@@ -346,7 +359,7 @@ def _register_budget_route(app: FastAPI) -> None:
     ) -> CampaignOut:
         """Set a new budget; a run paused at its budget goes on. The new budget must be
         above what the campaign has spent, or the run would pause again at once."""
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         campaign = await _found(engine, campaign_id)
         authorize(user, Action.CREATE)
         if campaign.status in ENDED_STATES:
@@ -409,9 +422,9 @@ def _add_event_routes(app: FastAPI) -> None:
         """`after` is for a browser that follows a run again from a known event (after a
         retry): an EventSource cannot set Last-Event-ID itself. The later of the two wins."""
         authorize(user, Action.READ)
-        await _found(request.app.state.engine, campaign_id)
+        await _found(_team_engine(request, user), campaign_id)
         return StreamingResponse(
-            _event_stream(request.app.state.engine, campaign_id, max(last_event_id, after)),
+            _event_stream(_team_engine(request, user), campaign_id, max(last_event_id, after)),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -429,7 +442,7 @@ def _add_step_routes(app: FastAPI) -> None:
         campaign_id: uuid.UUID, request: Request, user: CurrentUser
     ) -> list[StepOutputOut]:
         authorize(user, Action.READ)
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         await _found(engine, campaign_id)
         rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
         return [StepOutputOut(step=r.step, session=r.session, output=r.output) for r in rows]
@@ -445,8 +458,8 @@ def _add_activity_routes(app: FastAPI, settings: Settings) -> None:
         campaign_id: uuid.UUID, request: Request, user: CurrentUser
     ) -> list[ActivityOut]:
         authorize(user, Action.READ)
-        await _found(request.app.state.engine, campaign_id)
-        return await run_in_threadpool(activities, request.app.state.engine, campaign_id)
+        await _found(_team_engine(request, user), campaign_id)
+        return await run_in_threadpool(activities, _team_engine(request, user), campaign_id)
 
 
 def _add_preview_route(app: FastAPI) -> None:
@@ -455,7 +468,7 @@ def _add_preview_route(app: FastAPI) -> None:
         campaign_id: uuid.UUID, request: Request, user: BrowserUser
     ) -> HTMLResponse:
         authorize(user, Action.READ)
-        campaign = await _found(request.app.state.engine, campaign_id)
+        campaign = await _found(_team_engine(request, user), campaign_id)
         if campaign.draft is None:
             raise HTTPException(status_code=409, detail="campaign has no draft yet")
         try:
@@ -491,7 +504,7 @@ def _add_asset_preview_route(app: FastAPI) -> None:
         authorize(user, Action.READ)
         if kind not in _ASSET_KINDS:
             raise HTTPException(status_code=404, detail="unknown asset kind")
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         await _found(engine, campaign_id)
         needed, render, media_type = _ASSET_KINDS[kind]
         rows = await run_in_threadpool(db.step_outputs, engine, campaign_id)
@@ -516,14 +529,14 @@ def _add_campaign_routes(app: FastAPI) -> None:
     @app.get("/campaigns")
     async def list_campaigns(request: Request, user: CurrentUser) -> list[CampaignOut]:
         authorize(user, Action.READ)
-        return await run_in_threadpool(_list, request.app.state.engine)
+        return await run_in_threadpool(_list, _team_engine(request, user))
 
     @app.post("/campaigns", status_code=201)
     async def create_campaign(
         body: NewCampaign, request: Request, user: CurrentUser
     ) -> CampaignOut:
         authorize(user, Action.CREATE)
-        engine = request.app.state.engine
+        engine = _team_engine(request, user)
         name, version, dag = await _pinned(engine, body.workflow)
         campaign = db.Campaign(
             id=uuid.uuid4(),
@@ -558,13 +571,14 @@ def _add_campaign_routes(app: FastAPI) -> None:
         campaign_id: uuid.UUID, request: Request, user: CurrentUser
     ) -> CampaignOut:
         authorize(user, Action.READ)
-        return await _found(request.app.state.engine, campaign_id)
+        return await _found(_team_engine(request, user), campaign_id)
 
 
 def create_app(settings: Settings) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.engine = db.make_engine(settings.database_url)
+        await run_in_threadpool(row_security.install, app.state.engine)
         await run_in_threadpool(seed_default_workflow, app.state.engine)
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
