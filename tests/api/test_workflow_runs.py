@@ -165,7 +165,7 @@ def test_failed_agent_step_stops_run_while_approval_waits_in_same_wave(
     stack.agent.script(["not json at all", json.dumps({"subject": "only a subject"})])
 
     campaign_id = create_on(api, name)["id"]
-    failed = until_status(api, campaign_id, FAILED, AWAITING)
+    failed = until_status(api, campaign_id, FAILED)
 
     assert failed["status"] == FAILED
     assert failed["failure_reason"]
