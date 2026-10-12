@@ -234,7 +234,7 @@ def test_an_id_that_escapes_its_path_segment_is_a_tool_error_with_no_upstream_ca
 
 
 def test_a_tool_runs_off_the_event_loop() -> None:
-    def run(reader: Reader, args: dict[str, Any]) -> Any:
+    def run(reader: Reader, args: dict[str, Any]) -> str:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
