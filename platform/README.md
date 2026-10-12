@@ -63,6 +63,8 @@ Home for this part. Later tickets fill it.
   step restarts CoreDNS and waits on the rollout so the rewrite is live. A second run is safe.
 - `status.sh` adds a Dex line: the discovery document must answer at the issuer and name it.
 
+## Smoke test
+
 - `smoke.sh` backs `make smoke`, the platform smoke test: `make up`, then the happy-path
   Campaign API test at live depth (`ACE_DEPTH=live`), which sends one campaign through the
   real kagent email writer and the gateway to the fake Marketo. It spends model tokens.
