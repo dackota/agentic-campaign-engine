@@ -11,10 +11,10 @@ from typing import Any
 
 import httpx
 import pytest
-from ace_engine import db
+from ace_engine import db, row_security
 from ace_engine.default_workflow import DEFAULT_WORKFLOW_NAME
 from ace_engine.step_cache import CacheKey, StepCache, input_hash
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import Engine
 
 from tests.api.conftest import SignIn
@@ -121,6 +121,28 @@ def test_api_code_adds_no_team_condition() -> None:
     ]
 
     assert found == []
+
+
+def test_install_quotes_every_identifier_in_its_ddl(database: Engine) -> None:
+    """DDL cannot take bound parameters, so each table, policy, and role name in the
+    installer's grants and policies is a quoted identifier."""
+    executed: list[str] = []
+
+    def record(_conn: Any, _cursor: Any, statement: str, *_rest: Any) -> None:
+        executed.append(statement)
+
+    event.listen(database, "before_cursor_execute", record)
+    try:
+        row_security.install(database)
+    finally:
+        event.remove(database, "before_cursor_execute", record)
+
+    ddl = [s for s in executed if s.startswith(("GRANT", "ALTER TABLE", "DROP POLICY", "CREATE"))]
+    unquoted = [s for s in ddl if re.search(r"\b(ON|TO|TABLE|POLICY|SCHEMA|FROM)\s+[a-z_]", s)]
+    assert ddl, "the installer ran no DDL"
+    assert unquoted == []
+    for table in row_security.team_tables():
+        assert any(f'CREATE POLICY "{table}_by_team" ON "{table}"' in s for s in ddl)
 
 
 def test_team_b_sees_none_of_team_a_campaigns_runs_or_assets(

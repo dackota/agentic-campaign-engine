@@ -13,11 +13,14 @@ Workflows and platform alerts are shared by every team and have no policy
 from sqlalchemy import event, text
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.orm import Session, SessionTransaction
+from sqlalchemy.sql.compiler import IdentifierPreparer
 
 from ace_engine import db
 
 TEAM_ROLE = "ace_team"
 TEAM_SETTING = "ace.team"
+# The schema the tables live in.
+SCHEMA = "public"
 # The execution option that carries a request's team to its database session.
 TEAM_OPTION = "ace_team"
 # Workflows and platform alerts belong to no team.
@@ -26,10 +29,8 @@ SHARED_TABLES = frozenset({db.WorkflowVersion.__tablename__, db.Alert.__tablenam
 TEAM_KEYED_TABLES = frozenset({db.Campaign.__tablename__, db.StepCacheEntry.__tablename__})
 # One installer at a time: the API and the worker can start together.
 _INSTALL_LOCK = 4_040_040
+# The setting is a constant, never caller input; it is the one literal in the policy SQL.
 _CURRENT_TEAM = f"current_setting('{TEAM_SETTING}', true)"
-_OWN_CAMPAIGN = (
-    f"EXISTS (SELECT 1 FROM campaigns c WHERE c.id = campaign_id AND c.team = {_CURRENT_TEAM})"
-)
 
 
 def team_tables() -> list[str]:
@@ -37,50 +38,72 @@ def team_tables() -> list[str]:
     return sorted(set(db.Base.metadata.tables) - SHARED_TABLES)
 
 
-def _policy_condition(table: str) -> str:
+def _policy_condition(preparer: IdentifierPreparer, table: str) -> str:
     """Campaigns and the step cache carry their team; every other team table belongs to a
     campaign."""
+    team = preparer.quote_identifier("team")
     if table in TEAM_KEYED_TABLES:
-        return f"team = {_CURRENT_TEAM}"
-    return _OWN_CAMPAIGN
+        return f"{team} = {_CURRENT_TEAM}"
+    campaigns = preparer.quote_identifier(db.Campaign.__tablename__)
+    campaign_id = preparer.quote_identifier("campaign_id")
+    id_ = preparer.quote_identifier("id")
+    return (
+        f"EXISTS (SELECT 1 FROM {campaigns} c "
+        f"WHERE c.{id_} = {campaign_id} AND c.{team} = {_CURRENT_TEAM})"
+    )
 
 
 def install(engine: Engine) -> None:
     """Create the team role, grant it the tables, and turn row-level security on with one
-    policy per team table. Safe to run on every start: each run puts the same rules back."""
+    policy per team table. Safe to run on every start: each run puts the same rules back.
+    DDL cannot take bound parameters, so every identifier goes through the dialect's
+    identifier preparer; values (the role name in the lookup, the team) stay bound."""
     with engine.begin() as conn:
+        preparer = conn.dialect.identifier_preparer
         conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _INSTALL_LOCK})
-        conn.execute(
-            text(
-                "DO $$ BEGIN "
-                f"IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{TEAM_ROLE}') "
-                f"THEN CREATE ROLE {TEAM_ROLE} NOLOGIN; END IF; END $$"
-            )
-        )
+        has_role = conn.execute(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :role"), {"role": TEAM_ROLE}
+        ).first()
+        if has_role is None:
+            conn.execute(text(f"CREATE ROLE {preparer.quote_identifier(TEAM_ROLE)} NOLOGIN"))
         is_superuser = conn.execute(
             text("SELECT rolsuper FROM pg_roles WHERE rolname = current_user")
         ).scalar_one()
         if not is_superuser:
-            conn.execute(text(f"GRANT {TEAM_ROLE} TO CURRENT_USER"))
-        conn.execute(text(f"GRANT USAGE ON SCHEMA public TO {TEAM_ROLE}"))
-        for table in db.Base.metadata.tables:
-            conn.execute(text(f"GRANT SELECT, INSERT, UPDATE, DELETE ON {table} TO {TEAM_ROLE}"))
-        conn.execute(text(f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO {TEAM_ROLE}"))
+            conn.execute(text(f"GRANT {preparer.quote_identifier(TEAM_ROLE)} TO CURRENT_USER"))
+        for statement in grant_statements(preparer, list(db.Base.metadata.tables)):
+            conn.execute(text(statement))
         for table in team_tables():
-            _install_policy(conn, table)
+            for statement in policy_statements(preparer, table):
+                conn.execute(text(statement))
 
 
-def _install_policy(conn: Connection, table: str) -> None:
-    policy = f"{table}_by_team"
-    condition = _policy_condition(table)
-    conn.execute(text(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY"))
-    conn.execute(text(f"DROP POLICY IF EXISTS {policy} ON {table}"))
-    conn.execute(
-        text(
-            f"CREATE POLICY {policy} ON {table} TO {TEAM_ROLE} "
-            f"USING ({condition}) WITH CHECK ({condition})"
-        )
-    )
+def grant_statements(preparer: IdentifierPreparer, tables: list[str]) -> list[str]:
+    """What the team role may touch: the schema, every table, and their sequences."""
+    role = preparer.quote_identifier(TEAM_ROLE)
+    schema = preparer.quote_identifier(SCHEMA)
+    return [
+        f"GRANT USAGE ON SCHEMA {schema} TO {role}",
+        *(
+            f"GRANT SELECT, INSERT, UPDATE, DELETE ON {preparer.quote_identifier(t)} TO {role}"
+            for t in tables
+        ),
+        f"GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA {schema} TO {role}",
+    ]
+
+
+def policy_statements(preparer: IdentifierPreparer, table: str) -> list[str]:
+    """Row-level security on `table` and its one policy, put back from scratch."""
+    quoted = preparer.quote_identifier(table)
+    policy = preparer.quote_identifier(f"{table}_by_team")
+    role = preparer.quote_identifier(TEAM_ROLE)
+    condition = _policy_condition(preparer, table)
+    return [
+        f"ALTER TABLE {quoted} ENABLE ROW LEVEL SECURITY",
+        f"DROP POLICY IF EXISTS {policy} ON {quoted}",
+        f"CREATE POLICY {policy} ON {quoted} TO {role} "
+        f"USING ({condition}) WITH CHECK ({condition})",
+    ]
 
 
 def for_team(engine: Engine, team: str | None) -> Engine:
@@ -95,7 +118,9 @@ def _set_team(_session: Session, _transaction: SessionTransaction, conn: Connect
     # Row-level security is Postgres's: an SQLite test database has no roles to set.
     if team is None or conn.dialect.name != "postgresql":
         return
-    conn.execute(text(f"SET LOCAL ROLE {TEAM_ROLE}"))
+    conn.execute(
+        text(f"SET LOCAL ROLE {conn.dialect.identifier_preparer.quote_identifier(TEAM_ROLE)}")
+    )
     conn.execute(
         text("SELECT set_config(:name, :team, true)"), {"name": TEAM_SETTING, "team": team}
     )

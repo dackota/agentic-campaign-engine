@@ -17,6 +17,10 @@ only inside its team), so its policy is `team = current_setting('ace.team')` lik
 team, and the cache's queries name no team. The worker installs the role and policies at
 start too, since it may start before the API.
 
+**SQL.** DDL identifiers (schema, table, column, policy, and role names) cannot be bound parameters, so
+`row_security` quotes each one through the dialect's identifier preparer; the team itself
+is always a bound parameter to `set_config`.
+
 **Who is not filtered.** The worker and the signed webhooks connect as the tables' owner,
 which row-level security does not filter. They act for the system: the worker runs one
 campaign by id, and a webhook is signed by the marketing system, not sent by a team.
