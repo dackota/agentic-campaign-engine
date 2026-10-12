@@ -128,6 +128,24 @@ class Activities:
                 )
                 event.reason = reason
 
+    async def _draft_outputs(
+        self, client: httpx.AsyncClient, job: ReviewJob, review_rounds: int
+    ) -> tuple[AgentOutput, cost.Usage, tuple[str, ...], bool]:
+        """Ask the writer sessions for the first draft, then have the brand reviewer check it
+        for `review_rounds`. Returns the output, the tokens used, the writer sessions, and
+        whether the reviewer flagged it."""
+        is_flagged = False
+        try:
+            with telemetry.span(SERVICE, f"invoke_agent {job.step_id}", operation="invoke_agent"):
+                output, usage, writer_sessions = await self._writer_outputs(client, job)
+                if review_rounds > 0:
+                    output, usage, is_flagged = await self._review_loop(
+                        client, job, (output, usage, writer_sessions), review_rounds
+                    )
+        except invoker.AgentOutputInvalid as exc:
+            raise ApplicationError(str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True) from exc
+        return output, usage, writer_sessions, is_flagged
+
     @activity.defn
     async def run_agent_step(
         self,
@@ -158,18 +176,9 @@ class Activities:
             )
             if hit is not None:
                 return _cache_hit_result(hit, session)
-            is_flagged = False
-            try:
-                with telemetry.span(SERVICE, f"invoke_agent {step_id}", operation="invoke_agent"):
-                    output, usage, writer_sessions = await self._writer_outputs(client, job)
-                    if review_rounds > 0:
-                        output, usage, is_flagged = await self._review_loop(
-                            client, job, (output, usage, writer_sessions), review_rounds
-                        )
-            except invoker.AgentOutputInvalid as exc:
-                raise ApplicationError(
-                    str(exc), type=AGENT_OUTPUT_INVALID, non_retryable=True
-                ) from exc
+            output, usage, writer_sessions, is_flagged = await self._draft_outputs(
+                client, job, review_rounds
+            )
         if role.makes_cards and isinstance(output, dict) and "program" in output:
             # Live depth: the agent wrote the program; the engine runs it in the sandbox.
             output = await self._run_design_program(output["program"])
@@ -412,16 +421,17 @@ class Activities:
             None,
             session_key(campaign_id, step_id),
         )
-        output, usage, redone = await self._redo_outputs(job, role, sessions, rejections)
+        team, _ = await asyncio.to_thread(self._team_and_cache, campaign_id)
+        review = ReviewJob(campaign_id, step_id, job.report, role, job.context, team)
+        output, usage, redone = await self._redo_outputs(job, review, sessions, rejections)
         await asyncio.to_thread(self._save_redo, campaign_id, step_id, output, usage, redone)
         return {"output": output}
 
     async def _redo_outputs(
-        self, job: RedoJob, role: Role, sessions: tuple[str, ...], rejections: int
+        self, job: RedoJob, review: ReviewJob, sessions: tuple[str, ...], rejections: int
     ) -> tuple[AgentOutput, cost.Usage, tuple[str, ...]]:
         """Ask the writer sessions for the corrected asset, then have the brand reviewer
         check it for the job's review rounds."""
-        review = ReviewJob(job.campaign_id, job.step_id, job.report, role, job.context)
         issues = [{"check": "approver", "detail": job.comment}]
         async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
             try:
