@@ -141,3 +141,13 @@ def test_install_applies_every_team_and_waits_for_its_agents() -> None:
     for team in TEAMS:
         assert team in install
         assert f"team-{team}" in status or "team-$team" in status
+
+
+@pytest.mark.parametrize("team", TEAMS)
+def test_every_team_namespace_may_fetch_its_own_model_credentials(team: str) -> None:
+    # Substrate's credential provider hands the model key only to an atespace it lists;
+    # an unlisted team's Agent gets a 403 on every model call.
+    (values,) = yaml_docs(ROOT / "manifests/spike/substrate-values.yaml")
+    policies = values["credentialProvider"]["namespacePolicies"]
+
+    assert {"atespace": f"team-{team}", "allowedNamespaces": [f"team-{team}"]} in policies

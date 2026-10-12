@@ -2,3 +2,8 @@ credentialProvider:
   namespacePolicies:
   - atespace: kagent
     allowedNamespaces: [kagent]
+  # Each team's Agents run in their own atespace and may read only their own namespace.
+  - atespace: team-demand-gen
+    allowedNamespaces: [team-demand-gen]
+  - atespace: team-product-marketing
+    allowedNamespaces: [team-product-marketing]
