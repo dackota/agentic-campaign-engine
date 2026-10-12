@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 from temporalio.client import Client
 
 from campaign_api.ab_result import NO_DECISION, AbResult, decide
+from campaign_api.alerts import register_alert_routes
 from campaign_api.auth import Action, BrowserUser, CurrentUser, TokenVerifier, authorize
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.inbox import register_inbox_routes
@@ -74,6 +75,9 @@ class NewCampaign(BaseModel):
     workflow: str | None = Field(default=None, pattern=NAME_PATTERN)
     # What the run may spend on models, in dollars; None is no limit.
     budget_usd: BudgetUsd | None = None
+    # Reuse the saved result of an agent step this team has run before with the same agent
+    # revision and input (docs/decisions/step-cache.md). Off unless asked.
+    use_step_cache: bool = False
 
     def model_post_init(self, _context: Any) -> None:
         if not self.report.strip():
@@ -529,6 +533,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
             workflow_version=version,
             dag=dag,
             budget_micros=None if body.budget_usd is None else cost.to_micros(body.budget_usd),
+            use_step_cache=body.use_step_cache,
         )
         # This request's span is the root of the campaign's trace: keep it for later requests,
         # and the workflow started below carries it through Temporal.
@@ -584,6 +589,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_event_routes(app)
     _add_step_routes(app)
     _add_activity_routes(app, settings)
+    register_alert_routes(app, settings)
     _add_preview_route(app)
     _add_asset_preview_route(app)
     register_workflow_routes(app)

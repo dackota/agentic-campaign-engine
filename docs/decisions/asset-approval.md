@@ -37,3 +37,5 @@ An approver decides each asset of a campaign on its own. This records the choice
   their own campaign.
 - A rejection that names a step that is not an agent step is logged and dropped. The API
   accepts only asset steps, so no request reaches that path.
+- A step answered from the step cache has no writer session to go back to, so its redo asks
+  fresh sessions with the approver's comment and keeps those for later redos.

@@ -1,0 +1,43 @@
+# Honeycomb export: the collector's config plus one exporter, applied by
+# platform/observability.sh only when HONEYCOMB_API_KEY is set (in the environment or .env).
+# It replaces the ConfigMap in collector.yaml, so keep the two in step (a test checks it).
+# The exporter reads the key from the collector's environment (Secret honeycomb).
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: otel-collector, namespace: observability}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc: {endpoint: 0.0.0.0:4317}
+          http: {endpoint: 0.0.0.0:4318}
+    processors:
+      batch: {}
+    connectors:
+      # Metrics from the spans every service exports. The gateway's model-call spans carry the
+      # provider that answered, which is what the gateway-failover alert counts.
+      spanmetrics:
+        dimensions:
+        - name: gen_ai.provider.name
+        - name: ace.service
+    exporters:
+      otlphttp/lgtm:
+        endpoint: http://lgtm.observability.svc.cluster.local:4318
+        tls: {insecure: true}
+      otlp/honeycomb:
+        endpoint: api.honeycomb.io:443
+        headers:
+          x-honeycomb-team: ${env:HONEYCOMB_API_KEY}
+          # Honeycomb needs a dataset for metrics; traces take theirs from the service name.
+          x-honeycomb-dataset: ace-metrics
+    service:
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlphttp/lgtm, spanmetrics, otlp/honeycomb]
+        metrics:
+          receivers: [otlp, spanmetrics]
+          processors: [batch]
+          exporters: [otlphttp/lgtm, otlp/honeycomb]

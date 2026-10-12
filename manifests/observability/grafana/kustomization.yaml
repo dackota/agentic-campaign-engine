@@ -1,0 +1,18 @@
+# `kubectl apply -k` of this directory (platform/observability.sh) makes the two ConfigMaps
+# that grafana/otel-lgtm mounts: the dashboards, and the provisioning files.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+generatorOptions:
+  disableNameSuffixHash: true
+configMapGenerator:
+- name: grafana-dashboards
+  files:
+  - dashboards/pipeline-health.json
+  - dashboards/cost.json
+  - dashboards/quality.json
+  - dashboards/failovers.json
+- name: grafana-provisioning
+  files:
+  - alerting.yaml
+  - dashboards.yaml

@@ -22,7 +22,9 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import uvicorn
 from ace_engine.settings import Depth
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
@@ -86,6 +88,17 @@ def _install_span_exporter() -> InMemorySpanExporter:
     return _SPAN_EXPORTER
 
 
+_METRIC_READER = InMemoryMetricReader()
+
+
+def _install_metric_reader() -> InMemoryMetricReader:
+    """The test metric reader, set up the first time a stack is built (one meter provider per
+    process, like the tracer provider)."""
+    if not isinstance(metrics.get_meter_provider(), MeterProvider):
+        metrics.set_meter_provider(MeterProvider(metric_readers=[_METRIC_READER]))
+    return _METRIC_READER
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -101,10 +114,15 @@ class Stack:
         web_origin: str = "http://127.0.0.1:5173",
         integrations: bool = False,
         marketo_port: int | None = None,
+        alert_webhook_token: str | None = None,
     ) -> None:
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         # Every service runs in this process, so one in-memory exporter holds every span.
         self.spans = _install_span_exporter()
+        self._metric_reader = _install_metric_reader()
+        # What Grafana's alert webhook sends as its bearer token. Fresh per stack unless a
+        # browser spec has to know it up front.
+        self.alert_webhook_token = alert_webhook_token or secrets.token_urlsafe(24)
         self.agent = ScriptedAgent()
         self.api_port = api_port or free_port()
         self.marketo_port = marketo_port or free_port()
@@ -123,13 +141,7 @@ class Stack:
         self.google_client_id = f"gid-{secrets.token_hex(4)}"
         self.google_client_secret = secrets.token_urlsafe(24)
         self.google_refresh_token = secrets.token_urlsafe(24)
-        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
-        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
-        self.marketo_client_secret = secrets.token_urlsafe(24)
-        self.marketo_webhook_secret = secrets.token_urlsafe(24)
-        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
-        self.workfront_client_secret = secrets.token_urlsafe(24)
-        self.workfront_webhook_secret = secrets.token_urlsafe(24)
+        self._fresh_secrets()
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -140,6 +152,43 @@ class Stack:
         self._postgres: PostgresContainer | None = None
         self._port_forward: subprocess.Popen[bytes] | None = None
         self._kagent_url = ""
+
+    def _fresh_secrets(self) -> None:
+        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
+        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
+        self.marketo_client_secret = secrets.token_urlsafe(24)
+        self.marketo_webhook_secret = secrets.token_urlsafe(24)
+        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
+        self.workfront_client_secret = secrets.token_urlsafe(24)
+        self.workfront_webhook_secret = secrets.token_urlsafe(24)
+
+    def _metric_points(self, name: str, **attributes: str) -> list[Any]:
+        data = self._metric_reader.get_metrics_data()
+        found = []
+        for resource in data.resource_metrics if data else []:
+            for scope in resource.scope_metrics:
+                for metric in scope.metrics:
+                    if metric.name != name:
+                        continue
+                    found += [
+                        p
+                        for p in metric.data.data_points
+                        if all((p.attributes or {}).get(k) == v for k, v in attributes.items())
+                    ]
+        return found
+
+    def metric_total(self, name: str, **attributes: str) -> float:
+        """The sum of a counter, or of a histogram's recorded values, over the data points
+        whose attributes include `attributes`."""
+        points = self._metric_points(name, **attributes)
+        totals: list[float] = [
+            float(getattr(p, "value", None) or getattr(p, "sum", None) or 0) for p in points
+        ]
+        return sum(totals)
+
+    def metric_count(self, name: str, **attributes: str) -> int:
+        """How many values a histogram recorded."""
+        return int(sum(p.count for p in self._metric_points(name, **attributes)))
 
     @property
     def api_url(self) -> str:
@@ -356,6 +405,7 @@ class Stack:
             workfront_client_id=self.workfront_client_id,
             workfront_client_secret=self.workfront_client_secret,
             workfront_webhook_secret=self.workfront_webhook_secret,
+            alert_webhook_token=self.alert_webhook_token,
         )
         if self.integrations:
             settings = dataclasses.replace(

@@ -17,6 +17,7 @@ import {
   type RunEvent,
   type Usage,
 } from "./api";
+import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
@@ -474,6 +475,7 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   return (
     <main>
       <SignedInBar email={me.email} onSignOut={onSignOut} />
+      <AlertBanner onSignedOut={onSignOut} />
       <nav>
         <button type="button" onClick={() => setView("campaigns")}>
           Campaigns
