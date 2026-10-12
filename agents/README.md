@@ -9,8 +9,9 @@ strategist, research, email writer, landing page writer, social writer, and one-
 writer. The system prompt in each template is the role's prompt in
 `apps/engine/ace_engine/agent_roles.py`, and a test keeps the two equal. Each of those templates uses
 the `gateway-model` config, so every model call goes through agentgateway. The exception is
-`ace-brand-reviewer`: it is not run live (`review_rounds` defaults to 0 and `agents.yaml` has
-no reviewer Agent), so it stays on `mock-model`.
+`ace-brand-reviewer`. The seeded default workflow sets `review_rounds` on every writer, so the
+reviewer step runs. `agents.yaml` has no reviewer Agent, so at live depth the step posts to
+`settings.agent_url`. The template stays on `mock-model` until a reviewer Agent is added (#85).
 
 ## agents.yaml
 
