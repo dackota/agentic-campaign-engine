@@ -125,3 +125,27 @@ def test_main_returns_one_when_no_report_ran(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("ACE_API_TOKEN", "t")
     monkeypatch.setattr("evals.runner.load_golden", lambda: [])
     assert main(["--api-url", "http://api.test"]) == 1
+
+
+def test_research_step_missing_from_the_output_is_a_visible_failure() -> None:
+    def respond(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(200, json={"id": "c1"})
+        if request.url.path.endswith("/steps"):
+            return httpx.Response(
+                200,
+                json=[
+                    {"step": s, "output": {"text": "Edge routers are exposed."}}
+                    for s in ("email_writer", "landing_page", "social", "one_pager")
+                ],
+            )
+        return httpx.Response(200, json={"status": "awaiting_approval"})
+
+    [result] = run_golden(_mock_api(httpx.MockTransport(respond)), [SAFE], timeout=5)
+
+    assert result.research is not None
+    assert [(c.check, c.passed, c.detail) for c in result.research.checks] == [
+        ("output_present", False, "no output for research")
+    ]
+    assert not result.passed
+    assert "FAIL output_present: no output for research" in render([result])

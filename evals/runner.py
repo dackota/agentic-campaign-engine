@@ -26,7 +26,7 @@ FAST_TIMEOUT_SECONDS = 30
 LIVE_TIMEOUT_SECONDS = 600
 POLL_INTERVAL_SECONDS = 0.5
 HTTP_TIMEOUT_SECONDS = 30
-TOKEN_ENV = "ACE_API_TOKEN"  # noqa: S105 - the name of the variable, not a secret
+TOKEN_ENV = "ACE_API_TOKEN"
 URL_ENV = "ACE_API_URL"
 
 
@@ -56,6 +56,7 @@ class ReportResult:
             not self.error
             and self.status == AWAITING
             and {a.step for a in self.assets} >= set(ASSET_STEPS)
+            and self.research is not None
             and all(self.key_facts.values())
             and all(a.passed for a in everything)
         )
@@ -93,11 +94,7 @@ def _grade_step(entry: GoldenReport, step: str, outputs: dict[str, Any]) -> Asse
 
 def _grade(entry: GoldenReport, status: str, outputs: dict[str, Any]) -> ReportResult:
     assets = [_grade_step(entry, step, outputs) for step in ASSET_STEPS]
-    research = (
-        AssetResult(RESEARCH_STEP, check_asset(RESEARCH_STEP, outputs[RESEARCH_STEP], entry.report))
-        if RESEARCH_STEP in outputs
-        else None
-    )
+    research = _grade_step(entry, RESEARCH_STEP, outputs)
     written = " ".join(
         t.lower() for step in (*ASSET_STEPS, RESEARCH_STEP) for t in texts(outputs.get(step))
     )
