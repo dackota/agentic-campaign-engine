@@ -8,7 +8,8 @@ waits until each run's drafting ends (waiting for approval, or failed) and write
 - `p50_seconds`, `p95_seconds`: nearest-rank run time from create to the end of drafting,
   over the runs that finished
 - `cache_hit_rate`: agent steps served from the step cache over all agent steps
-- `lost`: runs that did not reach waiting for approval in time
+- `lost`: runs that did not end waiting for approval: failed runs, runs that missed the
+  deadline, and runs whose calls failed or got a reply the script could not read
 - `replies_429`: the Campaign API's 429 replies, plus runs a model 429 stopped (a failure
   reason that holds the gateway's `429 Too Many Requests`; not yet seen live, see
   docs/sources.md)

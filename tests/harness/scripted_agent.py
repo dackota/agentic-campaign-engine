@@ -60,7 +60,8 @@ HOLD_MARKER = "[agent:hold]"
 DOWN_MARKER = re.compile(r"\[agent:down-(\d{1,2})\]")
 JSONRPC_AGENT_DOWN = -32000
 # "[agent:task-failed-N]" makes the first N calls on that report answer as kagent does when
-# the model call fails: a task in state TASK_STATE_FAILED whose status message holds the error.
+# the model call fails (not seen live; docs/sources.md): a task in state TASK_STATE_FAILED whose
+# status message holds the error.
 TASK_FAILED_MARKER = re.compile(r"\[agent:task-failed-(\d{1,2})\]")
 TASK_FAILED = "TASK_STATE_FAILED"
 TASK_FAILED_TEXT = (
