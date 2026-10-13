@@ -27,6 +27,21 @@ export interface AbResult {
   confidence: number | null;
 }
 
+/** The judge's score for one asset (1 to 5) and why. */
+export interface AssetScore {
+  step: string;
+  score: number;
+  reason: string;
+}
+
+export const MAX_SCORE = 5;
+
+function isScore(value: unknown): value is AssetScore {
+  if (typeof value !== "object" || value === null) return false;
+  const s = value as Record<string, unknown>;
+  return typeof s.step === "string" && typeof s.score === "number" && typeof s.reason === "string";
+}
+
 export interface Campaign {
   id: string;
   report: string;
@@ -47,6 +62,8 @@ export interface Campaign {
   /** The pinned workflow's edges, for drawing the graph. */
   edges: WorkflowEdge[];
   ab_result: AbResult;
+  /** What the judge scored each asset. */
+  scores: AssetScore[];
 }
 
 function isAbResult(value: unknown): value is AbResult {
@@ -125,7 +142,9 @@ function isCampaign(value: unknown): value is Campaign {
     (c.budget_usd === null || typeof c.budget_usd === "number") &&
     isCost(c.cost) &&
     Array.isArray(c.edges) &&
-    isAbResult(c.ab_result)
+    isAbResult(c.ab_result) &&
+    Array.isArray(c.scores) &&
+    c.scores.every(isScore)
   );
 }
 

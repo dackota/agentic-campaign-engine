@@ -84,8 +84,15 @@ def ancestors(dag: Dag, step_id: str) -> set[str]:
     return seen
 
 
-def latest_ancestor_of_kind(dag: Dag, step_id: str, kind: str) -> str | None:
-    """The last step of `kind` before `step_id`, in run order; None when there is none."""
+def latest_ancestor_of_kind(
+    dag: Dag, step_id: str, kind: str, skip: frozenset[str] = frozenset()
+) -> str | None:
+    """The last step of `kind` before `step_id`, in run order, leaving out the steps in
+    `skip`; None when there is none."""
     before = ancestors(dag, step_id)
-    matches = [s["id"] for s in ordered(dag) if s["id"] in before and s["kind"] == kind]
+    matches = [
+        s["id"]
+        for s in ordered(dag)
+        if s["id"] in before and s["kind"] == kind and s["id"] not in skip
+    ]
     return matches[-1] if matches else None

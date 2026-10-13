@@ -52,13 +52,14 @@ def test_all_four_writers_start_before_any_finishes(run: dict[str, Any]) -> None
 
 
 def test_every_step_event_names_its_own_session(run: dict[str, Any]) -> None:
-    step_events = [e for e in run["events"] if e["step"] != "run"]
+    # A score is the judge's note on an asset, so it names no session of its own.
+    step_events = [e for e in run["events"] if e["step"] != "run" and e["status"] != "scored"]
     by_step: dict[str, set[str]] = {}
     for e in step_events:
         assert e["session"], e
         by_step.setdefault(e["step"], set()).add(e["session"])
 
-    assert len(by_step) == 7
+    assert len(by_step) == 8
     assert all(len(ids) == 1 for ids in by_step.values())
     all_ids = [next(iter(ids)) for ids in by_step.values()]
     assert len(set(all_ids)) == len(all_ids)

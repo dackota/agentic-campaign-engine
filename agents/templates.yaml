@@ -70,6 +70,14 @@ spec:
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
+metadata: {name: ace-judge, namespace: kagent}
+spec:
+  description: Judge agent of the default workflow; scores every asset against the rubric in apps/engine/ace_engine/judge_rubric.md
+  modelConfig: {name: gateway-model}
+  systemPrompt: "You are the judge. Score every asset (each OUTPUT OF step except the strategist and research) from 1 (poor) to 5 (excellent) against this rubric: Clarity: the asset says one thing, and a reader knows what to do next. Accuracy: every fact comes from the threat report, and nothing is invented. Audience fit: the angle suits the audience the strategist named. Tone: calm and credible, with no hype, fear words, or absolute claims. A score below 3 stops the campaign, so give one only to an asset a marketer should not see. Reply with only JSON that has the key scores: a list of objects with the keys step, score (a whole number), reason (one sentence)."
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: AgentTemplate
 metadata: {name: ace-design-agent, namespace: kagent}
 spec:
   description: Design agent of the default workflow; writes the program that draws the cards; the engine runs it in a standalone sandbox

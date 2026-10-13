@@ -1,5 +1,6 @@
 """Campaign storage in Postgres."""
 
+import json
 import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
@@ -41,6 +42,8 @@ BUDGET_PAUSED = "budget_paused"
 FLAGGED = "flagged"
 # A step the brand reviewer sent back to its writer for a fix.
 REVIEW_FIX = "review_fix"
+# An asset the judge scored; the reason is JSON with the score and the judge's reason.
+SCORED = "scored"
 RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
@@ -447,6 +450,21 @@ def review_flags_by_campaign(
         campaign_id: sorted(steps.values(), key=lambda e: e.seq)
         for campaign_id, steps in latest.items()
     }
+
+
+def asset_scores(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, dict[str, Any]]]:
+    """The judge's latest score and reason per asset step, by campaign."""
+    events = session.scalars(
+        select(RunEvent)
+        .where(RunEvent.campaign_id.in_(campaign_ids), RunEvent.status == SCORED)
+        .order_by(RunEvent.seq)
+    )
+    found: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
+    for event in events:
+        found.setdefault(event.campaign_id, {})[event.step] = json.loads(event.reason or "{}")
+    return found
 
 
 def save_receipt(

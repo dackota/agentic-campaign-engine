@@ -46,6 +46,9 @@ class AssetOut(BaseModel):
     output: Any
     # What the brand reviewer still flags on this asset after its fix rounds.
     flags: list[ReviewFlag]
+    # What the judge scored the asset and why; None when it was not judged.
+    score: int | None = None
+    score_reason: str | None = None
 
 
 class Approval(BaseModel):
@@ -95,11 +98,13 @@ def _inbox(engine: Engine, user: User) -> list[AssetOut]:
         all_outputs = db.outputs_by_campaign(session, ids)
         all_approved = db.approved_by_campaign(session, ids)
         all_flags = db.review_flags_by_campaign(session, ids)
+        all_scores = db.asset_scores(session, ids)
         items: list[AssetOut] = []
         for campaign in waiting:
             outputs = all_outputs.get(campaign.id, {})
             approved = all_approved.get(campaign.id, set())
             flags = {e.step: e.reason for e in all_flags.get(campaign.id, [])}
+            scores = all_scores.get(campaign.id, {})
             for step in assets.asset_steps(campaign.dag):
                 if step in approved or step not in outputs:
                     continue
@@ -113,6 +118,8 @@ def _inbox(engine: Engine, user: User) -> list[AssetOut]:
                         preview_url=assets.preview_path(campaign.id, step),
                         output=outputs[step],
                         flags=[ReviewFlag(**f) for f in json.loads(flags.get(step) or "[]")],
+                        score=scores.get(step, {}).get("score"),
+                        score_reason=scores.get(step, {}).get("reason"),
                     )
                 )
         return items

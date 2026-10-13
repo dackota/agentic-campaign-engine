@@ -19,6 +19,8 @@ from ace_engine.contracts import (
     SOCIAL_POSTS_SCHEMA,
     STRATEGY_SCHEMA,
 )
+from ace_engine.judge import JUDGE_STEP, SCORES_SCHEMA
+from ace_engine.judge import PROMPT as JUDGE_PROMPT
 from ace_engine.limits import limits_line
 from ace_engine.settings import Depth
 
@@ -59,6 +61,8 @@ class Role:
     writes_draft: bool = False
     # Whether the output is the two social cards the engine saves to the asset library.
     makes_cards: bool = False
+    # Whether the output is the judge's scores, which the engine records and holds to the floor.
+    judges: bool = False
 
 
 def _role(
@@ -135,6 +139,14 @@ ROLES: Mapping[str, Role] = MappingProxyType(
                 "You are the one-pager writer. Turn the strategy and research into a one-page "
                 f"brief. {_JSON_ONLY} the keys title, summary, bullets (a list of strings).",
                 ONE_PAGER_SCHEMA,
+            ),
+            Role(
+                step_id=JUDGE_STEP,
+                template="ace-judge",
+                prompt=JUDGE_PROMPT,
+                schema=SCORES_SCHEMA,
+                reply_schema=SCORES_SCHEMA,
+                judges=True,
             ),
             Role(
                 step_id="design",

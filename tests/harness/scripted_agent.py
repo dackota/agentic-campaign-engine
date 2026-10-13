@@ -21,8 +21,10 @@ from typing import Any
 
 from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
+from ace_engine.assets import NOT_ASSETS
 from ace_engine.brand_review import BRAND_REVIEWER
 from ace_engine.contracts import REPORT_MARKER
+from ace_engine.judge import MAX_SCORE, MIN_SCORE
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
@@ -46,6 +48,9 @@ BAD_JSON_MARKER = "[agent:bad-json]"
 # draft ends up flagged for a human.
 FLAG_MARKER = "[agent:flag]"
 FLAG_ISSUE = {"check": "banned_claim", "detail": "100% protection is a banned claim"}
+# "[agent:low-score]" in a report makes the judge score the landing page below the floor.
+LOW_SCORE_MARKER = "[agent:low-score]"
+LOW_SCORE_STEP = "landing_page"
 SLOW_REPLY_SECONDS = 1.5
 # "[agent:down-N]" in a report makes the first N calls that carry that report answer with
 # an A2A error, so a step fails on cue and a later attempt succeeds.
@@ -342,12 +347,34 @@ def default_reply(message_text: str) -> dict[str, Any]:
                 "summary": report[:BODY_REPORT_CHARS],
                 "bullets": [_first_line(report)],
             }
+        case "judge":
+            return _judgement(message_text)
         case "design":
             if PROGRAM_MARKER in message_text:
                 return {"program": DESIGN_PROGRAM}
             return {"cards": list(FIXED_CARDS)}
         case _:
             return default_draft(message_text)
+
+
+def _judgement(message_text: str) -> dict[str, Any]:
+    """A score for every asset the judge is shown: the top score, or with the low-score
+    marker in the report, the lowest for the landing page."""
+    planted = LOW_SCORE_MARKER in _report_of(message_text)
+    steps = re.findall(rf"^{CONTEXT_MARKER}(\w+):", message_text, re.MULTILINE)
+    return {
+        "scores": [
+            {
+                "step": step,
+                "score": MIN_SCORE if planted and step == LOW_SCORE_STEP else MAX_SCORE,
+                "reason": "Unclear and off-brand"
+                if planted and step == LOW_SCORE_STEP
+                else "Clear, accurate, and calm",
+            }
+            for step in steps
+            if step not in NOT_ASSETS
+        ]
+    }
 
 
 def _first_line(report: str) -> str:
