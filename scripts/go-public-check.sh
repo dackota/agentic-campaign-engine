@@ -13,21 +13,28 @@ set -uo pipefail
 
 BRANDS=(CrowdStrike Adobe Marketo Workfront Salesforce "Palo Alto" Okta Microsoft Google Slack Figma)
 BRAND_SKIP=(scripts/go-public-check.sh docs/go-public.md)
-FLAGGED_PATTERN='gpl|general public|^$|unknown|^none$|proprietary'
-PERMISSIVE_PATTERN='mit|apache|bsd|isc|psf|python software|mpl|unlicense|zlib|0bsd|cc0|hpnd|bsl|public domain'
+# Allow list: a term is ok only when the whole term is a known permissive license name.
+PERMISSIVE_TERM='(osi approved :: )?(mit|isc|0bsd|unlicense|zlib|hpnd|cc0-1\.0|public domain|bsd|bsd-[234]-clause|mpl-2\.0|psf-2\.0|apache-2\.0|apache 2\.0|apache software|apache license 2\.0|python software foundation|mozilla public license 2\.0( \(mpl 2\.0\))?)( license)?'
 
-classify_one() {
-  if [[ "$1" =~ $FLAGGED_PATTERN ]]; then echo flagged
-  elif [[ "$1" =~ $PERMISSIVE_PATTERN ]]; then echo ok
-  else echo flagged; fi
+term_ok() {
+  local t="${1#"${1%%[![:space:]]*}"}"; t="${t%"${t##*[![:space:]]}"}"
+  [[ "$t" =~ ^($PERMISSIVE_TERM)$ ]]
 }
 
-# An OR choice is ok when any one side is ok; a copyleft term outside a choice flags.
+# ok when some OR alternative has every AND term (also " / ") permissive. A parenthesised
+# expression loses its precedence here, so it passes only when every term is permissive.
 classify() {
-  local text alt; text="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  while IFS= read -r alt; do
-    [[ "$(classify_one "$alt")" == ok ]] && { echo ok; return; }
-  done <<<"${text// or /$'\n'}"
+  local text alt term; text="$(printf '%s' "$1" | tr '[:upper:]\t\n' '[:lower:]  ')"
+  local paren=0; [[ "$text" == *[\(\)]* ]] && paren=1
+  text="${text//[()]/ }"; text="${text//  / }"; text=" ${text} "
+  text="${text// and /$'\n'}"; text="${text// \/ /$'\n'}"
+  if [[ $paren -eq 1 ]]; then text="${text// or /$'\n'}"; fi
+  local alts; alts="${text// or /$'\x01'}"
+  while IFS= read -r -d $'\x01' alt || [[ -n "$alt" ]]; do
+    local all=1
+    while IFS= read -r term; do term_ok "$term" || { all=0; break; }; done <<<"$alt"
+    [[ $all -eq 1 ]] && { echo ok; return; }
+  done < <(printf '%s' "$alts")
   echo flagged
 }
 
@@ -94,10 +101,11 @@ PY
 }
 
 js_licenses() {
-  local manifest dir name license
+  local manifest dir name names license
   for manifest in $(git ls-files '*package.json' | grep -v '^package.json$'); do
     dir="$(dirname "$manifest")"
-    for name in $(jq -r '((.dependencies // {}) + (.devDependencies // {})) | keys[]' "$manifest"); do
+    names="$(jq -r '((.dependencies // {}) + (.devDependencies // {})) | keys[]' "$manifest")" || return 1
+    for name in $names; do
       license="$(jq -r '.license // empty' "$dir/node_modules/$name/package.json" 2>/dev/null)"
       [[ -z "$license" ]] && license="$(npm view "$name" license --fetch-retries=0 --fetch-timeout=15000 2>/dev/null | head -1)"
       echo "$name	${license:-UNKNOWN}"

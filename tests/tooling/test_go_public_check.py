@@ -186,3 +186,84 @@ def test_go_public_doc_records_the_run_and_open_items() -> None:
 
     for needle in ("secret scan", "Brand hits", "Licenses", "Open items", "job link", "LICENSE"):
         assert needle in text, needle
+
+
+NON_PERMISSIVE_TERMS = [
+    "EPL-2.0",
+    "SSPL-1.0",
+    "GPL-3.0-only",
+    "Acme Private Terms",
+    "Foo-1.0",
+    "???",
+]
+
+
+def _classify(text: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["bash", str(SCRIPT), "--classify", text], capture_output=True, text=True, timeout=60
+    )
+
+
+@pytest.mark.parametrize(
+    ("permissive", "other", "joiner"),
+    list(
+        itertools.product(
+            PERMISSIVE_TERMS, NON_PERMISSIVE_TERMS, [" AND ", " and ", " / ", " AND (", "("]
+        )
+    ),
+)
+def test_permissive_and_non_permissive_is_flagged(permissive: str, other: str, joiner: str) -> None:
+    text = (
+        f"({permissive}{joiner}{other}))" if joiner.endswith("(") else permissive + joiner + other
+    )
+
+    assert _classify(text).stdout.strip() == "flagged", text
+
+
+@pytest.mark.parametrize("text", ["Foo-1.0", "EPL-2.0", "SSPL-1.0", "Acme Private Terms"])
+def test_unknown_or_weak_copyleft_names_are_flagged(text: str) -> None:
+    assert _classify(text).stdout.strip() == "flagged"
+
+
+@pytest.mark.parametrize("text", ["(MIT AND Apache-2.0)", " mit  or  Foo-1.0 ", "MIT License"])
+def test_whole_permissive_terms_are_ok(text: str) -> None:
+    assert _classify(text).stdout.strip() == "ok"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "",
+        " ",
+        "x" * 200000,
+        "(((",
+        ")(",
+        "OR",
+        " AND ",
+        "a\tb\nc",
+        "\x01\xff",
+        "$(id)",
+        "'\"`;|&*?[",
+        "-n",
+        "--",
+    ],
+)
+def test_classify_prints_ok_or_flagged_and_exits_zero_for_any_input(text: str) -> None:
+    result = _classify(text)
+
+    assert result.returncode == 0
+    assert result.stdout.strip() in {"ok", "flagged"}
+    assert result.stdout.count("\n") == 1
+
+
+def test_malformed_js_manifest_fails_the_license_scan(tmp_path: Path) -> None:
+    repo = _repo(tmp_path, {"web/package.json": "{ not json"})
+
+    result = _run(repo)
+
+    assert "licenses: FAIL" in result.stdout, result.stdout
+    assert result.returncode in (EXIT_SECRET, EXIT_FINDINGS)
+
+
+def test_parenthesised_choice_beside_a_term_fails_closed() -> None:
+    assert _classify("(MIT OR Apache-2.0) AND GPL-3.0-only").stdout.strip() == "flagged"
