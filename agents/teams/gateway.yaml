@@ -35,7 +35,7 @@ spec:
   traffic:
     rateLimit:
       local:
-      - {tokens: 50000, unit: Minutes}
+      - {tokens: 200000, unit: Minutes}
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
@@ -68,7 +68,7 @@ spec:
   traffic:
     rateLimit:
       local:
-      - {tokens: 50000, unit: Minutes}
+      - {tokens: 200000, unit: Minutes}
 ---
 # Retry once on the codes that evict a provider, as the spike's routes do
 # (docs/decisions/llm-gateway-failover.md).
