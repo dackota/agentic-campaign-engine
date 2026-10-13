@@ -19,11 +19,12 @@ import re
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
+from enum import Enum
 from urllib.parse import parse_qs
 
 from ace_engine import db, row_security, telemetry, webhooks
 from ace_engine.settings import Settings
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from starlette.concurrency import run_in_threadpool
 from starlette.datastructures import Headers
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -41,12 +42,21 @@ CAMPAIGN_FIELD = "campaignId"
 MAX_CACHED_TRACES = 10_000
 BEARER_PREFIX = "bearer "
 TOKEN_QUERY = "access_token"
-# The cache key of a signed webhook's read: it reads as the system, not as a team.
-SYSTEM: None = None
+
+
+class _System(Enum):
+    """Who a signed webhook's read runs as: the system, never a team, so its cache slot
+    cannot be mistaken for any team's (nor for a login in no team)."""
+
+    SYSTEM = "system"
+
+
+SYSTEM = _System.SYSTEM
+Reader = str | _System
 # A campaign's traceparent never changes once stored, so a read of it is kept: a page that
 # polls a campaign would otherwise pay a database read on every request. The key names the
 # team that read it, so one team's read is never served to another.
-_cached: dict[tuple[uuid.UUID, str | None], str] = {}
+_cached: dict[tuple[uuid.UUID, Reader], str] = {}
 
 
 @dataclass(frozen=True)
@@ -57,6 +67,7 @@ class WebhookSigner:
     names: webhooks.SignatureHeaders = webhooks.MARKETO_HEADERS
 
     def signed(self, headers: Mapping[str, str], body: bytes) -> bool:
+        """True only when the body's signature verifies; a rejection is False, not a raise."""
         try:
             webhooks.verify(headers, body, self.secret, names=self.names)
         except webhooks.WebhookRejected:
@@ -64,10 +75,14 @@ class WebhookSigner:
         return True
 
 
-def remember(campaign_id: uuid.UUID, team: str | None, traceparent: str) -> None:
+def remember(campaign_id: uuid.UUID, reader: Reader | None, traceparent: str) -> None:
+    """Keep the traceparent `reader` read. A login in no team reads nothing, so it keeps
+    nothing."""
+    if reader is None:
+        return
     if len(_cached) >= MAX_CACHED_TRACES:
         _cached.pop(next(iter(_cached)))
-    _cached[(campaign_id, team)] = traceparent
+    _cached[(campaign_id, reader)] = traceparent
 
 
 def _uuid_or_none(text: object) -> uuid.UUID | None:
@@ -148,30 +163,37 @@ class CampaignTraceMiddleware:
         verifier: TokenVerifier = scope["app"].state.verifier
         try:
             user = await run_in_threadpool(verifier.verify, token)
-        except Exception:  # noqa: BLE001 - any failure means no trace join; the route answers
+        except HTTPException:
+            # The verifier's own 401 or 503: no trace join, and the route answers the same.
+            return None
+        except Exception:
+            # Anything else is a fault, not a caller's bad token: log it, still raise nothing.
+            log.exception("cannot verify the token of a request for campaign %s", campaign_id)
             return None
         if user.team is None:
             return None
         return await self._read(scope, campaign_id, user.team)
 
     async def _read(
-        self, scope: Scope, campaign_id: uuid.UUID | None, team: str | None
+        self, scope: Scope, campaign_id: uuid.UUID | None, reader: Reader
     ) -> str | None:
-        """The campaign's traceparent, read as `team` (as the system for SYSTEM)."""
+        """The campaign's traceparent as `reader` sees it: a team through row-level security,
+        or SYSTEM as the owner."""
         if campaign_id is None:
             return None
-        if (campaign_id, team) in _cached:
-            return _cached[(campaign_id, team)]
+        if (campaign_id, reader) in _cached:
+            return _cached[(campaign_id, reader)]
         engine = scope["app"].state.engine
-        if team is not SYSTEM:
-            engine = row_security.for_team(engine, team)
+        if not isinstance(reader, _System):
+            engine = row_security.for_team(engine, reader)
         try:
             found = await run_in_threadpool(db.campaign_traceparent, engine, campaign_id)
-        except Exception:  # noqa: BLE001 - a failed read starts a trace of its own
+        except Exception:
+            # A failed read starts a trace of its own; the route meets the fault itself.
             log.exception("cannot read the trace of campaign %s", campaign_id)
             return None
         if found is not None:
-            remember(campaign_id, team, found)
+            remember(campaign_id, reader, found)
         return found
 
 

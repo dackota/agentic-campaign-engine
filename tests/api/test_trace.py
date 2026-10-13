@@ -182,8 +182,13 @@ def _traced_by_test(send: Callable[[], httpx.Response]) -> tuple[httpx.Response,
     return response, span.get_span_context().trace_id
 
 
-def _server_spans_of(stack: Stack, trace_id: int) -> list[ReadableSpan]:
-    """The API's server spans in a trace, waiting a moment for the span to finish."""
+def _server_spans_of(
+    stack: Stack,
+    trace_id: int,
+    until: Callable[[list[ReadableSpan]], bool] = bool,
+) -> list[ReadableSpan]:
+    """The API's server spans in a trace, waiting a moment for `until` to hold of them (by
+    default, for one to finish)."""
     deadline = time.monotonic() + SPAN_WAIT_SECONDS
     while True:
         found = [
@@ -191,7 +196,7 @@ def _server_spans_of(stack: Stack, trace_id: int) -> list[ReadableSpan]:
             for s in stack.spans.get_finished_spans()
             if s.context.trace_id == trace_id and s.kind is SpanKind.SERVER
         ]
-        if found or time.monotonic() > deadline:
+        if until(found) or time.monotonic() > deadline:
             return found
         time.sleep(0.05)
 
@@ -254,22 +259,31 @@ def test_the_campaign_teams_requests_join_its_trace(
     by_header, header_trace = _traced_by_test(
         lambda: sign_in(OWNER).get(f"/campaigns/{campaign_id}/steps")
     )
-    by_query, query_trace = _traced_by_test(
-        lambda: httpx.get(
-            f"{stack.api_url}/campaigns/{campaign_id}/preview",
+
+    def by_query_token(path: str) -> Callable[[], httpx.Response]:
+        return lambda: httpx.get(
+            f"{stack.api_url}/campaigns/{campaign_id}/{path}",
             params={"access_token": token},
             timeout=30,
         )
-    )
+
+    by_query = [_traced_by_test(by_query_token(path)) for path in ("preview", "events")]
 
     assert by_header.status_code == 200, by_header.text
-    assert by_query.status_code == 200, by_query.text
-    time.sleep(0.2)  # let the server spans finish
-    names = {s.name for s in campaign_spans(stack, campaign_id) if s.kind is SpanKind.SERVER}
-    assert any(n.startswith("GET /campaigns/{campaign_id}/steps") for n in names)
-    assert any(n.startswith("GET /campaigns/{campaign_id}/preview") for n in names)
-    assert not _server_spans_of(stack, header_trace)
-    assert not _server_spans_of(stack, query_trace)
+    assert all(response.status_code == 200 for response, _ in by_query)
+    joined = ("steps", "preview", "events")
+
+    def all_joined(spans: list[ReadableSpan]) -> bool:
+        names = {s.name for s in spans}
+        return all(
+            any(n.startswith(f"GET /campaigns/{{campaign_id}}/{p}") for n in names) for p in joined
+        )
+
+    campaign_trace = campaign_spans(stack, campaign_id)[0].context.trace_id
+    assert all_joined(_server_spans_of(stack, campaign_trace, until=all_joined))
+    # The spans have finished by now, so the test's own traces need no wait.
+    for trace_id in (header_trace, *(t for _, t in by_query)):
+        assert not _server_spans_of(stack, trace_id, until=lambda _: True)
 
 
 @pytest.mark.parametrize("signed", ["wrong secret", "no signature"])
