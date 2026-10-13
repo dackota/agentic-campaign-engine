@@ -219,6 +219,19 @@ class StepCacheEntry(Base):
     )
 
 
+class StepSlot(Base):
+    """One of a team's step slots, held by the step running in it (ace_engine.team_slots).
+    A slot whose holder never gave it back frees itself at `expires_at`."""
+
+    __tablename__ = "step_slots"
+
+    # The step's idempotency key (dag.step_key): a step holds at most one slot.
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"))
+    team: Mapped[str] = mapped_column(String(100), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Activity(Base):
     """One activity webhook from a marketing system, recorded once per (source, event id)."""
 

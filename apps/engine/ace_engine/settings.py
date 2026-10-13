@@ -19,6 +19,9 @@ WORKFRONT_SECRETS = (
 )
 
 
+DEFAULT_TEAM_STEP_LIMIT = 8
+
+
 class Depth(StrEnum):
     FAST = "fast"
     LIVE = "live"
@@ -89,6 +92,10 @@ class Settings:
     # The bearer token Grafana's alert webhook sends. Blank turns the webhook off.
     alert_webhook_token: str = field(default="", repr=False)
 
+    # How many steps that call a model each team may run at once, so one team's campaigns
+    # cannot take every model call (docs/decisions/team-step-limit.md).
+    team_step_limit: int = DEFAULT_TEAM_STEP_LIMIT
+
     @property
     def slack_enabled(self) -> bool:
         return bool(self.slack_token.strip() and self.slack_channel.strip())
@@ -101,6 +108,8 @@ class Settings:
         )
 
     def __post_init__(self) -> None:
+        if self.team_step_limit < 1:
+            raise ValueError("team_step_limit must be at least 1")
         # Fail when the worker starts, not on the first send after an approval.
         if not self.marketo_url.strip():
             raise ValueError("marketo_url is required: set it to the Marketo base URL")

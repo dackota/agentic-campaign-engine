@@ -11,9 +11,14 @@ for the owner's retry-step signal and re-runs the steps of that wave not yet don
 
 Each agent step checks the campaign's budget before its model call. Once it is spent, the
 step waits, the run shows as paused at its budget, and the owner's raise-budget signal
-lets it try again."""
+lets it try again.
+
+Each step that calls a model first takes one of its team's step slots and gives it back
+after, so a team runs at most its limit of such steps at once; the rest wait their turn."""
 
 import asyncio
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import timedelta
 from functools import partial
@@ -46,6 +51,14 @@ DB_STEP_TIMEOUT = timedelta(seconds=30)
 DEFAULT_RETRY_INTERVAL_SECONDS = 1.0
 NOTIFY_TIMEOUT = timedelta(seconds=60)
 NO_RETRY = RetryPolicy(maximum_attempts=1)
+# Runs started before team step slots existed replay without them.
+TEAM_SLOTS_PATCH = "team-step-slots"
+# How long a step waits before it asks for a team slot again: doubling up to the cap, so a
+# long wait adds few events to the run's history.
+SLOT_FIRST_WAIT = timedelta(seconds=1)
+SLOT_MAX_WAIT = timedelta(seconds=8)
+# A slot's lease covers every attempt of its step plus the waits between them.
+SLOT_LEASE_MARGIN = timedelta(minutes=2)
 
 
 @dataclass(frozen=True)
@@ -379,12 +392,13 @@ class CampaignWorkflow:
             # Read before the call, so a raise that lands during the call still counts.
             raises_seen = self._budget_raises
             try:
-                result: dict[str, Any] = await workflow.execute_activity(
-                    activity_name,
-                    args=args,
-                    start_to_close_timeout=policy.timeout,
-                    retry_policy=policy.retry_policy(),
-                )
+                async with self._team_slot(campaign_id, step_id, policy):
+                    result: dict[str, Any] = await workflow.execute_activity(
+                        activity_name,
+                        args=args,
+                        start_to_close_timeout=policy.timeout,
+                        retry_policy=policy.retry_policy(),
+                    )
                 return result
             except ActivityError as exc:
                 if not _is_budget_spent(exc):
@@ -392,6 +406,26 @@ class CampaignWorkflow:
             await self._db("pause_for_budget", campaign_id)
             await workflow.wait_condition(partial(self._has_raise_since, raises_seen))
             await self._db("resume_after_budget", campaign_id)
+
+    @asynccontextmanager
+    async def _team_slot(
+        self, campaign_id: str, step_id: str, policy: StepPolicy
+    ) -> AsyncIterator[None]:
+        """Hold one of the team's step slots for the block: wait until one is free, and give
+        it back however the block ends, a cancelled step included."""
+        if not workflow.patched(TEAM_SLOTS_PATCH):
+            yield
+            return
+        key = graph.step_key(campaign_id, step_id)
+        lease = policy.timeout * policy.maximum_attempts + SLOT_LEASE_MARGIN
+        wait = SLOT_FIRST_WAIT
+        while not await self._db("claim_step_slot", campaign_id, key, lease.total_seconds()):
+            await workflow.sleep(wait)
+            wait = min(wait * 2, SLOT_MAX_WAIT)
+        try:
+            yield
+        finally:
+            await self._db("release_step_slot", key)
 
     def _has_raise_since(self, raises_seen: int) -> bool:
         return self._budget_raises > raises_seen
