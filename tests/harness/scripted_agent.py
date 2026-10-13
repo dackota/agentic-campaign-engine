@@ -50,6 +50,14 @@ SLOW_REPLY_SECONDS = 1.5
 # an A2A error, so a step fails on cue and a later attempt succeeds.
 DOWN_MARKER = re.compile(r"\[agent:down-(\d{1,2})\]")
 JSONRPC_AGENT_DOWN = -32000
+# "[agent:task-failed-N]" makes the first N calls on that report answer as kagent does when
+# the model call fails: a task in state TASK_STATE_FAILED whose status message holds the error.
+TASK_FAILED_MARKER = re.compile(r"\[agent:task-failed-(\d{1,2})\]")
+TASK_FAILED = "TASK_STATE_FAILED"
+TASK_FAILED_TEXT = (
+    'llm error response (code STREAM_ERROR): "POST \\"http://agentgateway/v1/chat/completions'
+    '\\": 429 Too Many Requests "'
+)
 # The worker asks for the A/B test's second email with this phrase in its prompt.
 VARIANT_B_PHRASE = "variant B"
 # A step that works from earlier steps' output (a writer) takes this long to answer, so
@@ -134,14 +142,20 @@ class ScriptedAgent:
 
     def _is_down(self, text: str, message_id: str) -> bool:
         """Record the call; True when it must fail because its report says the agent is down."""
-        report = text.split(REPORT_MARKER, 1)[-1]
         with self._lock:
             self._message_ids.append(message_id)
             self._texts.append(text)
-            found = DOWN_MARKER.search(report)
-            if found is None or self._failed.get(report, 0) >= int(found.group(1)):
+        return self._fails_on_cue(DOWN_MARKER, text)
+
+    def _fails_on_cue(self, marker: re.Pattern[str], text: str) -> bool:
+        """True for the first N calls on a report that carries `marker` with count N."""
+        report = text.split(REPORT_MARKER, 1)[-1]
+        key = f"{marker.pattern}|{report}"
+        with self._lock:
+            found = marker.search(report)
+            if found is None or self._failed.get(key, 0) >= int(found.group(1)):
                 return False
-            self._failed[report] = self._failed.get(report, 0) + 1
+            self._failed[key] = self._failed.get(key, 0) + 1
             return True
 
     def _next_reply(self, text: str, context_id: str) -> tuple[str, bool]:
@@ -195,28 +209,43 @@ class ScriptedAgent:
             context_id = requested or self._open_session()
             if self._is_down(text, str(message.get("messageId", ""))):
                 return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
+            if self._fails_on_cue(TASK_FAILED_MARKER, text):
+                return _failed_task(body, context_id)
             reply, is_slow = self._next_reply(text, context_id)
             _export_tool_and_model_spans()
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
                 )
-            artifact: dict[str, Any] = {
-                "artifactId": str(uuid.uuid4()),
-                "parts": [{"text": reply}],
-                "metadata": {USAGE_KEY: scripted_usage(text)},
-            }
-            task: dict[str, Any] = {
-                "id": str(uuid.uuid4()),
-                "contextId": context_id,
-                "status": {"state": COMPLETED},
-                "artifacts": [artifact],
-            }
-            if ROLES["research"].prompt in text:
-                task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
-            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
+            return _completed_task(body, context_id, text, reply)
 
         return app
+
+
+def _completed_task(body: dict[str, Any], context_id: str, text: str, reply: str) -> JSONResponse:
+    artifact: dict[str, Any] = {
+        "artifactId": str(uuid.uuid4()),
+        "parts": [{"text": reply}],
+        "metadata": {USAGE_KEY: scripted_usage(text)},
+    }
+    task: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "contextId": context_id,
+        "status": {"state": COMPLETED},
+        "artifacts": [artifact],
+    }
+    if ROLES["research"].prompt in text:
+        task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
+    return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
+
+
+def _failed_task(body: dict[str, Any], context_id: str) -> JSONResponse:
+    status = {
+        "state": TASK_FAILED,
+        "message": {"role": "ROLE_AGENT", "parts": [{"text": TASK_FAILED_TEXT}]},
+    }
+    task = {"id": str(uuid.uuid4()), "contextId": context_id, "status": status}
+    return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
 
 def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:

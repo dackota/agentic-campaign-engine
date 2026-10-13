@@ -258,3 +258,10 @@ def test_api_and_worker_wait_for_postgres_and_temporal_before_starting() -> None
         assert init["image"] == _container(_named(docs, "Deployment", name))["image"]
         assert "postgres.ace.svc.cluster.local:5432" in init["command"], name
         assert "temporal.ace.svc.cluster.local:7233" in init["command"], name
+
+
+def test_worker_gets_the_kagent_controller_address_for_the_sandbox_cli() -> None:
+    worker = _values(_named(render(), "Deployment", "worker"))
+    assert worker["ACE_KAGENT_API_URL"] == "http://kagent-controller.kagent.svc.cluster.local:8083"
+    changed = _values(_named(render("worker.kagentApiUrl=http://k:1"), "Deployment", "worker"))
+    assert changed["ACE_KAGENT_API_URL"] == "http://k:1"

@@ -215,3 +215,37 @@ def test_worker_restart_during_parallel_writers_resumes_from_last_finished_step(
     for writer in ("writer_a", "writer_b"):
         assert statuses(events, writer)[-1] == "succeeded"
     assert len(marketo_sends(stack, campaign_id)) == 1
+
+
+def test_failed_agent_task_is_retried_as_a_failed_call(stack: Stack, api: httpx.Client) -> None:
+    name = workflow_name()
+    save_workflow(api, name, {"steps": [step("writer", "agent", retry=FAST_RETRY)], "edges": []})
+
+    # The model call fails once (a 429 at the gateway), then works.
+    created = create_on(api, name, report("[agent:task-failed-1]"))
+    done = until_status(api, created["id"], FAILED, FINISHED)
+
+    assert done["status"] == FINISHED, done.get("failure_reason")
+    # The step is retried, not sent the "fix your JSON" repair in the same attempt.
+    assert statuses(read_events(api, created["id"]), "writer") == [
+        "started",
+        "started",
+        "succeeded",
+    ]
+    # A repair is the second message of an attempt (`...:2`); a failed task gets none.
+    assert not [m for m in calls_for(stack, key_of(created, "writer")) if m.endswith(":2")]
+
+
+def test_failed_agent_task_stops_the_run_with_the_agents_own_error(
+    stack: Stack, api: httpx.Client
+) -> None:
+    name = workflow_name()
+    save_workflow(api, name, {"steps": [step("writer", "agent", retry=FAST_RETRY)], "edges": []})
+
+    created = create_on(api, name, report("[agent:task-failed-2]"))
+    failed = until_status(api, created["id"], FAILED, FINISHED)
+
+    assert failed["status"] == FAILED
+    reason = failed["failure_reason"]
+    assert "429 Too Many Requests" in reason and "2 attempts" in reason
+    assert "not valid JSON" not in reason
