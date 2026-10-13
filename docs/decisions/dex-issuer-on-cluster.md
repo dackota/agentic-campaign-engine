@@ -11,8 +11,8 @@ The API checks the token's `iss` against its configured issuer and fetches signi
 must use the same URL. On the `ace` cluster the issuer is `http://dex.ace.localhost:15656/dex`.
 Browsers and curl resolve any `*.localhost` name to 127.0.0.1, where the k3d load balancer maps
 port 15656 to Dex. Inside the cluster a k3s CoreDNS rewrite (`coredns-custom`) sends the same name
-to the Dex Service, which listens on 15656. Port 15656 is chosen because the browser seam's own Dex
-binds 15556 (`apps/web/playwright.config.ts`), and both must run at once. This needs no code change.
+to the Dex Service, which listens on 15656. Port 15656 was chosen when the browser seam's own Dex
+bound a fixed 15556; the seam now picks free ports (`apps/web/playwright.config.ts`), so both run at once. This needs no code change.
 The rejected alternative, a second "JWKS URL" setting in the API, is the fallback if the rewrite
 fails on k3s.
 
