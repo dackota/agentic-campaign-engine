@@ -9,7 +9,8 @@ waits until each run's drafting ends (waiting for approval, or failed) and write
   over the runs that finished
 - `cache_hit_rate`: agent steps served from the step cache over all agent steps
 - `lost`: runs that did not reach waiting for approval in time
-- `replies_429`: the Campaign API's 429 replies, plus runs a model 429 stopped
+- `replies_429`: the Campaign API's 429 replies, plus runs a model 429 stopped (a failure
+  reason that holds the gateway's `429 Too Many Requests`)
 
 Each team runs at most `ACE_TEAM_STEP_LIMIT` model-calling steps at once (default 8,
 docs/decisions/team-step-limit.md), so 20 campaigns of one team queue for the model instead
@@ -33,10 +34,12 @@ ACE_DEPTH=live make load LOAD_ARGS="--campaigns 20 --out load-live.json"
 ```
 
 Gateway 429s that a step retried and got past do not stop a run, so count them from the
-gateway proxy's access log for the same window (check the status field's name in one log line first):
+gateway proxy's access log for the same window. The status field is `http.status`, or
+`http.response.status_code` if the gateway's access log policy sets `preset: Otel`
+(docs/sources.md):
 
 ```
-kubectl --context k3d-ace logs -n agentgateway-system deploy/agentgateway-proxy --since=1h | grep -c 'http.status=429'
+kubectl --context k3d-ace logs -n agentgateway-system deployments/agentgateway-proxy --since=1h | grep -c 'http.status=429'
 ```
 
 | Number | Live result |

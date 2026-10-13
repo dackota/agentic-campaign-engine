@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS step_slots (
     expires_at TIMESTAMPTZ NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_step_slots_team ON step_slots (team);
+GRANT SELECT, INSERT, UPDATE, DELETE ON step_slots TO ace_team;
+ALTER TABLE step_slots ENABLE ROW LEVEL SECURITY;
+CREATE POLICY step_slots_by_team ON step_slots TO ace_team
+    USING (EXISTS (SELECT 1 FROM campaigns c
+                   WHERE c.id = campaign_id AND c.team = current_setting('ace.team', true)))
+    WITH CHECK (EXISTS (SELECT 1 FROM campaigns c
+                        WHERE c.id = campaign_id AND c.team = current_setting('ace.team', true)));
 ```
 
 `row_security.install` grants it to the team role and gives it the campaign-joined policy on

@@ -32,3 +32,17 @@ def test_load_script_runs_twenty_campaigns_and_writes_the_numbers(
     assert 0 < written["p50_seconds"] <= written["p95_seconds"]
     # Twenty campaigns on one report: the later ones reuse the earlier ones' saved steps.
     assert 0 < written["cache_hit_rate"] <= 1
+
+
+def test_only_a_model_rate_limit_counts_as_a_429_failure() -> None:
+    rate_limited = load.Run(
+        load.FAILED,
+        1.0,
+        failure_reason='step "draft" failed: llm error: "429 Too Many Requests"',
+    )
+    other = load.Run(load.FAILED, 1.0, failure_reason="budget of $4.2900 reached: id 14290")
+
+    result = load.summarize([rate_limited, other])
+
+    assert result.replies_429 == 1
+    assert result.lost == 2

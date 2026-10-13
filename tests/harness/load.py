@@ -30,6 +30,11 @@ LIVE_TIMEOUT_SECONDS = 1800
 HTTP_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 0.5
 TOO_MANY_REQUESTS = 429
+# What a step's failure reason holds when the model gateway rate-limited it: kagent passes the
+# gateway's reply through in the failed task's message.
+MODEL_429_PHRASE = "429 Too Many Requests"
+P50_PERCENT = 50
+P95_PERCENT = 95
 AWAITING = "awaiting_approval"
 FAILED = "failed"
 DRAFTING_ENDED = (AWAITING, FAILED)
@@ -76,7 +81,7 @@ def percentile(values: list[float], percent: float) -> float:
 
 
 def _is_429_failure(run: Run) -> bool:
-    return str(TOO_MANY_REQUESTS) in run.failure_reason
+    return MODEL_429_PHRASE in run.failure_reason
 
 
 def summarize(runs: list[Run]) -> LoadResult:
@@ -91,8 +96,8 @@ def summarize(runs: list[Run]) -> LoadResult:
         lost=len(runs) - len(finished),
         cost_per_campaign_usd=total_cost / len(runs) if runs else 0.0,
         total_cost_usd=total_cost,
-        p50_seconds=percentile([r.seconds for r in finished], 50),
-        p95_seconds=percentile([r.seconds for r in finished], 95),
+        p50_seconds=percentile([r.seconds for r in finished], P50_PERCENT),
+        p95_seconds=percentile([r.seconds for r in finished], P95_PERCENT),
         cache_hit_rate=sum(r.cache_hits for r in runs) / steps if steps else 0.0,
         replies_429=sum(r.replies_429 for r in runs) + sum(1 for r in runs if _is_429_failure(r)),
     )
@@ -129,10 +134,11 @@ def _run_one(api: httpx.Client, report: str, use_step_cache: bool, timeout: floa
     body: dict[str, Any] = {"status": "unknown"}
     while time.monotonic() - started < timeout:
         response = client.call(lambda a: a.get(f"/campaigns/{campaign_id}"))
-        response.raise_for_status()
-        body = response.json()
-        if body["status"] in DRAFTING_ENDED:
-            break
+        # A failed poll is asked again; only the deadline ends the run, so it is counted.
+        if response.status_code == httpx.codes.OK:
+            body = response.json()
+            if body["status"] in DRAFTING_ENDED:
+                break
         time.sleep(POLL_INTERVAL_SECONDS)
     seconds = time.monotonic() - started
     cost = body.get("cost") or {}
@@ -181,7 +187,7 @@ def _load(api: httpx.Client, options: argparse.Namespace) -> int:
     timeout = options.timeout or _default_timeout()
     result = run_load(api, options.campaigns, report, not options.no_step_cache, timeout)
     options.out.write_text(json.dumps(asdict(result), indent=2) + "\n")
-    print(json.dumps(asdict(result)))  # noqa: T201  the CLI's one line of output
+    print(json.dumps(asdict(result)))
     return 0 if result.lost == 0 else 1
 
 

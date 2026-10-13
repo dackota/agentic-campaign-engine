@@ -64,7 +64,9 @@ def test_a_team_at_its_step_limit_waits_while_another_team_runs(
     name = workflow_name("limit")
     save_workflow(team_a, name, {"steps": [step("draft", "agent")], "edges": []})
 
-    held = [create_on(team_a, name, TEAM_A_REPORT)["id"] for _ in range(TEAM_A_CAMPAIGNS)]
+    team_a_campaigns = [
+        create_on(team_a, name, TEAM_A_REPORT)["id"] for _ in range(TEAM_A_CAMPAIGNS)
+    ]
     _until(lambda: len(limited.agent.held()) >= TEAM_STEP_LIMIT, "team A at its limit")
     other = create_on(team_b, name, TEAM_B_REPORT)["id"]
     until_status(team_b, other, FINISHED)
@@ -74,5 +76,5 @@ def test_a_team_at_its_step_limit_waits_while_another_team_runs(
     limited.agent.release_held()
 
     assert running_for_a == TEAM_STEP_LIMIT
-    for campaign_id in held:
+    for campaign_id in team_a_campaigns:
         assert until_status(team_a, campaign_id, FINISHED)["draft"]
