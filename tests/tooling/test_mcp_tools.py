@@ -19,6 +19,11 @@ TEMPLATES = ROOT / "agents/templates.yaml"
 RESEARCH = "ace-research"
 WORKFRONT = "ace-mcp-workfront"
 WORKFRONT_READS = ["get_project", "search_projects", "get_task", "search_tasks"]
+LEARNINGS = "ace-mcp-learnings"
+LEARNINGS_SEARCH = "search_learnings"
+# The agents that read past learnings before they write.
+LEARNING_READERS = ("research", "email_writer", "landing_page", "social", "one_pager")
+TEAMS = ("demand-gen", "product-marketing")
 
 
 def server_tools() -> dict[str, list[dict[str, Any]]]:
@@ -46,13 +51,15 @@ def test_each_fake_has_a_remote_mcp_server_in_kagent() -> None:
     deployments = {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
     services = {d["metadata"]["name"] for d in by_kind(docs, "Service")}
 
-    assert set(remote) == set(SERVERS) and len(SERVERS) == 4
+    assert set(remote) == set(SERVERS) and len(SERVERS) == 5
     for name, server in remote.items():
         assert server["apiVersion"] == "api.kagent.dev/v1alpha3"
         assert server["metadata"]["namespace"] == "kagent"
         assert server["spec"]["protocol"] == "STREAMABLE_HTTP"
         assert server["spec"]["url"] == f"http://{name}.ace.svc.cluster.local:8000/mcp"
         assert name in deployments and name in services
+    # The learnings search reads one team's rows: each team has its own server.
+    assert {f"{LEARNINGS}-{team}" for team in TEAMS} <= deployments & services
     install = (ROOT / "platform/install.sh").read_text()
     assert install.index("agents/mcp.yaml") < install.index("agents/templates.yaml")
 
@@ -84,13 +91,21 @@ def test_check_fails_on_a_planted_write_tool() -> None:
     )
 
 
-def test_research_binds_only_workfront_reads_and_no_other_agent_binds_tools() -> None:
+def test_research_and_writers_bind_the_learnings_search_and_say_to_use_it_first() -> None:
     by_name = {t["metadata"]["name"]: t for t in templates()}
+    learnings = binding(LEARNINGS, [LEARNINGS_SEARCH])
 
-    assert by_name[RESEARCH]["spec"]["tools"] == [binding(WORKFRONT, WORKFRONT_READS)]
-    for role in ROLES.values():
-        if role.template != RESEARCH:
-            assert not by_name[role.template]["spec"].get("tools"), role.template
+    assert by_name[RESEARCH]["spec"]["tools"] == [binding(WORKFRONT, WORKFRONT_READS), learnings]
+    for step_id, role in ROLES.items():
+        tools = by_name[role.template]["spec"].get("tools")
+        if step_id == "research":
+            continue
+        if step_id in LEARNING_READERS:
+            assert tools == [learnings], role.template
+        else:
+            assert not tools, role.template
+    for step_id in LEARNING_READERS:
+        assert f"Before you write, call the {LEARNINGS_SEARCH} tool" in ROLES[step_id].prompt
     assert "get_project" in ROLES["research"].prompt
 
 

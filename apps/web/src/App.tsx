@@ -22,6 +22,7 @@ import {
 import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
+import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
@@ -485,6 +486,32 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   );
 }
 
+type View = "campaigns" | "builder" | "inbox" | "learnings";
+
+function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
+  return (
+    <nav>
+      <button type="button" onClick={() => onView("campaigns")}>
+        Campaigns
+      </button>{" "}
+      <button type="button" onClick={() => onView("builder")}>
+        Workflow builder
+      </button>{" "}
+      <button type="button" onClick={() => onView("learnings")}>
+        Learnings
+      </button>
+      {me.roles.includes("approver") && (
+        <>
+          {" "}
+          <button type="button" onClick={() => onView("inbox")}>
+            Inbox
+          </button>
+        </>
+      )}
+    </nav>
+  );
+}
+
 interface WorkspaceProps {
   me: Me;
   onSignOut: () => void;
@@ -496,34 +523,26 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
   const [linkedCampaign] = useState(takeInboxLink);
-  const [view, setView] = useState<"campaigns" | "builder" | "inbox">(
-    linkedCampaign ? "inbox" : "campaigns",
-  );
+  const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
 
   return (
     <main>
       <SignedInBar email={me.email} onSignOut={onSignOut} />
       <AlertBanner onSignedOut={onSignOut} />
-      <nav>
-        <button type="button" onClick={() => setView("campaigns")}>
-          Campaigns
-        </button>{" "}
-        <button type="button" onClick={() => setView("builder")}>
-          Workflow builder
-        </button>
-        {me.roles.includes("approver") && (
-          <>
-            {" "}
-            <button type="button" onClick={() => setView("inbox")}>
-              Inbox
-            </button>
-          </>
-        )}
-      </nav>
+      <ViewNav me={me} onView={setView} />
       {view === "builder" ? (
         <Builder />
       ) : view === "inbox" ? (
         <Inbox onSignOut={onSignOut} linkedCampaign={linkedCampaign} />
+      ) : view === "learnings" ? (
+        <Learnings
+          canDelete={me.roles.includes("approver")}
+          onOpenCampaign={(id) => {
+            setView("campaigns");
+            void run.open(id);
+          }}
+          onSignOut={onSignOut}
+        />
       ) : (
         <Campaigns
           me={me}

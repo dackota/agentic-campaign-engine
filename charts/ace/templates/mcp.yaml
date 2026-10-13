@@ -2,6 +2,8 @@
 One read-only MCP server per fake (services/mcp/ace_mcp), each its own Deployment and
 Service, named like its kagent RemoteMCPServer in agents/mcp.yaml. A server reads its fake
 over the fake's own API; none writes.
+The learnings search reads the database as one team, so it runs once per team
+(ace-mcp-learnings-<team>), plus once as no team for the copy in kagent, which finds nothing.
 */ -}}
 {{- $root := . -}}
 {{- $servers := list
@@ -19,6 +21,16 @@ over the fake's own API; none writes.
     (dict "name" "ACE_S3_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.s3.serviceName)) .Values.s3.port))
     (dict "name" "ACE_S3_BUCKET" "value" .Values.s3.bucket)))
 -}}
+{{- $databaseUrl := include "ace.databaseUrl" . -}}
+{{- range $team := prepend .Values.learnings.teams "" }}
+{{- $servers = append $servers (dict "name" (ternary "learnings" (printf "learnings-%s" $team) (eq $team "")) "module" "learnings" "env" (list
+    (dict "name" "ACE_TEAM" "value" $team)
+    (dict "name" "ACE_DEPTH" "value" $root.Values.depth)
+    (dict "name" "ACE_DATABASE_URL" "value" $databaseUrl)
+    (dict "name" "ACE_DATABASE_PASSWORD" "secretKey" "postgres-password")
+    (dict "name" "ACE_EMBEDDING_URL" "value" $root.Values.learnings.embeddingUrl)
+    (dict "name" "ACE_EMBEDDING_MODEL" "value" $root.Values.learnings.embeddingModel))) }}
+{{- end }}
 {{- range $server := $servers }}
 {{- $name := printf "ace-mcp-%s" $server.name }}
 {{- $labels := include "ace.labels" (list $root $name) }}
@@ -43,7 +55,7 @@ spec:
         - name: {{ $name }}
           {{- include "ace.pythonImage" $root | nindent 10 }}
           command:
-            {{- include "ace.pythonCommand" (list $root (printf "ace_mcp.%s" $server.name)) | trim | nindent 12 }}
+            {{- include "ace.pythonCommand" (list $root (printf "ace_mcp.%s" ($server.module | default $server.name))) | trim | nindent 12 }}
           ports:
             - name: http
               containerPort: 8000

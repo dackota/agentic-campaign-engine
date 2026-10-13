@@ -78,6 +78,15 @@ def settings_from_env(environ: Mapping[str, str], *, is_api: bool) -> Settings:
     )
 
 
+def database_url_from_env(environ: Mapping[str, str]) -> str:
+    """`ACE_DATABASE_URL` with `ACE_DATABASE_PASSWORD` put in when it is set. Fails naming
+    the variable, never its value, when the URL is unset or malformed."""
+    name = env_name("database_url")
+    if name not in environ:
+        raise ValueError(f"{name} is required: set it in the environment")
+    return _with_database_password(environ)[name]
+
+
 def _with_database_password(environ: Mapping[str, str]) -> Mapping[str, str]:
     """`environ`, or a new mapping whose database URL carries `ACE_DATABASE_PASSWORD`."""
     url_name = env_name("database_url")

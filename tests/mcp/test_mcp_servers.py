@@ -140,7 +140,8 @@ def test_every_server_lists_only_read_only_tools_and_never_writes_upstream() -> 
         "ace-mcp-assets": assets.create_app(client, "bucket"),
     }
 
-    assert set(apps) == set(SERVERS)
+    # The learnings server reads the database, not an upstream: tests/api/test_learnings.py.
+    assert set(apps) == set(SERVERS) - {"ace-mcp-learnings"}
     for name, app in apps.items():
         mcp = TestClient(app)
         tools = listed(mcp)
