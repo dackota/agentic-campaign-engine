@@ -36,4 +36,5 @@ These came out of slices, not the planning table.
 | [asset-approval.md](asset-approval.md) | Each asset is approved on its own |
 | [dashboards-and-alerts.md](dashboards-and-alerts.md) | Dashboards and alerts are files; a webhook shows them in the app |
 | [one-trace-per-campaign.md](one-trace-per-campaign.md) | One trace follows a campaign from start to publish |
+| [team-isolation.md](team-isolation.md) | The #40 review: trace joins are team-scoped; the shared-workflow write, the webhooks, and the namespaces are accepted |
 | [token-usage-per-campaign.md](token-usage-per-campaign.md) | Token use ties to a campaign through A2A usage data |
