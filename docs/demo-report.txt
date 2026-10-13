@@ -1,0 +1,3 @@
+Acme Security: fake delivery notices steal staff logins
+Criminals email delivery notices that look like they come from a courier. The link opens a copy of the staff sign-in page. Staff who type their password hand it to the criminals, who then read mail and files.
+Turn on a second sign-in step for every account and send odd delivery notices to the security desk.

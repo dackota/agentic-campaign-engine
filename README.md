@@ -21,10 +21,25 @@ The only outside need is a model key.
 
 ## Demo
 
-The demo GIF is owed. It needs a screen recorder and a GIF converter; neither is on the
-machine that wrote this page, and nothing was installed system-wide to get one. The
-recording is one campaign from threat report to approval, made from the fast stack with
-Playwright and saved as `docs/demo.gif` (under 5 MB).
+The demo shows one Acme Security campaign from threat report to results: paste the report,
+watch the agents draft, read the judge's scores, approve as a second person, then see the
+A/B winner and the learning it leaves. The spoken script (about four minutes) is
+[docs/demo-script.md](docs/demo-script.md); the report to paste is `docs/demo-report.txt`.
+
+Seed the demo data with one command:
+
+    make seed-demo
+
+It loads one finished past campaign for each demo team through the Campaign API, and does
+nothing for a team that already has it, so running it twice makes no duplicates. With no
+`SEED_ARGS` it seeds a fast-depth stack and prints the steps and judge scores, which are the
+same on every run. To seed a running API, pass
+`SEED_ARGS="--api-url <url> --tokens-file <file>"`, where the file maps each demo user's email
+to a token.
+
+Video: [Watch the demo video](https://example.com/owed-demo-video). The link is a
+placeholder: the recording is owed, and the user adds the real link here once it is made. The demo GIF is owed too: it needs a screen recorder and a GIF converter,
+and would be saved as `docs/demo.gif` (under 5 MB).
 
 ## Job bullet to proof
 
