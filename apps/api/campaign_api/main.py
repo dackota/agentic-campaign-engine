@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
-from ace_engine import cost, db, row_security, telemetry
+from ace_engine import cost, db, learnings, row_security, telemetry
 from ace_engine import dag as graph
 from ace_engine.settings import (
     APPROVE_SIGNAL,
@@ -48,6 +48,7 @@ from campaign_api.auth import (
 )
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
 from campaign_api.inbox import register_inbox_routes
+from campaign_api.learning_routes import register_learning_routes
 from campaign_api.trace_middleware import install_campaign_trace
 from campaign_api.trace_middleware import remember as remember_trace
 from campaign_api.webhook_routes import (
@@ -587,6 +588,9 @@ def create_app(settings: Settings) -> FastAPI:
         app.state.engine = db.make_engine(settings.database_url)
         await run_in_threadpool(row_security.install, app.state.engine)
         await run_in_threadpool(seed_default_workflow, app.state.engine)
+        app.state.embed = learnings.embedder_for(
+            settings.depth, settings.embedding_url, settings.embedding_model
+        )
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
             settings.temporal_address,
@@ -616,5 +620,6 @@ def create_app(settings: Settings) -> FastAPI:
     _add_preview_route(app)
     _add_asset_preview_route(app)
     register_workflow_routes(app)
+    register_learning_routes(app)
 
     return app

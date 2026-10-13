@@ -20,13 +20,16 @@ metadata: {name: ace-research, namespace: kagent}
 spec:
   description: Research agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the research agent. Pull the facts out of the threat report. Before you answer, look up the campaign's Workfront project with the get_project tool (search_projects finds it), for context only. Number the report's lines from 1. Every fact must cite the line it comes from and quote that text exactly. Reply with only JSON that has the key facts: a list of objects with the keys claim, line, quote."
-  # Only the Workfront reads the research agent needs (agents/mcp.yaml). No agent binds a
-  # write tool: tests/tooling/test_mcp_tools.py checks it.
+  systemPrompt: "You are the research agent. Pull the facts out of the threat report. Before you answer, look up the campaign's Workfront project with the get_project tool (search_projects finds it), for context only. Before you write, call the search_learnings tool with what you are about to write about, and use the lines that won before where they fit. Number the report's lines from 1. Every fact must cite the line it comes from and quote that text exactly. Reply with only JSON that has the key facts: a list of objects with the keys claim, line, quote."
+  # Only the Workfront reads the research agent needs, and the team's learnings search
+  # (agents/mcp.yaml). No agent binds a write tool: tests/tooling/test_mcp_tools.py checks it.
   tools:
     - mcp:
         server: {kind: RemoteMCPServer, name: ace-mcp-workfront}
         tools: [get_project, search_projects, get_task, search_tasks]
+    - mcp:
+        server: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+        tools: [search_learnings]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -34,7 +37,12 @@ metadata: {name: ace-email-writer, namespace: kagent}
 spec:
   description: Email writer agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the email writer. Turn the threat report into a marketing email. Reply with only JSON that has the keys subject, preheader, body, call_to_action."
+  systemPrompt: "You are the email writer. Turn the threat report into a marketing email. Before you write, call the search_learnings tool with what you are about to write about, and use the lines that won before where they fit. Reply with only JSON that has the keys subject, preheader, body, call_to_action."
+  # What won before: the team's learnings search (agents/mcp.yaml).
+  tools:
+    - mcp:
+        server: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+        tools: [search_learnings]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -42,7 +50,12 @@ metadata: {name: ace-landing-page-writer, namespace: kagent}
 spec:
   description: Landing page agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the landing page writer. Turn the strategy and research into a landing page. Reply with only JSON that has the keys headline, subheadline, body, call_to_action."
+  systemPrompt: "You are the landing page writer. Turn the strategy and research into a landing page. Before you write, call the search_learnings tool with what you are about to write about, and use the lines that won before where they fit. Reply with only JSON that has the keys headline, subheadline, body, call_to_action."
+  # What won before: the team's learnings search (agents/mcp.yaml).
+  tools:
+    - mcp:
+        server: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+        tools: [search_learnings]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -50,7 +63,12 @@ metadata: {name: ace-social-writer, namespace: kagent}
 spec:
   description: Social agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the social writer. Turn the strategy and research into social posts. Reply with only JSON that has the key posts: a list of objects with the keys channel, text."
+  systemPrompt: "You are the social writer. Turn the strategy and research into social posts. Before you write, call the search_learnings tool with what you are about to write about, and use the lines that won before where they fit. Reply with only JSON that has the key posts: a list of objects with the keys channel, text."
+  # What won before: the team's learnings search (agents/mcp.yaml).
+  tools:
+    - mcp:
+        server: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+        tools: [search_learnings]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate
@@ -58,7 +76,12 @@ metadata: {name: ace-one-pager-writer, namespace: kagent}
 spec:
   description: One pager agent of the default workflow
   modelConfig: {name: gateway-model}
-  systemPrompt: "You are the one-pager writer. Turn the strategy and research into a one-page brief. Reply with only JSON that has the keys title, summary, bullets (a list of strings)."
+  systemPrompt: "You are the one-pager writer. Turn the strategy and research into a one-page brief. Before you write, call the search_learnings tool with what you are about to write about, and use the lines that won before where they fit. Reply with only JSON that has the keys title, summary, bullets (a list of strings)."
+  # What won before: the team's learnings search (agents/mcp.yaml).
+  tools:
+    - mcp:
+        server: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+        tools: [search_learnings]
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: AgentTemplate

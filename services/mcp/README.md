@@ -9,6 +9,9 @@ with `python -m ace_mcp.<workfront|marketo|cms|assets>`; it reads its fake over 
 - `marketo`: `list_programs`, `get_program`
 - `cms`: `list_pages`, `get_page`
 - `assets`: `list_assets`, `get_asset`
+- `learnings`: `search_learnings`. It reads the database, not a fake: one runs per team
+  (`ACE_TEAM`) and searches only that team's learnings under row-level security
+  (docs/decisions/learnings-store.md)
 
 A tool can only GET, and `tools/list` marks every tool `readOnlyHint: true`.
 `tests/tooling/test_mcp_tools.py` fails when an AgentTemplate binds a tool that is not a read.

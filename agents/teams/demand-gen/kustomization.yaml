@@ -17,3 +17,9 @@ patches:
     - op: replace
       path: /spec/modelConfig/name
       value: demand-gen-model
+# The team's agents search only the team's learnings: its own server (charts/ace).
+- target: {kind: RemoteMCPServer, name: ace-mcp-learnings}
+  patch: |-
+    - op: replace
+      path: /spec/url
+      value: http://ace-mcp-learnings-demand-gen.ace.svc.cluster.local:8000/mcp

@@ -65,6 +65,10 @@ imagePullPolicy: {{ .Values.python.image.pullPolicy }}
   value: {{ printf "%s:%v" (include "ace.host" (list . .Values.temporal.serviceName)) .Values.temporal.port | quote }}
 - name: ACE_TEMPORAL_NAMESPACE
   value: {{ .Values.temporal.namespace | quote }}
+- name: ACE_EMBEDDING_URL
+  value: {{ .Values.learnings.embeddingUrl | quote }}
+- name: ACE_EMBEDDING_MODEL
+  value: {{ .Values.learnings.embeddingModel | quote }}
 - name: ACE_AGENT_URL
   value: {{ .Values.worker.agentUrl | quote }}
 - name: ACE_AGENT_TIMEOUT_SECONDS
