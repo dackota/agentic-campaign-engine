@@ -1,0 +1,51 @@
+{
+  "depth": "fast",
+  "floor": 3,
+  "agreed": 4,
+  "total": 6,
+  "rate": 0.6667,
+  "rows": [
+    {
+      "id": "calm-routers",
+      "step": "landing_page",
+      "human": "acceptable",
+      "score": 5,
+      "agrees": true
+    },
+    {
+      "id": "calm-phishing",
+      "step": "landing_page",
+      "human": "acceptable",
+      "score": 5,
+      "agrees": true
+    },
+    {
+      "id": "calm-ransomware",
+      "step": "one_pager",
+      "human": "acceptable",
+      "score": 5,
+      "agrees": true
+    },
+    {
+      "id": "calm-supply-chain",
+      "step": "social",
+      "human": "acceptable",
+      "score": 5,
+      "agrees": true
+    },
+    {
+      "id": "overclaim-guarantee",
+      "step": "landing_page",
+      "human": "not acceptable",
+      "score": 5,
+      "agrees": false
+    },
+    {
+      "id": "overclaim-panic",
+      "step": "landing_page",
+      "human": "not acceptable",
+      "score": 5,
+      "agrees": false
+    }
+  ]
+}

@@ -12,7 +12,9 @@ from typing import Any
 
 import httpx
 
+from evals.agreement import LABELS_PATH, depth, load_labels, measure, write
 from evals.checks import CheckResult, check_asset, texts
+from evals.gate import BASELINE_PATH, compare, load_baseline, render_verdict, write_baseline
 from evals.golden import GoldenReport, load_golden
 from evals.report import render
 
@@ -48,6 +50,9 @@ class ReportResult:
     assets: list[AssetResult]
     research: AssetResult | None = field(default=None)
     error: str = ""
+    judge_scores: dict[str, int] = field(default_factory=dict)
+    cache_hits: int = 0
+    agent_steps: int = 0
 
     @property
     def passed(self) -> bool:
@@ -66,18 +71,18 @@ def _timeout_seconds() -> int:
     return LIVE_TIMEOUT_SECONDS if os.environ.get("ACE_DEPTH") == "live" else FAST_TIMEOUT_SECONDS
 
 
-def _wait(api: httpx.Client, campaign_id: str, timeout: float) -> str:
-    """Poll until drafting ends; the last status seen if it never does."""
+def wait_for(api: httpx.Client, campaign_id: str, timeout: float) -> dict[str, Any]:
+    """Poll until drafting ends; the last campaign body seen if it never does."""
     deadline = time.monotonic() + timeout
-    status = "unknown"
+    body: dict[str, Any] = {"status": "unknown"}
     while time.monotonic() < deadline:
         response = api.get(f"/campaigns/{campaign_id}")
         response.raise_for_status()
-        status = str(response.json()["status"])
-        if status in (AWAITING, FAILED):
-            return status
+        body = response.json()
+        if body["status"] in (AWAITING, FAILED):
+            return body
         time.sleep(POLL_INTERVAL_SECONDS)
-    return status
+    return body
 
 
 def _outputs(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
@@ -92,14 +97,24 @@ def _grade_step(entry: GoldenReport, step: str, outputs: dict[str, Any]) -> Asse
     return AssetResult(step, check_asset(step, outputs[step], entry.report))
 
 
-def _grade(entry: GoldenReport, status: str, outputs: dict[str, Any]) -> ReportResult:
+def _grade(entry: GoldenReport, body: dict[str, Any], outputs: dict[str, Any]) -> ReportResult:
     assets = [_grade_step(entry, step, outputs) for step in ASSET_STEPS]
     research = _grade_step(entry, RESEARCH_STEP, outputs)
     written = " ".join(
         t.lower() for step in (*ASSET_STEPS, RESEARCH_STEP) for t in texts(outputs.get(step))
     )
     key_facts = {fact: fact.lower() in written for fact in entry.key_facts}
-    return ReportResult(entry.id, status, key_facts, assets, research)
+    cost_steps = body.get("cost", {}).get("steps", [])
+    return ReportResult(
+        entry.id,
+        str(body["status"]),
+        key_facts,
+        assets,
+        research,
+        judge_scores={s["step"]: s["score"] for s in body.get("scores", [])},
+        cache_hits=sum(1 for s in cost_steps if s.get("cache_hit")),
+        agent_steps=len(cost_steps),
+    )
 
 
 def run_golden(
@@ -113,20 +128,58 @@ def run_golden(
 def _run_one(api: httpx.Client, entry: GoldenReport, wait: float) -> ReportResult:
     """One report's run; an HTTP failure becomes a failed result, not an aborted run."""
     try:
-        created = api.post("/campaigns", json={"report": entry.report, "workflow": WORKFLOW})
+        created = api.post(
+            "/campaigns",
+            json={"report": entry.report, "workflow": WORKFLOW, "use_step_cache": True},
+        )
         created.raise_for_status()
         campaign_id = created.json()["id"]
-        status = _wait(api, campaign_id, wait)
-        return _grade(entry, status, _outputs(api, campaign_id))
+        body = wait_for(api, campaign_id, wait)
+        return _grade(entry, body, _outputs(api, campaign_id))
     except httpx.HTTPError as err:
         return ReportResult(entry.id, "error", {}, [], error=str(err))
 
 
-def main(argv: list[str] | None = None) -> int:
+def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="evals", description="Run the golden set.")
     parser.add_argument("--api-url", default=os.environ.get(URL_ENV))
     parser.add_argument("--out", type=Path, help="also write the report to this file")
     parser.add_argument("--limit", type=int, help="run only the first N golden reports")
+    parser.add_argument(
+        "--baseline", type=Path, help="compare each report to this baseline; fail on a drop"
+    )
+    parser.add_argument(
+        "--update-baseline",
+        action="store_true",
+        help="rewrite the baseline (evals/baseline.json unless --baseline) from this run",
+    )
+    parser.add_argument("--labels", type=Path, default=LABELS_PATH, help="hand-labeled assets")
+    parser.add_argument(
+        "--agreement-out", type=Path, help="measure judge agreement and write it to this file"
+    )
+    return parser
+
+
+def _gate_text(args: argparse.Namespace, results: list[ReportResult]) -> tuple[str, bool]:
+    """The gate's text and whether it holds; the baseline is rewritten only on request."""
+    path: Path | None = args.baseline or (BASELINE_PATH if args.update_baseline else None)
+    if path is None:
+        return "", True
+    if args.update_baseline:
+        write_baseline(path, results)
+        return f"gate: baseline {path} updated from this run\n", True
+    verdict = compare(load_baseline(path), results)
+    return render_verdict(verdict), verdict.passed
+
+
+def _cache_text(results: list[ReportResult]) -> str:
+    hits = sum(r.cache_hits for r in results)
+    steps = sum(r.agent_steps for r in results)
+    return f"step cache: {hits} of {steps} agent steps reused, {steps - hits} called the model\n"
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = _parser()
     args = parser.parse_args(argv)
     token = os.environ.get(TOKEN_ENV)
     if not args.api_url or not token:
@@ -140,8 +193,12 @@ def main(argv: list[str] | None = None) -> int:
         headers={"Authorization": f"Bearer {token}"},
     ) as api:
         results = run_golden(api, golden)
-    text = render(results)
+        if args.agreement_out:
+            found = measure(api, load_labels(args.labels), _timeout_seconds())
+            write(args.agreement_out, found, depth())
+    gate, holds = _gate_text(args, results)
+    text = render(results) + _cache_text(results) + gate
     if args.out:
         args.out.write_text(text)
     sys.stdout.write(text)
-    return 0 if results and all(r.passed for r in results) else 1
+    return 0 if results and holds and all(r.passed for r in results) else 1
