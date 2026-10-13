@@ -584,7 +584,7 @@ def _add_campaign_routes(app: FastAPI) -> None:
         traceparent = telemetry.current_traceparent()
         created = await run_in_threadpool(_insert, engine, campaign, traceparent)
         if traceparent is not None:
-            remember_trace(campaign.id, traceparent)
+            remember_trace(campaign.id, user.team, traceparent)
         with telemetry.span(SERVICE, "campaign.start"):
             await request.app.state.temporal.start_workflow(
                 WORKFLOW_NAME,
@@ -624,7 +624,7 @@ def create_app(settings: Settings) -> FastAPI:
 
     app = FastAPI(lifespan=lifespan)
     telemetry.instrument_app(app, SERVICE)
-    install_campaign_trace(app)
+    install_campaign_trace(app, settings)
 
     @app.get("/healthz")
     def healthz() -> dict[str, str]:
