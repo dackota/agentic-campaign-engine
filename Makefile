@@ -18,7 +18,7 @@ fmt: ## Format Python and fix lint
 	uv run ruff format .
 
 test: ## Run both seams at fast depth (needs only Docker) and the web unit tests; live spike tests also run when k3d-ace-spike is up (they spend OpenCode Go tokens)
-	uv run pytest
+	uv run pytest -n 4 --dist loadfile
 	pnpm install --frozen-lockfile
 	pnpm --filter web test
 	pnpm --filter web exec playwright install --with-deps chromium

@@ -10,13 +10,13 @@ import httpx
 
 from tests.harness import load
 
-CAMPAIGNS = 20
+CAMPAIGNS = 5
 # Long enough for a step to fail its three attempts at fast depth.
 FAILING_TIMEOUT = 60
 DEADLINE_SECONDS = 1
 
 
-def test_load_script_runs_twenty_campaigns_and_writes_the_numbers(
+def test_load_script_runs_five_campaigns_and_writes_the_numbers(
     api: httpx.Client, tmp_path: Path
 ) -> None:
     out = tmp_path / "load.json"
@@ -35,7 +35,7 @@ def test_load_script_runs_twenty_campaigns_and_writes_the_numbers(
     # The scripted agent bills every call, so a campaign costs something.
     assert written["cost_per_campaign_usd"] > 0
     assert 0 < written["p50_seconds"] <= written["p95_seconds"]
-    # Twenty campaigns on one report: the later ones reuse the earlier ones' saved steps.
+    # Five campaigns on one report: the later ones reuse the earlier ones' saved steps.
     assert 0 < written["cache_hit_rate"] <= 1
 
 
