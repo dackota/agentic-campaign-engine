@@ -41,6 +41,7 @@ class Invocation:
 
 A2A_VERSION = "1.0"
 USAGE_KEY = "kagent.dev/a2a/usage"
+TASK_FAILED = "TASK_STATE_FAILED"
 # kagent marks the A2A parts that record a tool call: `metadata.kagent_type` is
 # "function_call" and `data.name` is the tool.
 PART_TYPE_KEY = "kagent_type"
@@ -102,6 +103,10 @@ async def _send(
         task: dict[str, Any] = body["result"]["task"]
     except (KeyError, TypeError) as exc:
         raise AgentCallFailed(f"agent reply has no task: {body!r}") from exc
+    # kagent answers a failed model call (a 429 or 403 at the gateway) with a failed task whose
+    # status message holds the error. That is a failed call to retry, not a reply to repair.
+    if (task.get("status") or {}).get("state") == TASK_FAILED:
+        raise AgentCallFailed(f"agent task failed: {_reply_text(task)}")
     return task
 
 
