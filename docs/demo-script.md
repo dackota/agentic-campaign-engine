@@ -59,8 +59,9 @@ there is proof of what was sent.
 On screen: the `A/B result` line on the campaign, then the `Learnings` page and the `Dashboard`.
 
 We always send two versions of the email to different slices of the audience. After a while the
-system counts opens and clicks and calls a winner, with a confidence level. The page shows which version won. That a learning, in plain words, saved for the team. The next time a helper
-drafts for this team, it reads those learnings first. So the second campaign starts smarter
+system counts opens and clicks and calls a winner, with a confidence level. The page
+shows which version won. That result becomes a learning, in plain words, saved for the
+team. The next time a helper drafts for this team, it reads those learnings first. So the second campaign starts smarter
 than the first. The dashboard shows the click rate climbing across campaigns, and an approver
 can delete a learning that looks wrong.
 
