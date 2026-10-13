@@ -30,8 +30,9 @@ LIVE_TIMEOUT_SECONDS = 1800
 HTTP_TIMEOUT_SECONDS = 30
 POLL_INTERVAL_SECONDS = 0.5
 TOO_MANY_REQUESTS = 429
-# What a step's failure reason holds when the model gateway rate-limited it: kagent passes the
-# gateway's reply through in the failed task's message.
+# What a step's failure reason holds when the model gateway rate-limited it: kagent's failed
+# task carries the gateway's reply in its status message. Not yet seen live: taken from the
+# scripted agent's failed task (docs/sources.md); the live check confirms it.
 MODEL_429_PHRASE = "429 Too Many Requests"
 P50_PERCENT = 50
 P95_PERCENT = 95
@@ -69,6 +70,8 @@ class LoadResult:
     p95_seconds: float
     cache_hit_rate: float
     replies_429: int
+    # Why each lost run was lost, in the order the runs started.
+    lost_reasons: tuple[str, ...]
 
 
 def percentile(values: list[float], percent: float) -> float:
@@ -100,6 +103,7 @@ def summarize(runs: list[Run]) -> LoadResult:
         p95_seconds=percentile([r.seconds for r in finished], P95_PERCENT),
         cache_hit_rate=sum(r.cache_hits for r in runs) / steps if steps else 0.0,
         replies_429=sum(r.replies_429 for r in runs) + sum(1 for r in runs if _is_429_failure(r)),
+        lost_reasons=tuple(r.failure_reason or r.status for r in runs if r.status != AWAITING),
     )
 
 
@@ -132,10 +136,15 @@ def _run_one(api: httpx.Client, report: str, use_step_cache: bool, timeout: floa
         return Run(f"create_failed_{created.status_code}", 0.0, replies_429=client.replies_429)
     campaign_id = created.json()["id"]
     body: dict[str, Any] = {"status": "unknown"}
+    poll_error = ""
     while time.monotonic() - started < timeout:
         response = client.call(lambda a: a.get(f"/campaigns/{campaign_id}"))
-        # A failed poll is asked again; only the deadline ends the run, so it is counted.
-        if response.status_code == httpx.codes.OK:
+        # A failed poll is asked again, and the last one is kept as the reason if the run
+        # never ends; only the deadline ends the run, so it is counted.
+        if response.status_code != httpx.codes.OK:
+            poll_error = f"; the last poll answered {response.status_code}"
+        else:
+            poll_error = ""
             body = response.json()
             if body["status"] in DRAFTING_ENDED:
                 break
@@ -150,8 +159,15 @@ def _run_one(api: httpx.Client, report: str, use_step_cache: bool, timeout: floa
         agent_steps=len(steps),
         cache_hits=sum(1 for s in steps if s.get("cache_hit")),
         replies_429=client.replies_429,
-        failure_reason=str(body.get("failure_reason") or ""),
+        failure_reason=_reason(body, timeout, poll_error),
     )
+
+
+def _reason(body: dict[str, Any], timeout: float, poll_error: str) -> str:
+    """Why the run is lost: the campaign's own failure reason, or the deadline it missed."""
+    if body["status"] in DRAFTING_ENDED:
+        return str(body.get("failure_reason") or "")
+    return f"drafting did not end within {timeout:g}s (status {body['status']}){poll_error}"
 
 
 def run_load(
