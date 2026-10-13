@@ -77,7 +77,7 @@ def test_a_reply_the_script_cannot_read_loses_the_run_with_a_reason(
 
 
 def test_a_good_reply_is_counted_as_finished(tmp_path: Path) -> None:
-    campaign = {"status": load.AWAITING, "failure_reason": None, "cost": GOOD_COST}
+    campaign: Reply = {"status": load.AWAITING, "failure_reason": None, "cost": GOOD_COST}
 
     with _api_answering(lambda: campaign) as api:
         exit_code, written = _load(tmp_path, api)
