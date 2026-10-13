@@ -12,10 +12,11 @@ import re
 import uuid
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
-from sqlalchemy import cast, delete, select
+from sqlalchemy import cast, select, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -47,6 +48,20 @@ def stand_in_embedding(text: str) -> list[float]:
     return [x / norm for x in counts]
 
 
+def _embedding_of(response: httpx.Response) -> list[float]:
+    """The first embedding of an OpenAI-shaped reply, or a ValueError naming the gateway."""
+    try:
+        data = response.json().get("data")
+        embedding = data[0]["embedding"] if isinstance(data, list) and data else None
+    except (ValueError, AttributeError, KeyError, TypeError):
+        embedding = None
+    if not isinstance(embedding, list) or not all(
+        isinstance(x, int | float) and not isinstance(x, bool) for x in embedding
+    ):
+        raise ValueError("the gateway's embedding reply has no list of numbers at data[0]")
+    return [float(x) for x in embedding]
+
+
 class GatewayEmbedder:
     """Embeddings from the model gateway's OpenAI-shaped `/embeddings` route. The gateway
     holds the provider key, so this sends none."""
@@ -62,7 +77,7 @@ class GatewayEmbedder:
             json={"model": self._model, "input": text, "dimensions": db.EMBEDDING_DIMENSIONS},
         )
         response.raise_for_status()
-        vector = [float(x) for x in response.json()["data"][0]["embedding"]]
+        vector = _embedding_of(response)
         if len(vector) != db.EMBEDDING_DIMENSIONS:
             raise ValueError(
                 f"the gateway returned {len(vector)} numbers, not {db.EMBEDDING_DIMENSIONS}"
@@ -70,14 +85,16 @@ class GatewayEmbedder:
         return vector
 
 
+# How long the owner's HTTP client waits for the gateway's embedding.
 EMBED_TIMEOUT_SECONDS = 30.0
 
 
-def embedder_for(depth: Depth, url: str, model: str) -> Embed:
-    """The stand-in at fast depth or when no gateway is set; the gateway otherwise."""
+def embedder_for(depth: Depth, url: str, model: str, client: httpx.Client) -> Embed:
+    """The stand-in at fast depth or when no gateway is set; the gateway otherwise, over
+    `client`, which the caller owns and closes."""
     if depth is Depth.FAST or not url.strip() or not model.strip():
         return stand_in_embedding
-    return GatewayEmbedder(httpx.Client(timeout=EMBED_TIMEOUT_SECONDS), url, model)
+    return GatewayEmbedder(client, url, model)
 
 
 @dataclass(frozen=True)
@@ -105,7 +122,7 @@ def _reason(winner: Winner) -> str:
 
 def learn_from_winner(engine: Engine, campaign_id: uuid.UUID, winner: Winner, embed: Embed) -> bool:
     """Keep the campaign's winning lines as its one learning. False when the campaign has a
-    learning already, or has no winning email to learn from."""
+    learning already (a deleted one too), or has no winning email to learn from."""
     with Session(engine) as session:
         if session.scalar(select(db.Learning.id).where(db.Learning.campaign_id == campaign_id)):
             return False
@@ -151,6 +168,7 @@ def list_learnings(engine: Engine) -> list[Found]:
         rows = session.execute(
             select(db.Learning, db.Campaign.report)
             .join(db.Campaign, db.Campaign.id == db.Learning.campaign_id)
+            .where(db.Learning.deleted_at.is_(None))
             .order_by(db.Learning.created_at.desc())
         )
         return [Found(learning, _title(report)) for learning, report in rows]
@@ -165,6 +183,7 @@ def search(engine: Engine, query: str, embed: Embed, limit: int = SEARCH_LIMIT) 
         rows = session.execute(
             select(db.Learning, db.Campaign.report)
             .join(db.Campaign, db.Campaign.id == db.Learning.campaign_id)
+            .where(db.Learning.deleted_at.is_(None))
             # Among equally near learnings, the newest first.
             .order_by(distance, db.Learning.created_at.desc())
             .limit(limit)
@@ -173,7 +192,12 @@ def search(engine: Engine, query: str, embed: Embed, limit: int = SEARCH_LIMIT) 
 
 
 def remove(engine: Engine, learning_id: uuid.UUID) -> bool:
-    """Delete one learning; False when the engine cannot see it."""
+    """Delete one learning from the view and the search; False when the engine cannot see
+    it. The row is kept, marked deleted, so the campaign never learns it again."""
     with Session(engine) as session, session.begin():
-        result = session.execute(delete(db.Learning).where(db.Learning.id == learning_id))
+        result = session.execute(
+            update(db.Learning)
+            .where(db.Learning.id == learning_id, db.Learning.deleted_at.is_(None))
+            .values(deleted_at=datetime.now(UTC))
+        )
         return result.rowcount == 1  # type: ignore[attr-defined,no-any-return]

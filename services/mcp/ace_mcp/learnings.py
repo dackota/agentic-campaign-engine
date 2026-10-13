@@ -8,10 +8,12 @@ import os
 from collections.abc import Callable, Mapping
 from typing import Any
 
+import httpx
 from ace_engine import db, learnings, row_security
+from ace_engine.env import database_url_from_env
 from ace_engine.settings import Depth
 from fastapi import FastAPI
-from sqlalchemy.engine import Engine, make_url
+from sqlalchemy.engine import Engine
 
 from ace_mcp.server import Reader, Tool, schema, serve
 from ace_mcp.server import create_app as build_app
@@ -65,22 +67,19 @@ def create_app(engine: Engine, team: str, embed: learnings.Embed) -> FastAPI:
     return build_app(NAME, tools_for(lambda q: learnings.search(team_engine, q, embed)), Reader())
 
 
-def app_from_env(environ: Mapping[str, str] = os.environ) -> FastAPI:
-    url = make_url(environ["ACE_DATABASE_URL"])
-    password = environ.get("ACE_DATABASE_PASSWORD")
-    if password is not None:
-        url = url.set(password=password)
+def app_from_env(client: httpx.Client, environ: Mapping[str, str] = os.environ) -> FastAPI:
+    """The server the environment describes; embeddings go over `client`, which the caller
+    owns and closes."""
     embed = learnings.embedder_for(
         Depth.parse(environ.get("ACE_DEPTH", Depth.FAST)),
         environ.get("ACE_EMBEDDING_URL", ""),
         environ.get("ACE_EMBEDDING_MODEL", ""),
+        client,
     )
-    return create_app(
-        db.make_engine(url.render_as_string(hide_password=False)),
-        environ.get("ACE_TEAM", ""),
-        embed,
-    )
+    engine = db.make_engine(database_url_from_env(environ))
+    return create_app(engine, environ.get("ACE_TEAM", ""), embed)
 
 
 if __name__ == "__main__":
-    serve(app_from_env())
+    with httpx.Client(timeout=learnings.EMBED_TIMEOUT_SECONDS) as embed_client:
+        serve(app_from_env(embed_client))

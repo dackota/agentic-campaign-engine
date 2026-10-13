@@ -21,7 +21,7 @@ The learnings search reads the database as one team, so it runs once per team
     (dict "name" "ACE_S3_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.s3.serviceName)) .Values.s3.port))
     (dict "name" "ACE_S3_BUCKET" "value" .Values.s3.bucket)))
 -}}
-{{- $databaseUrl := printf "postgresql+psycopg://%s@%s:%v/%s" .Values.postgres.user (include "ace.host" (list . .Values.postgres.serviceName)) .Values.postgres.port .Values.postgres.database -}}
+{{- $databaseUrl := include "ace.databaseUrl" . -}}
 {{- range $team := prepend .Values.learnings.teams "" }}
 {{- $servers = append $servers (dict "name" (ternary "learnings" (printf "learnings-%s" $team) (eq $team "")) "module" "learnings" "env" (list
     (dict "name" "ACE_TEAM" "value" $team)

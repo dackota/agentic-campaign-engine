@@ -18,7 +18,13 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 
 from tests.api.conftest import SignIn
-from tests.api.helpers import DAY_SPEED, REPORT, send_campaign
+from tests.api.helpers import (
+    DAY_SPEED,
+    MARKETO_WEBHOOK_PATH,
+    REPORT,
+    send_campaign,
+    signed_headers,
+)
 from tests.harness.stack import Stack
 
 SEED = 1  # a seed whose audience opens variant A far more than B
@@ -131,3 +137,27 @@ def test_an_approver_deletes_a_learning_and_an_owner_cannot(
     assert deleted.status_code == 200, deleted.text
     assert learnings_of(api, learning["campaign_id"]) == []
     assert approver.delete(f"/learnings/{learning['id']}").status_code == 404
+
+
+def test_a_deleted_learning_stays_deleted_when_more_opens_arrive(
+    stack: Stack, api: httpx.Client, approver: httpx.Client
+) -> None:
+    learning = learned(api, approver, stack)
+    assert approver.delete(f"/learnings/{learning['id']}").status_code == 200
+
+    body = json.dumps(
+        {
+            "id": f"late-open-{uuid.uuid4()}",
+            "type": "open",
+            "campaignId": learning["campaign_id"],
+            "variant": learning["metrics"]["winner"],
+        }
+    ).encode()
+    late = api.post(
+        MARKETO_WEBHOOK_PATH,
+        content=body,
+        headers=signed_headers(stack.marketo_webhook_secret, body),
+    )
+
+    assert late.status_code == 202, late.text
+    assert learnings_of(api, learning["campaign_id"]) == []

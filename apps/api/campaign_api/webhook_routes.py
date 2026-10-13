@@ -5,13 +5,14 @@ import logging
 import uuid
 from typing import Literal
 
+import httpx
 from ace_engine import db, learnings, webhooks
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from campaign_api.ab_result import decide
@@ -98,7 +99,7 @@ def _learn_if_called(engine: Engine, campaign_id: uuid.UUID, embed: learnings.Em
     winner = learnings.Winner(result.winner, result.confidence, engagement)
     try:
         learnings.learn_from_winner(engine, campaign_id, winner, embed)
-    except Exception:
+    except (httpx.HTTPError, ValueError, SQLAlchemyError):
         log.exception("could not keep the A/B winner of campaign %s as a learning", campaign_id)
 
 

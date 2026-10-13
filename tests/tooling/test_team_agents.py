@@ -12,6 +12,7 @@ import yaml
 from ace_engine.agent_roles import ROLES
 
 from tests.harness.dex import DEMO_USERS
+from tests.tooling.chart_files import CHART, by_kind, render
 from tests.tooling.gateway_files import ROOT, yaml_docs
 
 TEAMS_DIR = ROOT / "agents/teams"
@@ -100,6 +101,13 @@ def test_every_team_searches_only_its_own_learnings(team: str) -> None:
     assert (
         f"value: http://ace-mcp-learnings-{team}.ace.svc.cluster.local:8000/mcp" in patch["patch"]
     )
+    # ...and the chart runs that server, so the team's Agents resolve it.
+    docs = render()
+    server = f"ace-mcp-learnings-{team}"
+    assert server in {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
+    assert server in {d["metadata"]["name"] for d in by_kind(docs, "Service")}
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    assert team in values["learnings"]["teams"]
 
 
 def test_the_shared_team_parts_match_the_kagent_namespace() -> None:

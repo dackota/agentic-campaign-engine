@@ -77,7 +77,7 @@ dependencies come from `uv.lock` (`uv sync --frozen`).
 |---|---|---|
 | Python image base (`python`) | `python:3.13-slim-bookworm` | index `sha256:a1165e272e578941b84abc79e4ab38a0305cd12803a5c4247979ac7655f4d641` |
 | uv in the Python image build | `ghcr.io/astral-sh/uv:0.12.0` | index `sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105` |
-| Postgres with pgvector (chart) | `pgvector/pgvector:0.8.1-pg16` | index `sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337` |
+| Postgres with pgvector (chart and `tests/harness/stack.py`; read 2026-10-12) | `pgvector/pgvector:0.8.1-pg16` | index `sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337` |
 | Temporal dev server (chart; CLI 1.9.1, Server 1.32.0) | `temporalio/temporal:1.9.1` | index `sha256:ad4c82c97bd12b417d1ea942610dbcd511afb250c4d5ed26c694009533df447e` |
 
 ## Image signing (CI publish)

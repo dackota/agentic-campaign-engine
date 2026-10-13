@@ -32,6 +32,9 @@ MCP tool `search_learnings` before they write. Approvers delete a bad learning i
 - **Search order.** Cosine distance (`<=>`), and the newest learning first among equals.
   Five results.
 - **Who deletes.** The approve role. Owners and viewers read only.
+- **Delete keeps a tombstone.** A delete sets `deleted_at`; the view and the search skip
+  such rows. The audience keeps opening a sent campaign, and each open asks whether to make
+  the learning, so a row that was really deleted would come straight back.
 - **Postgres image.** `pgvector/pgvector:0.8.1-pg16` replaces `postgres:16-alpine` in the
   chart and the test harness. The API runs `CREATE EXTENSION IF NOT EXISTS vector` at start.
 
@@ -49,7 +52,8 @@ CREATE TABLE IF NOT EXISTS learnings (
   reason text NOT NULL,
   metrics json NOT NULL,
   embedding vector(256) NOT NULL,
-  created_at timestamptz NOT NULL
+  created_at timestamptz NOT NULL,
+  deleted_at timestamptz
 );
 ALTER TABLE learnings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY learnings_by_team ON learnings TO ace_team

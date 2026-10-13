@@ -44,7 +44,7 @@ test("an approver sees each learning's source campaign and deletes a learning; a
   page,
   browser,
 }) => {
-  const report = `Volt Typhoon learns ${Date.now()}`;
+  const report = `Volt Typhoon learns ${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const approverPage = await sendUntilWinner(page, browser, report);
 
   const viewerPage = await (await browser.newContext()).newPage();

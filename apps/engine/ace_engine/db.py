@@ -337,6 +337,9 @@ class Learning(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+    # When an approver deleted it. The row stays, hidden from the view and the search, so
+    # the campaign's later opens do not make the learning again.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def add_event(

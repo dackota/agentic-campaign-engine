@@ -1,8 +1,9 @@
 # services/mcp
 
-Read-only MCP servers, one per fake (decisions: `docs/decisions/mcp-servers.md`). Run one
-with `python -m ace_mcp.<workfront|marketo|cms|assets>`; it reads its fake over HTTP from
-`ACE_*_URL`. Each listens on `:8000/mcp` (Streamable HTTP) and is registered in kagent as a
+Read-only MCP servers, one per fake (decisions: `docs/decisions/mcp-servers.md`), and the
+learnings search. Run one with `python -m ace_mcp.<workfront|marketo|cms|assets|learnings>`;
+a fake's server reads its fake over HTTP from `ACE_*_URL`, and the learnings server reads
+the database (`ACE_DATABASE_URL`). Each listens on `:8000/mcp` (Streamable HTTP) and is registered in kagent as a
 `RemoteMCPServer` (`agents/mcp.yaml`).
 
 - `workfront`: `get_project`, `search_projects`, `get_task`, `search_tasks`, `search_approvals`

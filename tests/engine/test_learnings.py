@@ -4,6 +4,7 @@ import json
 import math
 
 import httpx
+import pytest
 from ace_engine import learnings
 from ace_engine.db import EMBEDDING_DIMENSIONS
 
@@ -61,12 +62,32 @@ def test_live_embedder_refuses_a_vector_of_the_wrong_size() -> None:
         httpx.Client(transport=httpx.MockTransport(reply)), GATEWAY, MODEL
     )
 
-    try:
+    with pytest.raises(ValueError, match=str(EMBEDDING_DIMENSIONS)):
         embed("x")
-    except ValueError as exc:
-        assert str(EMBEDDING_DIMENSIONS) in str(exc)
-    else:
-        raise AssertionError("a short vector was accepted")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"data": []},
+        {"data": [{}]},
+        {"data": [{"embedding": "x"}]},
+        [1],
+        {"data": "x"},
+        {"data": [{"embedding": [1.0, "x"]}]},
+    ],
+)
+def test_live_embedder_names_the_gateway_on_a_malformed_reply(body: object) -> None:
+    def reply(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=body)
+
+    embed = learnings.GatewayEmbedder(
+        httpx.Client(transport=httpx.MockTransport(reply)), GATEWAY, MODEL
+    )
+
+    with pytest.raises(ValueError, match="gateway"):
+        embed("x")
 
 
 def _dot(a: list[float], b: list[float]) -> float:

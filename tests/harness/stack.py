@@ -40,7 +40,11 @@ if TYPE_CHECKING:
     from ace_engine.settings import Settings
     from fastapi import FastAPI
 
-POSTGRES_IMAGE = "pgvector/pgvector:0.8.1-pg16"  # Postgres with the vector extension
+# Postgres with the vector extension, pinned by digest (docs/pinned-versions.md).
+POSTGRES_IMAGE = (
+    "pgvector/pgvector:0.8.1-pg16"
+    "@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337"
+)
 # Every container a stack makes carries this label with the stack's own run id, so stop()
 # finds it even when a start was cut off before testcontainers had a handle to it.
 RUN_LABEL = "ace.harness.run"

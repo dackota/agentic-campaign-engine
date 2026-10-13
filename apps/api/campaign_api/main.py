@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
+import httpx
 from ace_engine import cost, db, learnings, row_security, telemetry
 from ace_engine import dag as graph
 from ace_engine.settings import (
@@ -588,8 +589,9 @@ def create_app(settings: Settings) -> FastAPI:
         app.state.engine = db.make_engine(settings.database_url)
         await run_in_threadpool(row_security.install, app.state.engine)
         await run_in_threadpool(seed_default_workflow, app.state.engine)
+        embed_client = httpx.Client(timeout=learnings.EMBED_TIMEOUT_SECONDS)
         app.state.embed = learnings.embedder_for(
-            settings.depth, settings.embedding_url, settings.embedding_model
+            settings.depth, settings.embedding_url, settings.embedding_model, embed_client
         )
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
@@ -598,6 +600,7 @@ def create_app(settings: Settings) -> FastAPI:
             interceptors=telemetry.temporal_interceptors(),
         )
         yield
+        await run_in_threadpool(embed_client.close)
         app.state.engine.dispose()
 
     app = FastAPI(lifespan=lifespan)

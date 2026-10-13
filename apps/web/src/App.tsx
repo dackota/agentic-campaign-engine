@@ -468,8 +468,7 @@ function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
       </button>{" "}
       <button type="button" onClick={() => onView("builder")}>
         Workflow builder
-      </button>
-      {" "}
+      </button>{" "}
       <button type="button" onClick={() => onView("learnings")}>
         Learnings
       </button>
@@ -496,9 +495,7 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
   const [linkedCampaign] = useState(takeInboxLink);
-  const [view, setView] = useState<View>(
-    linkedCampaign ? "inbox" : "campaigns",
-  );
+  const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
 
   return (
     <main>

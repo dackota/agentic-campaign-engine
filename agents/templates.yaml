@@ -3,7 +3,8 @@
 # They all call the model through agentgateway (the gateway-model config), the brand
 # reviewer too: the seeded default workflow sets review_rounds on every writer, and the
 # worker sends those review calls to the ace-brand-reviewer Agent.
-# Research binds Workfront read tools from the RemoteMCPServers in mcp.yaml. Apply them after
+# Research binds Workfront read tools, and research and the writers bind the learnings search,
+# from the RemoteMCPServers in mcp.yaml. Apply them after
 # the model configs `make up` installs; agents.yaml turns each into a running Agent.
 ---
 apiVersion: api.kagent.dev/v1alpha3
