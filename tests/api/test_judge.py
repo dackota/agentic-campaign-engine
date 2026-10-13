@@ -138,3 +138,25 @@ def test_run_and_inbox_carry_score_and_reason(stack: Stack, sign_in: SignIn) -> 
     for item in items:
         assert judge.MIN_SCORE <= item["score"] <= judge.MAX_SCORE
         assert item["score_reason"].strip()
+
+
+def test_a_campaign_with_no_workflow_gets_a_score_in_events_and_inbox(
+    stack: Stack, sign_in: SignIn
+) -> None:
+    stack.agent.script([])
+    owner = sign_in("dg-owner@demo.example")
+    response = owner.post("/campaigns", json={"report": REPORT})
+    assert response.status_code == 201, response.text
+    campaign_id = response.json()["id"]
+
+    run = until_status(owner, campaign_id, AWAITING, FAILED)
+
+    assert run["status"] == AWAITING, run
+    assert set(scored(read_events(owner, campaign_id))) == {"email_draft"}
+    items = [
+        i
+        for i in sign_in("dg-approver@demo.example").get("/inbox").json()
+        if i["campaign_id"] == campaign_id
+    ]
+    assert [i["step"] for i in items] == ["email_draft"]
+    assert items[0]["score"] is not None and items[0]["score_reason"].strip()

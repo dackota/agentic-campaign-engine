@@ -20,16 +20,19 @@ def step_key(campaign_id: str, step_id: str) -> str:
 
 
 def default_dag() -> Dag:
-    """The workflow a campaign runs when it names none: draft, wait for a human, publish.
+    """The workflow a campaign runs when it names none: draft, judge the draft, wait for a
+    human, publish.
     A fresh dict each call, so no caller can change another's copy."""
     return {
         "steps": [
             {"id": "email_draft", "kind": AGENT},
+            {"id": "judge", "kind": AGENT},
             {"id": "approval", "kind": APPROVAL},
             {"id": "publish", "kind": PUBLISH},
         ],
         "edges": [
-            {"from": "email_draft", "to": "approval"},
+            {"from": "email_draft", "to": "judge"},
+            {"from": "judge", "to": "approval"},
             {"from": "approval", "to": "publish"},
         ],
     }

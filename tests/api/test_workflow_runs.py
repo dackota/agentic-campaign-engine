@@ -140,6 +140,7 @@ def test_campaign_without_workflow_uses_the_default_dag(api: httpx.Client) -> No
     assert created["workflow"] is None and created["workflow_version"] is None
     assert [(s["id"], s["kind"]) for s in created["steps"]] == [
         ("email_draft", "agent"),
+        ("judge", "agent"),
         ("approval", "approval"),
         ("publish", "publish"),
     ]
