@@ -56,11 +56,6 @@ The tables' owner, and a superuser, skip row-level security. A per-transaction
 policies apply to, on the API's one pool, and both reset when the transaction ends, so a
 pooled connection never carries a team into the next request.
 
-## Not done
-
-- **Learnings** have no table yet. When they get one, it is a team table and gets the
-  same policy.
-
 ## Accepted after review (#89)
 
 Date: 2026-10-13. The #40 security review left three MEDIUM findings.
@@ -92,8 +87,3 @@ Date: 2026-10-13. The #40 security review left three MEDIUM findings.
   What would close it, for production: a default-deny NetworkPolicy per team namespace,
   with allows for the gateway, the MCP servers, kagent, and Substrate, and a gateway
   policy that ties each `/<team>/v1` route to its namespace.
-
-## Not done
-
-- **Learnings** have no table yet. When they get one, it is a team table and gets the
-  same policy.
