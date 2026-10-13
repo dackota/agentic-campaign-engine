@@ -3,7 +3,7 @@ each is verified, size-capped, and recorded once per event id."""
 
 import logging
 import uuid
-from typing import Literal
+from typing import Literal, NamedTuple
 
 import httpx
 from ace_engine import db, learnings, webhooks
@@ -120,6 +120,28 @@ def activities(engine: Engine, campaign_id: uuid.UUID) -> list[ActivityOut]:
             session.query(db.Activity).filter_by(campaign_id=campaign_id).order_by(db.Activity.seq)
         )
         return [ActivityOut(id=r.event_id, type=r.type, variant=r.variant) for r in rows]
+
+
+class Engagement(NamedTuple):
+    opens: int
+    clicks: int
+
+
+NO_ENGAGEMENT = Engagement(opens=0, clicks=0)
+
+
+def engagement_by_campaign(session: Session) -> dict[uuid.UUID, Engagement]:
+    """Opens and clicks of every visible campaign that has any, both variants together."""
+    rows = session.execute(
+        select(db.Activity.campaign_id, db.Activity.type, func.count())
+        .where(db.Activity.type.in_(("open", "click")))
+        .group_by(db.Activity.campaign_id, db.Activity.type)
+    )
+    found: dict[uuid.UUID, Engagement] = {}
+    for campaign_id, kind, total in rows:
+        field = "opens" if kind == "open" else "clicks"
+        found[campaign_id] = found.get(campaign_id, NO_ENGAGEMENT)._replace(**{field: total})
+    return found
 
 
 def engagement_by_variant(session: Session, campaign_id: uuid.UUID) -> dict[str, dict[str, int]]:
