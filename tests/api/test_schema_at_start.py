@@ -20,12 +20,20 @@ from sqlalchemy.engine import Engine
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.docker_client import DockerClient
 
-from tests.api.helpers import OWNER, REPORT, save_workflow, workflow_name
-from tests.api.test_step_cache import DRAFT_ONLY, draft_cost, run
-from tests.api.test_team_isolation import TEAM_A, TEAM_B_OWNER
+from tests.api.helpers import (
+    DRAFT_ONLY,
+    OWNER,
+    REPORT,
+    draft_cost,
+    run_cached,
+    save_workflow,
+    workflow_name,
+)
 from tests.harness.api_client import api_client
 from tests.harness.stack import POSTGRES_DATA_DIR, POSTGRES_IMAGE, Stack
 
+TEAM_A = "demand-gen"
+TEAM_B_OWNER = "pm-owner@demo.example"
 OLD_REPORT = "An old install's report\nIt was here before the upgrade."
 # A column an older install had that the models no longer do: the start leaves it.
 LEGACY_COLUMN = "legacy_note"
@@ -163,8 +171,8 @@ def test_old_database_runs_the_step_cache(owner: httpx.Client) -> None:
     save_workflow(owner, workflow, DRAFT_ONLY)
     report = f"{REPORT}\ncase {uuid.uuid4().hex}"
 
-    first = run(owner, workflow, report)
-    second = run(owner, workflow, report)
+    first = run_cached(owner, workflow, report)
+    second = run_cached(owner, workflow, report)
 
     assert draft_cost(first)["cache_hit"] is False
     assert draft_cost(second)["cache_hit"] is True
