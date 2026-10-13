@@ -55,6 +55,7 @@ def test_an_unreachable_api_loses_every_run_and_still_writes_the_numbers(
 
 
 GOOD_CAMPAIGN: dict[str, Any] = {"status": load.AWAITING, "failure_reason": None, "cost": GOOD_COST}
+HUGE_INT = "9" * 400
 MISSING = object()  # the key is left out of the reply
 NOT_FINITE = [float("nan"), float("inf"), float("-inf")]
 WRONG_TYPES: list[object] = ["", "x", 0, 7, 1.5, False, True, [], ["x"], {}]
@@ -91,6 +92,14 @@ def _unreadable_campaigns() -> list[tuple[str, bytes]]:
         for path, values in bad.items()
         for value in values
     ]
+    # A number JSON allows but a float cannot hold: Python reads 1e400 as inf, and a 400-digit
+    # int cannot become a float at all. Both are written as raw text, as an API would send them.
+    good = json.dumps(GOOD_CAMPAIGN)
+    for literal in [HUGE_INT, f"-{HUGE_INT}", "1e400", "-1e400"]:
+        cases.append((f"cost_usd={literal[:12]}...", good.replace("0.01", literal).encode()))
+    for hit in [*(v for v in WRONG_TYPES if not isinstance(v, bool)), "yes", 1.0]:
+        steps = _with(("cost", "steps"), [{"cache_hit": hit}])
+        cases.append((f"cache_hit={hit!r}", json.dumps(steps).encode()))
     items: list[object] = [None, "x", 0, 1, False, [], 1.5]
     for item in items:
         steps = _with(("cost", "steps"), [item])
@@ -151,6 +160,18 @@ def test_a_create_reply_the_script_cannot_read_loses_the_run_with_a_reason(
     tmp_path: Path, label: str, create: bytes
 ) -> None:
     _assert_every_run_lost_as_unreadable(tmp_path, create, json.dumps(GOOD_CAMPAIGN).encode())
+
+
+@pytest.mark.parametrize("hit", [MISSING, None, False])
+def test_an_absent_or_null_cache_hit_counts_as_a_miss(tmp_path: Path, hit: object) -> None:
+    step: dict[str, object] = {} if hit is MISSING else {"cache_hit": hit}
+    campaign = _with(("cost", "steps"), [step])
+
+    with _api_answering(lambda: campaign) as api:
+        exit_code, written = _load(tmp_path, api)
+
+    assert exit_code == 0
+    assert written["lost"] == 0
 
 
 def test_a_good_reply_is_counted_as_finished(tmp_path: Path) -> None:
