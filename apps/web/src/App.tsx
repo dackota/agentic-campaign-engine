@@ -111,6 +111,15 @@ function RunScores({ scores }: { scores: AssetScore[] }) {
   );
 }
 
+function RunCostAndScores({ campaign }: { campaign: Campaign }) {
+  return (
+    <>
+      <RunCost cost={campaign.cost} />
+      <RunScores scores={campaign.scores} />
+    </>
+  );
+}
+
 function DraftView({ draft }: { draft: EmailDraft }) {
   return (
     <section aria-label="Email draft">
@@ -430,8 +439,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   return (
     <>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
-      <RunCost cost={campaign.cost} />
-      <RunScores scores={campaign.scores} />
+      <RunCostAndScores campaign={campaign} />
       {campaign.budget_usd !== null && (
         <p>
           Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>
