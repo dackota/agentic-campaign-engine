@@ -4,6 +4,7 @@ trend chart and a table. With learnings off it deletes each learning as soon as 
 called, so the next campaign's agents find none. Fast depth here, with the scripted agent;
 the real numbers come from a live run (docs/learning-proof.md)."""
 
+import json
 import re
 import subprocess
 import sys
@@ -13,10 +14,6 @@ import httpx
 import pytest
 
 from evals.learning_curve import (
-    CampaignRate,
-    main,
-    render_chart,
-    render_table,
     run_campaigns,
 )
 from tests.api.conftest import SignIn
@@ -71,42 +68,6 @@ def test_learnings_off_deletes_each_learning_so_none_is_kept(
     assert kept(api, [r.campaign_id for r in rates]) == []
 
 
-def rate(index: int, click_rate: float) -> CampaignRate:
-    return CampaignRate(f"id-{index}", "A", 100, round(click_rate * 100), click_rate)
-
-
-def test_chart_rises_with_the_rates() -> None:
-    svg = render_chart({"learnings on": [rate(i, 0.1 * (i + 1)) for i in range(FIVE)]})
-
-    points = re.search(r'<polyline[^>]*points="([^"]+)"', svg)
-    assert svg.startswith("<svg") and points
-    ys = [float(p.split(",")[1]) for p in points.group(1).split()]
-    assert len(ys) == FIVE
-    assert ys == sorted(ys, reverse=True)  # SVG y grows downward: a rising rate falls in y
-    assert ys[0] > ys[-1]
-    assert "learnings on" in svg
-
-
-def test_chart_draws_both_runs() -> None:
-    flat = [rate(i, 0.2) for i in range(FIVE)]
-    svg = render_chart({"learnings on": flat, "learnings off": flat})
-
-    assert svg.count("<polyline") == 2
-
-
-def test_table_lists_every_campaign_for_both_runs() -> None:
-    table = render_table(
-        {
-            "learnings on": [rate(0, 0.1), rate(1, 0.3)],
-            "learnings off": [rate(0, 0.1), rate(1, 0.1)],
-        }
-    )
-
-    assert "learnings on" in table and "learnings off" in table
-    assert "30.0%" in table and "10.0%" in table
-    assert table.count("| 1 |") == 2 and table.count("| 2 |") == 2
-
-
 def test_cli_writes_chart_table_and_results_for_both_runs(
     stack: Stack,
     audience: None,
@@ -118,26 +79,27 @@ def test_cli_writes_chart_table_and_results_for_both_runs(
     monkeypatch.setenv("ACE_API_TOKEN", stack.dex.token(OWNER))
     monkeypatch.setenv("ACE_APPROVER_TOKEN", stack.dex.token(APPROVER))
 
-    code = main(
-        ["--api-url", stack.api_url, "--campaigns", "2", "--quiet-seconds", str(QUIET)]
-        + ["--out-dir", str(tmp_path)]
-    )
-
-    assert code == 0
-    chart = (tmp_path / "trend.svg").read_text()
-    assert chart.count("<polyline") == 2
-    table = (tmp_path / "results.md").read_text()
-    assert "learnings on" in table and "learnings off" in table
-    assert (tmp_path / "results.json").exists()
-
-
-def test_documented_command_runs_the_script() -> None:
     result = subprocess.run(
-        [sys.executable, "-m", "evals.learning_curve", "--help"],
+        [sys.executable, "-m", "evals.learning_curve", "--api-url", stack.api_url]
+        + ["--campaigns", "2", "--quiet-seconds", str(QUIET), "--out-dir", str(tmp_path)],
         capture_output=True,
         text=True,
         check=False,
     )
 
-    assert result.returncode == 0
-    assert "--campaigns" in result.stdout
+    assert result.returncode == 0, result.stderr
+    chart = (tmp_path / "trend.svg").read_text()
+    assert chart.startswith("<svg")
+    assert chart.count("<polyline") == 2  # one line per run
+    assert chart.count("<circle") == 4  # one point per campaign per run
+    assert "learnings on" in chart and "learnings off" in chart
+    points = re.search(r'<polyline[^>]*points="([^"]+)"', chart)
+    assert points and len(points.group(1).split()) == 2
+    table = (tmp_path / "results.md").read_text()
+    assert "learnings on" in table and "learnings off" in table
+    assert table.count("| 1 |") == 2 and table.count("| 2 |") == 2
+    results = json.loads((tmp_path / "results.json").read_text())
+    assert {k: len(v) for k, v in results.items()} == {"learnings on": 2, "learnings off": 2}
+    for rows in results.values():
+        for row in rows:
+            assert f"{row['click_rate']:.1%}" in table

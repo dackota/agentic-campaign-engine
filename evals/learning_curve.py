@@ -44,6 +44,8 @@ URL_ENV = "ACE_API_URL"
 
 @dataclass(frozen=True)
 class CampaignRate:
+    """One finished campaign: its A/B winner, opens, clicks, and click rate (clicks/opens)."""
+
     campaign_id: str
     winner: str | None
     opens: int
@@ -150,11 +152,29 @@ WIDTH, HEIGHT = 640, 360
 LEFT, RIGHT, TOP, BOTTOM = 70, 30, 40, 60
 COLORS = ("#1f77b4", "#d62728")
 GRID_LINES = 4
+GRID_COLOR = "#ddd"
+TITLE_Y = 22
+TITLE_SIZE = 15
+Y_LABEL_GAP = 8  # between the y-axis labels and the plot
+Y_LABEL_DROP = 4  # centres a label on its grid line
+X_LABEL_DROP = 20  # tick numbers below the plot
+X_TITLE_RISE = 20  # axis title above the bottom edge
+LINE_WIDTH = 2
+POINT_RADIUS = 3
+LEGEND_INSET = 10
+LEGEND_TOP = 14
+LEGEND_ROW = 16
+LEGEND_SWATCH = 12
+LEGEND_SWATCH_RAISE = 9
+LEGEND_TEXT_GAP = 28  # swatch to label text
+LEGEND_TEXT_DROP = 2
+Y_STEP = 0.1  # the y-axis tops out on a multiple of this
+Y_MIN_TOP = 0.1
 
 
 def _y_max(series: dict[str, list[CampaignRate]]) -> float:
     top = max((r.click_rate for rates in series.values() for r in rates), default=0.0)
-    return max(0.1, ((int(top * 10)) + 1) / 10)
+    return max(Y_MIN_TOP, (int(top / Y_STEP) + 1) * Y_STEP)
 
 
 def render_chart(series: dict[str, list[CampaignRate]]) -> str:
@@ -173,37 +193,51 @@ def render_chart(series: dict[str, list[CampaignRate]]) -> str:
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
         f'viewBox="0 0 {WIDTH} {HEIGHT}" font-family="sans-serif" font-size="12">',
         f'<rect width="{WIDTH}" height="{HEIGHT}" fill="white"/>',
-        f'<text x="{WIDTH / 2}" y="22" text-anchor="middle" font-size="15">'
+        f'<text x="{WIDTH / 2}" y="{TITLE_Y}" text-anchor="middle" font-size="{TITLE_SIZE}">'
         "Click rate by campaign</text>",
     ]
     for step in range(GRID_LINES + 1):
         value = y_max * step / GRID_LINES
         y = y_at(value)
         parts.append(
-            f'<line x1="{LEFT}" y1="{y:.1f}" x2="{WIDTH - RIGHT}" y2="{y:.1f}" stroke="#ddd"/>'
+            f'<line x1="{LEFT}" y1="{y:.1f}" x2="{WIDTH - RIGHT}" y2="{y:.1f}" '
+            f'stroke="{GRID_COLOR}"/>'
         )
-        parts.append(f'<text x="{LEFT - 8}" y="{y + 4:.1f}" text-anchor="end">{value:.0%}</text>')
+        parts.append(
+            f'<text x="{LEFT - Y_LABEL_GAP}" y="{y + Y_LABEL_DROP:.1f}" '
+            f'text-anchor="end">{value:.0%}</text>'
+        )
     for index in range(longest):
         x = x_at(index)
         parts.append(
-            f'<text x="{x:.1f}" y="{HEIGHT - BOTTOM + 20}" text-anchor="middle">{index + 1}</text>'
+            f'<text x="{x:.1f}" y="{HEIGHT - BOTTOM + X_LABEL_DROP}" '
+            f'text-anchor="middle">{index + 1}</text>'
         )
     parts.append(
-        f'<text x="{LEFT + plot_w / 2}" y="{HEIGHT - 20}" text-anchor="middle">campaign</text>'
+        f'<text x="{LEFT + plot_w / 2}" y="{HEIGHT - X_TITLE_RISE}" '
+        f'text-anchor="middle">campaign</text>'
     )
     for n, (label, rates) in enumerate(series.items()):
         color = COLORS[n % len(COLORS)]
         points = " ".join(f"{x_at(i):.1f},{y_at(r.click_rate):.1f}" for i, r in enumerate(rates))
-        parts.append(f'<polyline fill="none" stroke="{color}" stroke-width="2" points="{points}"/>')
+        parts.append(
+            f'<polyline fill="none" stroke="{color}" '
+            f'stroke-width="{LINE_WIDTH}" points="{points}"/>'
+        )
         for i, r in enumerate(rates):
             parts.append(
-                f'<circle cx="{x_at(i):.1f}" cy="{y_at(r.click_rate):.1f}" r="3" fill="{color}"/>'
+                f'<circle cx="{x_at(i):.1f}" cy="{y_at(r.click_rate):.1f}" '
+                f'r="{POINT_RADIUS}" fill="{color}"/>'
             )
-        legend_y = TOP + 14 + 16 * n
+        legend_y = TOP + LEGEND_TOP + LEGEND_ROW * n
         parts.append(
-            f'<rect x="{LEFT + 10}" y="{legend_y - 9}" width="12" height="12" fill="{color}"/>'
+            f'<rect x="{LEFT + LEGEND_INSET}" y="{legend_y - LEGEND_SWATCH_RAISE}" '
+            f'width="{LEGEND_SWATCH}" height="{LEGEND_SWATCH}" '
+            f'fill="{color}"/>'
         )
-        parts.append(f'<text x="{LEFT + 28}" y="{legend_y + 2}">{label}</text>')
+        parts.append(
+            f'<text x="{LEFT + LEGEND_TEXT_GAP}" y="{legend_y + LEGEND_TEXT_DROP}">{label}</text>'
+        )
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
@@ -234,6 +268,7 @@ def _client(url: str, token: str) -> httpx.Client:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the campaigns and write the results. Returns 0; a bad argument exits 2."""
     parser = argparse.ArgumentParser(
         prog="evals.learning_curve", description="Run campaigns in a row and chart click rate."
     )
@@ -250,12 +285,15 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("--campaigns must be at least 1")
     modes = {"on": [True], "off": [False], "both": [True, False]}[args.learnings]
     runs: dict[str, list[CampaignRate]] = {}
-    with _client(args.api_url, owner_token) as api, _client(args.api_url, approver_token) as boss:
+    with (
+        _client(args.api_url, owner_token) as api,
+        _client(args.api_url, approver_token) as approver_client,
+    ):
         for learnings_on in modes:
             label = LABEL_ON if learnings_on else LABEL_OFF
             runs[label] = run_campaigns(
                 api,
-                boss,
+                approver_client,
                 args.campaigns,
                 learnings_on=learnings_on,
                 quiet_seconds=args.quiet_seconds,
