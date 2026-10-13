@@ -110,6 +110,7 @@ class ScriptedAgent:
         self._modes: dict[str, str] = {}
         self._failed: dict[str, int] = {}
         self._message_ids: list[str] = []
+        self._texts: list[str] = []
         self._sessions: set[str] = set()
         self._revision = DEFAULT_REVISION
         self.app = self._build_app()
@@ -134,10 +135,16 @@ class ScriptedAgent:
         with self._lock:
             return list(self._message_ids)
 
+    def messages(self) -> list[str]:
+        """The text of every message so far, in arrival order."""
+        with self._lock:
+            return list(self._texts)
+
     def _is_down(self, text: str, message_id: str) -> bool:
         """Record the call; True when it must fail because its report says the agent is down."""
         with self._lock:
             self._message_ids.append(message_id)
+            self._texts.append(text)
         return self._fails_on_cue(DOWN_MARKER, text)
 
     def _fails_on_cue(self, marker: re.Pattern[str], text: str) -> bool:

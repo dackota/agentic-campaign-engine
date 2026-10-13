@@ -19,6 +19,7 @@ from ace_engine.contracts import (
     SOCIAL_POSTS_SCHEMA,
     STRATEGY_SCHEMA,
 )
+from ace_engine.limits import limits_line
 from ace_engine.settings import Depth
 
 # The email writer returns the A/B test's two emails: variant A first.
@@ -158,6 +159,9 @@ def message_for(role: Role, report: str, context: dict[str, Any], variant: int =
     """What the agent is sent: the role's prompt, what earlier steps produced, then the
     report after the marker."""
     parts = [role.prompt]
+    limits = limits_line(role.reply_schema)
+    if limits:
+        parts.append(limits)
     if variant > 0:
         parts.append(VARIANT_B_INSTRUCTION)
     for step_id, output in context.items():

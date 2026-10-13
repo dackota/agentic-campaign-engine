@@ -18,6 +18,7 @@ OFF_BRAND_WORDS = re.compile(
     re.IGNORECASE,
 )
 # The longest each text field may be, in characters.
+# Keep equal to ace_engine.limits.MAX_CHARS, the limits the writers are told (a test checks).
 MAX_CHARS = {
     "subject": 100,
     "preheader": 150,

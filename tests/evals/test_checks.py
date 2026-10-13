@@ -3,7 +3,9 @@
 from typing import Any
 
 import pytest
+from ace_engine import limits
 
+from evals import checks
 from evals.checks import CHECK_NAMES, check_asset
 
 REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances."
@@ -74,3 +76,7 @@ def test_uncited_fact_fails_when_a_quote_is_not_on_the_cited_line() -> None:
 
     assert failed(check_asset("research", good, REPORT)) == set()
     assert failed(check_asset("research", bad, REPORT)) == {"uncited_fact"}
+
+
+def test_eval_length_limits_are_the_ones_the_writers_are_told() -> None:
+    assert checks.MAX_CHARS == limits.MAX_CHARS
