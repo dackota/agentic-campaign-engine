@@ -35,6 +35,8 @@ def build_worker(
             activities.record_scores,
             activities.redo_asset,
             activities.mark_step,
+            activities.claim_step_slot,
+            activities.release_step_slot,
             activities.open_approval,
             activities.mark_failed,
             activities.pause_for_budget,

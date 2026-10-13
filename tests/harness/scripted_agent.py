@@ -52,6 +52,9 @@ FLAG_ISSUE = {"check": "banned_claim", "detail": "100% protection is a banned cl
 LOW_SCORE_MARKER = "[agent:low-score]"
 LOW_SCORE_STEP = "landing_page"
 SLOW_REPLY_SECONDS = 1.5
+# "[agent:hold]" in a report holds every call on it until a test calls `release_held()`, so a
+# test can keep steps running for as long as it needs and count them.
+HOLD_MARKER = "[agent:hold]"
 # "[agent:down-N]" in a report makes the first N calls that carry that report answer with
 # an A2A error, so a step fails on cue and a later attempt succeeds.
 DOWN_MARKER = re.compile(r"\[agent:down-(\d{1,2})\]")
@@ -119,7 +122,28 @@ class ScriptedAgent:
         self._texts: list[str] = []
         self._sessions: set[str] = set()
         self._revision = DEFAULT_REVISION
+        self._held: list[str] = []
+        self._released = threading.Event()
         self.app = self._build_app()
+
+    def held(self) -> list[str]:
+        """The text of every call the hold marker is holding right now."""
+        with self._lock:
+            return list(self._held)
+
+    def release_held(self) -> None:
+        """Let every held call answer, and every later call on a held report go through."""
+        self._released.set()
+
+    async def _hold(self, text: str) -> None:
+        with self._lock:
+            self._held.append(text)
+        try:
+            # The release comes from the test's thread, so wait on it off the event loop.
+            await asyncio.to_thread(self._released.wait)
+        finally:
+            with self._lock:
+                self._held.remove(text)
 
     def script(self, replies: list[str]) -> None:
         """Queue exact reply texts; they are used before the default writer."""
@@ -217,6 +241,8 @@ class ScriptedAgent:
                 return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
             if self._fails_on_cue(TASK_FAILED_MARKER, text):
                 return _failed_task(body, context_id)
+            if HOLD_MARKER in _report_of(text):
+                await self._hold(text)
             reply, is_slow = self._next_reply(text, context_id)
             _export_tool_and_model_spans()
             if is_slow:

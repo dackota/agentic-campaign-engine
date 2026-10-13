@@ -17,10 +17,11 @@ PREFIX = "ACE_"
 DATABASE_PASSWORD_ENV = "ACE_DATABASE_PASSWORD"
 OIDC_FIELDS = ("oidc_issuer", "oidc_client_id")
 
-type Parsed = str | float | Depth
+type Parsed = str | int | float | Depth
 
 _PARSERS: dict[type[object], Callable[[str], Parsed]] = {
     str: str,
+    int: int,
     float: float,
     Depth: Depth.parse,
 }

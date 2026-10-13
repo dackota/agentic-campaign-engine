@@ -62,6 +62,7 @@ FULL_ENV = {
     "ACE_S3_URL": "http://fake-s3:8000",
     "ACE_S3_BUCKET": "other-bucket",
     "ACE_CONTENT_TIMEOUT_SECONDS": "9",
+    "ACE_TEAM_STEP_LIMIT": "3",
 }
 
 
@@ -119,6 +120,7 @@ def test_api_loader_reads_every_settings_field() -> None:
         s3_url="http://fake-s3:8000",
         s3_bucket="other-bucket",
         content_timeout_seconds=9.0,
+        team_step_limit=3,
         alert_webhook_token="sentinel-alert-token-6c3b",
     )
     # Every field differs from its default above, so a field the loader skipped would show.
