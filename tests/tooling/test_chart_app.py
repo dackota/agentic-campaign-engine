@@ -20,7 +20,18 @@ SECRET_KEYS = {
     "workfront-client-secret",
     "workfront-webhook-secret",
 }
-MCP_SERVERS = {"ace-mcp-workfront", "ace-mcp-marketo", "ace-mcp-cms", "ace-mcp-assets"}
+# The learnings search runs once per team, and once as no team for kagent's own copy.
+LEARNINGS_SERVERS = {
+    "ace-mcp-learnings",
+    "ace-mcp-learnings-demand-gen",
+    "ace-mcp-learnings-product-marketing",
+}
+MCP_SERVERS = {
+    "ace-mcp-workfront",
+    "ace-mcp-marketo",
+    "ace-mcp-cms",
+    "ace-mcp-assets",
+} | LEARNINGS_SERVERS
 PYTHON_COMPONENTS = {"api": "campaign_api", "worker": "campaign_worker"}
 ALERT_TOKEN_ENV = "ACE_ALERT_WEBHOOK_TOKEN"
 SECRET_WORDS = ("SECRET", "PASSWORD", "TOKEN", "KEY")
@@ -210,6 +221,7 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
         "fake-workfront": {"ACE_WORKFRONT_CLIENT_SECRET", "ACE_WORKFRONT_WEBHOOK_SECRET"},
         "ace-mcp-workfront": {"ACE_WORKFRONT_CLIENT_SECRET"},
         "ace-mcp-marketo": {"ACE_MARKETO_CLIENT_SECRET"},
+        **{name: {"ACE_DATABASE_PASSWORD"} for name in LEARNINGS_SERVERS},
     }
     for deploy in by_kind(docs, "Deployment"):
         env = _env(deploy)

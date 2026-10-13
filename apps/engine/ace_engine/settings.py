@@ -81,6 +81,11 @@ class Settings:
     google_token_url: str = "https://oauth2.googleapis.com/token"
     google_docs_url: str = "https://docs.googleapis.com"
 
+    # Where learnings get their embeddings at live depth: the model gateway's OpenAI-shaped
+    # base URL (ending in /v1) and the embedding model. Blank uses the fixed stand-in.
+    embedding_url: str = ""
+    embedding_model: str = ""
+
     # The bearer token Grafana's alert webhook sends. Blank turns the webhook off.
     alert_webhook_token: str = field(default="", repr=False)
 

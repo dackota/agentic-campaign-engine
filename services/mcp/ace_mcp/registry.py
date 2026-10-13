@@ -4,7 +4,7 @@ tools. The no-write-tool check reads this."""
 from collections.abc import Mapping
 from types import MappingProxyType
 
-from ace_mcp import assets, cms, marketo, workfront
+from ace_mcp import assets, cms, learnings, marketo, workfront
 from ace_mcp.server import Tool
 
 SERVERS: Mapping[str, tuple[Tool, ...]] = MappingProxyType(
@@ -13,5 +13,6 @@ SERVERS: Mapping[str, tuple[Tool, ...]] = MappingProxyType(
         marketo.NAME: marketo.TOOLS,
         cms.NAME: cms.TOOLS,
         assets.NAME: assets.tools_for(""),
+        learnings.NAME: learnings.TOOLS,
     }
 )

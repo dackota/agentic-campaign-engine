@@ -54,17 +54,26 @@ image: "{{ .Values.python.image.repository }}:{{ .Values.python.image.tag }}"
 imagePullPolicy: {{ .Values.python.image.pullPolicy }}
 {{- end -}}
 
+{{/* The database URL, without its password (ACE_DATABASE_PASSWORD carries that). */}}
+{{- define "ace.databaseUrl" -}}
+{{ printf "postgresql+psycopg://%s@%s:%v/%s" .Values.postgres.user (include "ace.host" (list . .Values.postgres.serviceName)) .Values.postgres.port .Values.postgres.database }}
+{{- end -}}
+
 {{/* Settings shared by the API and the worker (apps/engine/ace_engine/env.py). */}}
 {{- define "ace.engineEnv" -}}
 - name: ACE_DEPTH
   value: {{ .Values.depth | quote }}
 - name: ACE_DATABASE_URL
-  value: {{ printf "postgresql+psycopg://%s@%s:%v/%s" .Values.postgres.user (include "ace.host" (list . .Values.postgres.serviceName)) .Values.postgres.port .Values.postgres.database | quote }}
+  value: {{ include "ace.databaseUrl" . | quote }}
 {{ include "ace.secretEnv" (list . "ACE_DATABASE_PASSWORD" "postgres-password") }}
 - name: ACE_TEMPORAL_ADDRESS
   value: {{ printf "%s:%v" (include "ace.host" (list . .Values.temporal.serviceName)) .Values.temporal.port | quote }}
 - name: ACE_TEMPORAL_NAMESPACE
   value: {{ .Values.temporal.namespace | quote }}
+- name: ACE_EMBEDDING_URL
+  value: {{ .Values.learnings.embeddingUrl | quote }}
+- name: ACE_EMBEDDING_MODEL
+  value: {{ .Values.learnings.embeddingModel | quote }}
 - name: ACE_AGENT_URL
   value: {{ .Values.worker.agentUrl | quote }}
 - name: ACE_AGENT_TIMEOUT_SECONDS

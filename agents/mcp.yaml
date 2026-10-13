@@ -33,3 +33,14 @@ spec:
   description: Read-only tools for the asset library
   protocol: STREAMABLE_HTTP
   url: http://ace-mcp-assets.ace.svc.cluster.local:8000/mcp
+---
+# The learnings search reads one team's rows. This copy, in kagent, reads as no team and
+# finds nothing; each team's overlay points its copy at that team's own server
+# (agents/teams/<team>/kustomization.yaml).
+apiVersion: api.kagent.dev/v1alpha3
+kind: RemoteMCPServer
+metadata: {name: ace-mcp-learnings, namespace: kagent}
+spec:
+  description: Read-only search of the team's learnings
+  protocol: STREAMABLE_HTTP
+  url: http://ace-mcp-learnings.ace.svc.cluster.local:8000/mcp
