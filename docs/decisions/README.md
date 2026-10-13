@@ -32,6 +32,7 @@ These came out of slices, not the planning table.
 
 | ADR | Decision |
 |---|---|
+| [additive-schema-at-start.md](additive-schema-at-start.md) | Each start adds the columns the models have and the database lacks |
 | [asset-approval.md](asset-approval.md) | Each asset is approved on its own |
 | [dashboards-and-alerts.md](dashboards-and-alerts.md) | Dashboards and alerts are files; a webhook shows them in the app |
 | [one-trace-per-campaign.md](one-trace-per-campaign.md) | One trace follows a campaign from start to publish |
