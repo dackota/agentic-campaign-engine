@@ -34,6 +34,7 @@ VERSION_HEADER = "A2A-Version"
 SUPPORTED_VERSION = "1.0"
 COMPLETED = "TASK_STATE_COMPLETED"
 USAGE_KEY = "kagent.dev/a2a/usage"
+PART_TYPE_KEY = "kagent.dev/a2a/part-type"
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
 SOCIAL_POST_CHARS = 280
@@ -223,9 +224,14 @@ class ScriptedAgent:
 
 
 def _completed_task(body: dict[str, Any], context_id: str, text: str, reply: str) -> JSONResponse:
+    tools = (
+        _tool_call_parts(RESEARCH_TOOL, {"project_id": "demo"})
+        if ROLES["research"].prompt in text
+        else []
+    )
     artifact: dict[str, Any] = {
         "artifactId": str(uuid.uuid4()),
-        "parts": [{"text": reply}],
+        "parts": [*tools, {"text": reply}],
         "metadata": {USAGE_KEY: scripted_usage(text)},
     }
     task: dict[str, Any] = {
@@ -234,8 +240,6 @@ def _completed_task(body: dict[str, Any], context_id: str, text: str, reply: str
         "status": {"state": COMPLETED},
         "artifacts": [artifact],
     }
-    if ROLES["research"].prompt in text:
-        task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
     return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
 
@@ -254,13 +258,20 @@ def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
     )
 
 
-def _tool_call_message(name: str, args: dict[str, Any]) -> dict[str, Any]:
-    """An agent message in a task's history that records one tool call, the way kagent does."""
-    call = {
-        "data": {"id": str(uuid.uuid4()), "name": name, "args": args},
-        "metadata": {"kagent_type": "function_call"},
-    }
-    return {"messageId": str(uuid.uuid4()), "role": "ROLE_AGENT", "parts": [call]}
+def _tool_call_parts(name: str, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """One tool call and its result, as kagent alpha9 puts them in the reply's artifact before
+    the text (seen live on k3d-ace, 2026-10-12)."""
+    call_id = str(uuid.uuid4())
+    return [
+        {
+            "data": {"id": call_id, "name": name, "args": args},
+            "metadata": {PART_TYPE_KEY: "function_call"},
+        },
+        {
+            "data": {"id": call_id, "name": name, "response": {"output": "{}"}},
+            "metadata": {PART_TYPE_KEY: "function_response"},
+        },
+    ]
 
 
 def _export_tool_and_model_spans() -> None:

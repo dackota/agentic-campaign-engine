@@ -83,7 +83,7 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 
 ## Agents bind MCP tools (#38)
 
-Written on 2026-10-12 from the CRD shapes already in `agents/`; no kagent docs page was read for this section. The CRD fields have not been checked against the live cluster (`kubectl --context k3d-ace explain`, read only): that check is owed to the proof runner, and so is kagent's A2A tool-call shape (`metadata.kagent_type = function_call`, `data.name`), which `apps/engine/ace_engine/invoker.py` reads and only the scripted agent has produced so far.
+Written on 2026-10-12 from the CRD shapes already in `agents/`; no kagent docs page was read for this section. The CRD fields have not been checked against the live cluster (`kubectl --context k3d-ace explain`, read only): that check is owed to the proof runner, Kagent's A2A tool-call shape was checked live on k3d-ace on 2026-10-12: alpha9 puts parts with `metadata["kagent.dev/a2a/part-type"] = function_call` and `data.name` in the reply's artifact, which `apps/engine/ace_engine/invoker.py` reads.
 
 | Source | What it told us |
 |---|---|

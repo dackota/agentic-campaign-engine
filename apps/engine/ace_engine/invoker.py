@@ -42,9 +42,10 @@ class Invocation:
 A2A_VERSION = "1.0"
 USAGE_KEY = "kagent.dev/a2a/usage"
 TASK_FAILED = "TASK_STATE_FAILED"
-# kagent marks the A2A parts that record a tool call: `metadata.kagent_type` is
-# "function_call" and `data.name` is the tool.
-PART_TYPE_KEY = "kagent_type"
+# kagent marks the A2A parts that record a tool call: `metadata["kagent.dev/a2a/part-type"]` is
+# "function_call" and `data.name` is the tool. Alpha9 puts them in the reply's artifacts (seen
+# live on k3d-ace, 2026-10-12); the task's history is read too.
+PART_TYPE_KEY = "kagent.dev/a2a/part-type"
 FUNCTION_CALL = "function_call"
 
 
@@ -157,9 +158,9 @@ async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> 
 
 
 def _tool_calls_of(task: dict[str, Any]) -> tuple[str, ...]:
-    """The tools the agent called to answer, read off the task's history."""
+    """The tools the agent called to answer, read off the task's artifacts and history."""
     names: list[str] = []
-    for message in task.get("history") or []:
+    for message in [*(task.get("artifacts") or []), *(task.get("history") or [])]:
         for part in message.get("parts") or []:
             data = part.get("data")
             kind = (part.get("metadata") or {}).get(PART_TYPE_KEY)

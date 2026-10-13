@@ -21,8 +21,9 @@ session state to hold.
 `search_projects`, `get_task`, `search_tasks`. The other servers are registered and ready
 for the agents that need them later.
 
-**Tool reads in the run events.** The worker reads the tool calls off the A2A task history
-(parts with `metadata.kagent_type = function_call`) and records one `tool_read` event per
-call, with the tool's name as its reason. The scripted agent reports a `get_project` call in
-the same shape at fast depth. Whether kagent 1.x reports calls in exactly this shape is
-checked at live depth by the proof runner.
+**Tool reads in the run events.** The worker reads the tool calls off the A2A task's
+artifacts (and history): parts with `metadata["kagent.dev/a2a/part-type"] = function_call`.
+It records one `tool_read` event per call, with the tool's name as its reason. The scripted
+agent reports a `get_project` call in the same shape at fast depth. Checked live on k3d-ace on
+2026-10-12: kagent 1.0.0-alpha9 puts the `function_call` and `function_response` parts in the
+reply's artifact, before the text.
