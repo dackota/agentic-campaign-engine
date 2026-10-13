@@ -11,13 +11,20 @@ async function finishedCampaign(page: Page, title: string): Promise<void> {
   const name = `e2e-dash-${randomUUID().slice(0, 8)}`;
   const saved = await page.request.post(`/api/workflows/${name}/versions`, {
     headers: { authorization: `Bearer ${await accessTokenOf(page)}` },
-    data: { steps: [{ id: "pause", kind: "wait", duration_seconds: 1 }], edges: [] },
+    data: {
+      steps: [
+        { id: "landing_page", kind: "agent" },
+        { id: "judge", kind: "agent" },
+      ],
+      edges: [{ from: "landing_page", to: "judge" }],
+    },
   });
   expect(saved.status()).toBe(201);
   await page.getByLabel("Threat report").fill(`${title}\n${REPORT}`);
   await page.getByLabel("Workflow").fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Finished", { timeout: RUN_WAIT_MS });
+  await expect(page.getByTestId("judge-score-landing_page")).toBeVisible();
 }
 
 test("the dashboard shows a finished campaign's numbers and a trend across campaigns", async ({
@@ -33,7 +40,7 @@ test("the dashboard shows a finished campaign's numbers and a trend across campa
   const row = page.getByTestId(`dashboard-row-Dash one ${stamp}`);
   await expect(row.getByTestId("dashboard-status")).toHaveText("Finished");
   await expect(row.getByTestId("dashboard-cost")).toHaveText(/^\$\d+\.\d{4}$/);
-  await expect(row.getByTestId("dashboard-quality")).toBeVisible();
+  await expect(row.getByTestId("dashboard-quality")).toHaveText(/^[1-5](\.\d)?\/5$/);
   await expect(row.getByTestId("dashboard-click-rate")).toBeVisible();
   await expect(page.getByTestId("dashboard-runs")).not.toHaveText("0");
   await expect(page.getByTestId("dashboard-trend").getByRole("listitem")).not.toHaveCount(0);

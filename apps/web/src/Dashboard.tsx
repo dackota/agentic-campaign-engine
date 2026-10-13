@@ -1,6 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactElement } from "react";
 import { MAX_SCORE, SignedOutError } from "./api";
-import { getDashboard, type Dashboard as DashboardData, type DashboardRow } from "./dashboardApi";
+import { getDashboard, type Dashboard as DashboardData, type DashboardTotals, type DashboardRow } from "./dashboardApi";
 import { messageOf } from "./messages";
 
 const COST_DECIMALS = 4;
@@ -24,7 +24,12 @@ const percent = (rate: number | null): string =>
   rate === null ? NOT_YET : `${Math.round(rate * PERCENT)}%`;
 
 /** A bar as wide as `value` is of `max`; the trend reads left to right as oldest to newest. */
-function Bar({ value, max }: { value: number | null; max: number }) {
+interface BarProps {
+  value: number | null;
+  max: number;
+}
+
+function Bar({ value, max }: BarProps) {
   const width = value === null || max === 0 ? 0 : Math.round((value / max) * PERCENT);
   return (
     <span
@@ -34,15 +39,20 @@ function Bar({ value, max }: { value: number | null; max: number }) {
   );
 }
 
-function Trend({ rows }: { rows: DashboardRow[] }) {
+interface TrendProps {
+  rows: DashboardRow[];
+}
+
+function Trend({ rows }: TrendProps) {
   return (
     <section aria-label="Trend across campaigns">
       <h2>Trend</h2>
       <ol data-testid="dashboard-trend">
         {rows.map((r) => (
           <li key={r.id}>
-            {r.title}: quality {quality(r.quality_score)} <Bar value={r.quality_score} max={MAX_SCORE} />
-            , click rate {percent(r.click_rate)} <Bar value={r.click_rate} max={1} />
+            {`${r.title}: quality ${quality(r.quality_score)}`}{" "}
+            <Bar value={r.quality_score} max={MAX_SCORE} />
+            {`, click rate ${percent(r.click_rate)}`} <Bar value={r.click_rate} max={1} />
           </li>
         ))}
       </ol>
@@ -50,15 +60,33 @@ function Trend({ rows }: { rows: DashboardRow[] }) {
   );
 }
 
+function Totals({ totals }: { totals: DashboardTotals }): ReactElement {
+  return (
+    <p>
+      Runs: <span data-testid="dashboard-runs">{totals.runs}</span>, cost:{" "}
+      <span data-testid="dashboard-total-cost">{dollars(totals.cost_usd)}</span>, quality:{" "}
+      <span data-testid="dashboard-total-quality">{quality(totals.quality_score)}</span>, click rate:{" "}
+      <span data-testid="dashboard-total-click-rate">{percent(totals.click_rate)}</span>
+    </p>
+  );
+}
+
 /** How the team's campaigns are doing. Read-only: it has no controls. */
-export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
+interface DashboardProps {
+  onSignOut: () => void;
+}
+
+export function Dashboard({ onSignOut }: DashboardProps): ReactElement {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getDashboard()
       .then(setData)
-      .catch((e: unknown) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e))));
+      .catch((e: unknown) => {
+        if (e instanceof SignedOutError) onSignOut();
+        else setError(messageOf(e));
+      });
   }, []);
 
   if (error) return <p role="alert">{error}</p>;
@@ -67,12 +95,7 @@ export function Dashboard({ onSignOut }: { onSignOut: () => void }) {
   return (
     <section data-testid="dashboard">
       <h1>Team dashboard</h1>
-      <p>
-        Runs: <span data-testid="dashboard-runs">{totals.runs}</span>, cost:{" "}
-        <span data-testid="dashboard-total-cost">{dollars(totals.cost_usd)}</span>, quality:{" "}
-        <span data-testid="dashboard-total-quality">{quality(totals.quality_score)}</span>, click rate:{" "}
-        <span data-testid="dashboard-total-click-rate">{percent(totals.click_rate)}</span>
-      </p>
+      <Totals totals={totals} />
       <table>
         <thead>
           <tr>
