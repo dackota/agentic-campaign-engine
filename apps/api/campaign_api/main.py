@@ -48,6 +48,7 @@ from campaign_api.auth import (
     authorize,
 )
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
+from campaign_api.dashboard import register_dashboard_routes
 from campaign_api.inbox import register_inbox_routes
 from campaign_api.learning_routes import register_learning_routes
 from campaign_api.trace_middleware import install_campaign_trace
@@ -642,5 +643,6 @@ def create_app(settings: Settings) -> FastAPI:
     _add_asset_preview_route(app)
     register_workflow_routes(app)
     register_learning_routes(app)
+    register_dashboard_routes(app)
 
     return app

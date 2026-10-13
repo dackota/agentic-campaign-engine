@@ -21,6 +21,7 @@ import {
 } from "./api";
 import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
+import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
@@ -486,7 +487,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   );
 }
 
-type View = "campaigns" | "builder" | "inbox" | "learnings";
+type View = "campaigns" | "builder" | "inbox" | "learnings" | "dashboard";
 
 function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
   return (
@@ -499,6 +500,9 @@ function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
       </button>{" "}
       <button type="button" onClick={() => onView("learnings")}>
         Learnings
+      </button>{" "}
+      <button type="button" onClick={() => onView("dashboard")}>
+        Dashboard
       </button>
       {me.roles.includes("approver") && (
         <>
@@ -532,6 +536,8 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
       <ViewNav me={me} onView={setView} />
       {view === "builder" ? (
         <Builder />
+      ) : view === "dashboard" ? (
+        <Dashboard onSignOut={onSignOut} />
       ) : view === "inbox" ? (
         <Inbox onSignOut={onSignOut} linkedCampaign={linkedCampaign} />
       ) : view === "learnings" ? (
