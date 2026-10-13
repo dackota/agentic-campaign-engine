@@ -42,11 +42,13 @@ Every test drives one of the two seams in #18:
 - the **browser**, with Playwright
 
 Write the test first, at a seam. Row-level security is the only team filter,
-so API tests prove the database rule too.
+so API tests prove the database rule too. Tests under `tests/tooling/` (repo
+files and scripts) and `tests/spike/` (the cluster spikes) have no seam.
 
 ## Before you touch
 
 - **Agents, tools, or publish steps**: read "The pipeline" rules in `SPEC.md`.
 - **kagent, Substrate, OpenCode Go, or agentgateway facts**: start from
-  `docs/sources.md`, then check the live page. kagent 1.x is alpha and ships a
-  new release every few days.
+  `docs/sources.md`, then check the live page for the version pinned in
+  `docs/pinned-versions.md`. kagent 1.x is alpha and ships a new release every
+  few days.

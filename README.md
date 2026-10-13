@@ -127,8 +127,9 @@ Run `make help` for every target.
 - App: http://127.0.0.1:15180/
 - Dex (the login): http://dex.ace.localhost:15656/dex
 
-`make up` holds host ports 15180 and 15656. They leave the browser seam's ports
-(18080, 15173, 15556) free, so the Playwright tests can run beside the cluster.
+`make up` holds host ports 15180 and 15656. The Playwright tests pick free ports for
+their own stack, so they run beside the cluster. Set `ACE_API_PORT`, `ACE_WEB_PORT`, or
+`ACE_DEX_PORT` to pin one.
 
 Sign in as one of the demo users from `platform/dex/config.yaml`. Demo only: every
 user shares the password `demo-password`, and Dex stands in for the company login.

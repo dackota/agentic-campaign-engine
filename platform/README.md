@@ -13,8 +13,8 @@ Home for this part. Later tickets fill it.
 - `ace-cluster.yaml`: the k3d config for cluster `ace` (context `k3d-ace`). It copies the first
   cluster's image, runtime config, feature gates, and `/var/lib/ate` volume, adds a registry
   (`ace-registry`), and maps host ports 15180 (web) and 15656 (Dex) through the load
-  balancer to NodePorts 30180 and 30656. Both host ports stay clear of the browser seam's
-  18080, 15173, and 15556.
+  balancer to NodePorts 30180 and 30656. The browser seam picks free ports of its own, so
+  it runs beside the cluster.
 - `cluster.sh up|down|status` backs `make up`, `make down`, `make status`. `preflight.sh` runs
   first on `up`: tools, `.env` present (never read), and at least 6 GiB free Docker memory.
 - `make up` is safe to repeat. `make down` removes the `ace` cluster, its registry, and its
