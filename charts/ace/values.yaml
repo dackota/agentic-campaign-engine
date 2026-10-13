@@ -40,6 +40,9 @@ python:
 worker:
   # The kagent controller serves each Agent at <this>/<agent name> (wired by #29).
   agentUrl: http://kagent-controller.kagent.svc.cluster.local:8083/agents/kagent
+  # The kagent controller itself: the worker's `kagent sandbox` CLI runs the design agent's
+  # program through it (docs/decisions/sandbox-design-agent.md).
+  kagentApiUrl: http://kagent-controller.kagent.svc.cluster.local:8083
 
 marketo:
   serviceName: fake-marketo

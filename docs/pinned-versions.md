@@ -12,6 +12,7 @@ These are the versions that answered over A2A on k3d.
 | kubectl-ate | v0.4.0-alpha1 (darwin-arm64) | n/a |
 | kagent charts | `kagent-crds` and `kagent` 1.0.0-alpha9 | n/a |
 | kagent CLI | 1.0.0-alpha9 (darwin-arm64) | n/a |
+| kagent CLI in the Python image | 1.0.0-alpha9 (`kagent-linux-amd64`, `kagent-linux-arm64` from the GitHub release) | amd64 `sha256:fe3d6603b0d549d6814c0c0f07a7e96d4d9f7b3001dfeb8e391bfa5a1195d3cf`, arm64 `sha256:fd880ab9639e066d690d88cf4ef67b7924c7994fcff36033674c2dfe6fe19511` |
 | Worker image (`ateom-gvisor`) | v0.4.0-alpha1 | index `sha256:a1ce5b950724c6167889324df6729ccf8c5b3b2963863f4602c21c17587ba454` |
 | Harness image (`golang-adk`) | 1.0.0-alpha9 | index `sha256:26ae5c772d4a59b24ecb3619c3499e106e3b28abbc239de25b4ff8d746f97e69` (arm64 manifest `sha256:7bdb821f5495aa4f83aa668a0f5ca629c8555ec656928e694f6a4dac1460e1bf`) |
 | Python BYO image (`kagent-adk`) | 1.0.0-alpha9 | `sha256:f60b442fc9f729a7441db2b0814105354c118d5b940cc55bce3ac8c9c1f02f28` |

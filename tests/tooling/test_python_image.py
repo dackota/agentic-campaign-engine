@@ -14,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = ROOT / "apps/python.Dockerfile"
 PINS = ROOT / "docs/pinned-versions.md"
 APP_DIR = "/app"
+KAGENT_CLI_VERSION = "1.0.0-alpha9"
 
 
 def _code() -> str:
@@ -60,6 +61,17 @@ def test_image_copies_every_pythonpath_root_and_sets_pythonpath() -> None:
     assert re.search(r"^USER\s+\d+", code, re.M), "run as a numeric non-root user"
 
 
+def test_kagent_cli_is_downloaded_for_each_arch_and_checked_against_a_pinned_digest() -> None:
+    code = _code()
+    pins = PINS.read_text()
+    assert f"releases/download/v{KAGENT_CLI_VERSION}/kagent-linux-" in code
+    digests = re.findall(r"^\s*(amd64|arm64)\)\s*sum=([0-9a-f]{64})", code, re.M)
+    assert {arch for arch, _ in digests} == {"amd64", "arm64"}
+    for _, digest in digests:
+        assert digest in pins, digest
+    assert "sha256sum -c" in code
+
+
 def _docker_ready() -> bool:
     if shutil.which("docker") is None:
         return False
@@ -94,5 +106,13 @@ def test_image_builds_and_imports_every_entrypoint() -> None:
         )
         assert missing.returncode != 0
         assert "ACE_" in missing.stderr
+        # The worker runs the design agent's program through the kagent sandbox CLI.
+        cli = subprocess.run(
+            ["docker", "run", "--rm", tag, "kagent", "version"],
+            capture_output=True,
+            text=True,
+        )
+        assert cli.returncode == 0, cli.stderr
+        assert f'"kagent_version":"{KAGENT_CLI_VERSION}"' in cli.stdout
     finally:
         subprocess.run(["docker", "rmi", tag], capture_output=True)
