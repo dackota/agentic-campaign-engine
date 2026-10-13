@@ -177,18 +177,26 @@ def _y_max(series: dict[str, list[CampaignRate]]) -> float:
     return max(Y_MIN_TOP, (int(top / Y_STEP) + 1) * Y_STEP)
 
 
-def render_chart(series: dict[str, list[CampaignRate]]) -> str:
-    """An SVG line chart: click rate by campaign number, one line per run."""
-    plot_w, plot_h = WIDTH - LEFT - RIGHT, HEIGHT - TOP - BOTTOM
-    y_max = _y_max(series)
-    longest = max((len(rates) for rates in series.values()), default=0)
+class _Plot:
+    """The chart's scale: where a campaign index and a click rate land on the page."""
 
-    def x_at(index: int) -> float:
-        return LEFT + (plot_w * index / (longest - 1) if longest > 1 else plot_w / 2)
+    def __init__(self, series: dict[str, list[CampaignRate]]) -> None:
+        self.width = WIDTH - LEFT - RIGHT
+        self.height = HEIGHT - TOP - BOTTOM
+        self.y_max = _y_max(series)
+        self.longest = max((len(rates) for rates in series.values()), default=0)
 
-    def y_at(rate: float) -> float:
-        return TOP + plot_h * (1 - rate / y_max)
+    def x_at(self, index: int) -> float:
+        if self.longest > 1:
+            return LEFT + self.width * index / (self.longest - 1)
+        return LEFT + self.width / 2
 
+    def y_at(self, rate: float) -> float:
+        return TOP + self.height * (1 - rate / self.y_max)
+
+
+def _frame(plot: _Plot) -> list[str]:
+    """The svg opening, the title, the grid with its y labels, and the x labels."""
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{WIDTH}" height="{HEIGHT}" '
         f'viewBox="0 0 {WIDTH} {HEIGHT}" font-family="sans-serif" font-size="12">',
@@ -197,8 +205,8 @@ def render_chart(series: dict[str, list[CampaignRate]]) -> str:
         "Click rate by campaign</text>",
     ]
     for step in range(GRID_LINES + 1):
-        value = y_max * step / GRID_LINES
-        y = y_at(value)
+        value = plot.y_max * step / GRID_LINES
+        y = plot.y_at(value)
         parts.append(
             f'<line x1="{LEFT}" y1="{y:.1f}" x2="{WIDTH - RIGHT}" y2="{y:.1f}" '
             f'stroke="{GRID_COLOR}"/>'
@@ -207,37 +215,49 @@ def render_chart(series: dict[str, list[CampaignRate]]) -> str:
             f'<text x="{LEFT - Y_LABEL_GAP}" y="{y + Y_LABEL_DROP:.1f}" '
             f'text-anchor="end">{value:.0%}</text>'
         )
-    for index in range(longest):
-        x = x_at(index)
+    for index in range(plot.longest):
         parts.append(
-            f'<text x="{x:.1f}" y="{HEIGHT - BOTTOM + X_LABEL_DROP}" '
+            f'<text x="{plot.x_at(index):.1f}" y="{HEIGHT - BOTTOM + X_LABEL_DROP}" '
             f'text-anchor="middle">{index + 1}</text>'
         )
     parts.append(
-        f'<text x="{LEFT + plot_w / 2}" y="{HEIGHT - X_TITLE_RISE}" '
-        f'text-anchor="middle">campaign</text>'
+        f'<text x="{LEFT + plot.width / 2}" y="{HEIGHT - X_TITLE_RISE}" '
+        'text-anchor="middle">campaign</text>'
     )
+    return parts
+
+
+def _line(plot: _Plot, n: int, label: str, rates: list[CampaignRate]) -> list[str]:
+    """One run: its line, its points, and its legend entry."""
+    color = COLORS[n % len(COLORS)]
+    points = " ".join(
+        f"{plot.x_at(i):.1f},{plot.y_at(r.click_rate):.1f}" for i, r in enumerate(rates)
+    )
+    parts = [
+        f'<polyline fill="none" stroke="{color}" stroke-width="{LINE_WIDTH}" points="{points}"/>'
+    ]
+    for i, r in enumerate(rates):
+        parts.append(
+            f'<circle cx="{plot.x_at(i):.1f}" cy="{plot.y_at(r.click_rate):.1f}" '
+            f'r="{POINT_RADIUS}" fill="{color}"/>'
+        )
+    legend_y = TOP + LEGEND_TOP + LEGEND_ROW * n
+    parts.append(
+        f'<rect x="{LEFT + LEGEND_INSET}" y="{legend_y - LEGEND_SWATCH_RAISE}" '
+        f'width="{LEGEND_SWATCH}" height="{LEGEND_SWATCH}" fill="{color}"/>'
+    )
+    parts.append(
+        f'<text x="{LEFT + LEGEND_TEXT_GAP}" y="{legend_y + LEGEND_TEXT_DROP}">{label}</text>'
+    )
+    return parts
+
+
+def render_chart(series: dict[str, list[CampaignRate]]) -> str:
+    """An SVG line chart: click rate by campaign number, one line per run."""
+    plot = _Plot(series)
+    parts = _frame(plot)
     for n, (label, rates) in enumerate(series.items()):
-        color = COLORS[n % len(COLORS)]
-        points = " ".join(f"{x_at(i):.1f},{y_at(r.click_rate):.1f}" for i, r in enumerate(rates))
-        parts.append(
-            f'<polyline fill="none" stroke="{color}" '
-            f'stroke-width="{LINE_WIDTH}" points="{points}"/>'
-        )
-        for i, r in enumerate(rates):
-            parts.append(
-                f'<circle cx="{x_at(i):.1f}" cy="{y_at(r.click_rate):.1f}" '
-                f'r="{POINT_RADIUS}" fill="{color}"/>'
-            )
-        legend_y = TOP + LEGEND_TOP + LEGEND_ROW * n
-        parts.append(
-            f'<rect x="{LEFT + LEGEND_INSET}" y="{legend_y - LEGEND_SWATCH_RAISE}" '
-            f'width="{LEGEND_SWATCH}" height="{LEGEND_SWATCH}" '
-            f'fill="{color}"/>'
-        )
-        parts.append(
-            f'<text x="{LEFT + LEGEND_TEXT_GAP}" y="{legend_y + LEGEND_TEXT_DROP}">{label}</text>'
-        )
+        parts += _line(plot, n, label, rates)
     parts.append("</svg>")
     return "\n".join(parts) + "\n"
 
@@ -283,21 +303,24 @@ def main(argv: list[str] | None = None) -> int:
         parser.error(f"give --api-url (or {URL_ENV}) and set {TOKEN_ENV} and {APPROVER_TOKEN_ENV}")
     if args.campaigns < 1:
         parser.error("--campaigns must be at least 1")
-    modes = {"on": [True], "off": [False], "both": [True, False]}[args.learnings]
-    runs: dict[str, list[CampaignRate]] = {}
+    # Off runs first: the on run keeps its learnings, which would otherwise sit in the team's
+    # store when the off run starts and contaminate its baseline.
+    modes = {"on": [True], "off": [False], "both": [False, True]}[args.learnings]
+    ran: dict[str, list[CampaignRate]] = {}
     with (
         _client(args.api_url, owner_token) as api,
         _client(args.api_url, approver_token) as approver_client,
     ):
         for learnings_on in modes:
             label = LABEL_ON if learnings_on else LABEL_OFF
-            runs[label] = run_campaigns(
+            ran[label] = run_campaigns(
                 api,
                 approver_client,
                 args.campaigns,
                 learnings_on=learnings_on,
                 quiet_seconds=args.quiet_seconds,
             )
+    runs = {label: ran[label] for label in (LABEL_ON, LABEL_OFF) if label in ran}
     args.out_dir.mkdir(parents=True, exist_ok=True)
     table = render_table(runs)
     (args.out_dir / "trend.svg").write_text(render_chart(runs))
