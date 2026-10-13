@@ -57,8 +57,9 @@ brand_scan() {
   local pattern; pattern="$(IFS='|'; echo "${BRANDS[*]}")"
   local excludes=(); local skip
   for skip in "${BRAND_SKIP[@]}"; do excludes+=(":!$skip"); done
-  local hits; hits="$(git grep -n -i -I -E "$pattern" -- . "${excludes[@]}" ':!uv.lock' ':!pnpm-lock.yaml' | cut -c1-200)"
-  echo "brand hits: $(printf '%s' "$hits" | grep -c .)"
+  # -o prints file:line:matched-word only, never the line, so no literal on a hit line is echoed.
+  local hits; hits="$(git grep -n -o -i -I -E "$pattern" -- . "${excludes[@]}" ':!uv.lock' ':!pnpm-lock.yaml' | awk '!seen[$0]++')"
+  echo "brand hits: $(printf '%s' "$hits" | cut -d: -f1,2 | sort -u | grep -c .) lines"
   [[ -n "$hits" ]] && { printf '%s\n' "$hits" | sed 's/^/  /'; FINDINGS=1; }
 }
 

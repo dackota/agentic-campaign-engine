@@ -95,6 +95,16 @@ def test_planted_brand_line_is_listed_with_file_and_line(tmp_path: Path) -> None
     assert "notes.md:2:" in result.stdout
 
 
+def test_brand_hit_output_never_includes_the_line_text(tmp_path: Path) -> None:
+    line_text = "api_key_value_" + "x7Q9zK2mP4"
+    repo = _repo(tmp_path, {"notes.md": f"one\n{line_text} {BRAND}\n"})
+
+    result = _run(repo)
+
+    assert f"notes.md:2:{BRAND}" in result.stdout
+    assert line_text not in result.stdout + result.stderr
+
+
 def test_brand_hits_alone_exit_with_the_brand_code(tmp_path: Path) -> None:
     repo = _repo(tmp_path, {"notes.md": f"{BRAND}\n"})
 
