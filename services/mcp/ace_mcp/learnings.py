@@ -36,7 +36,7 @@ def _shown(found: learnings.Found) -> dict[str, Any]:
 
 
 def tools_for(search: Search) -> tuple[Tool, ...]:
-    def run(_reader: Reader, args: dict[str, Any]) -> object:
+    def run(_reader: Reader, args: Mapping[str, object]) -> object:
         query = str(args.get("query", "")).strip()
         if not query:
             raise ValueError("query must not be blank")

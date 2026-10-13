@@ -8,7 +8,7 @@ tool is listed with `readOnlyHint: true`. A tool that would write has nowhere to
 import asyncio
 import json
 import logging
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
@@ -39,7 +39,7 @@ class Reader:
         raise NotImplementedError
 
 
-ToolRun = Callable[[Reader, dict[str, Any]], object]
+ToolRun = Callable[[Reader, Mapping[str, object]], object]
 
 
 @dataclass(frozen=True)
@@ -70,7 +70,9 @@ def describe(tool: Tool) -> dict[str, Any]:
 
 
 def _reply(
-    body: dict[str, Any], result: dict[str, Any] | None = None, error: tuple[int, str] | None = None
+    body: Mapping[str, object],
+    result: dict[str, Any] | None = None,
+    error: tuple[int, str] | None = None,
 ) -> JSONResponse:
     envelope: dict[str, Any] = {"jsonrpc": "2.0", "id": body.get("id")}
     if error is not None:
@@ -80,7 +82,9 @@ def _reply(
     return JSONResponse(envelope)
 
 
-def _call(tools: dict[str, Tool], reader: Reader, params: dict[str, Any]) -> dict[str, Any] | None:
+def _call(
+    tools: dict[str, Tool], reader: Reader, params: Mapping[str, object]
+) -> dict[str, Any] | None:
     tool = tools.get(str(params.get("name")))
     if tool is None:
         return None
