@@ -99,8 +99,11 @@ def _assets(owner: httpx.Client, campaign: dict[str, Any]) -> dict[str, Any]:
     previews = {}
     for kind, path in (("email", ""), *((k, f"/{k}") for k in TEXT_ASSET_KINDS)):
         reply = owner.get(f"/campaigns/{campaign['id']}/preview{path}")
-        if reply.status_code == httpx.codes.OK:
-            previews[kind] = hashlib.sha256(reply.content).hexdigest()
+        if reply.status_code == httpx.codes.CONFLICT:
+            continue  # the campaign has no content for this kind
+        if reply.status_code != httpx.codes.OK:
+            raise RuntimeError(f"the {kind} preview answered {reply.status_code}")
+        previews[kind] = hashlib.sha256(reply.content).hexdigest()
     return {"email": campaign["draft"], "variant_b": campaign["variant_b"], "previews": previews}
 
 

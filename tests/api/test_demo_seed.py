@@ -3,6 +3,7 @@ campaign each, through the Campaign API only. It repeats the same way: two clean
 the same steps, assets and judge scores, and seeding twice on one stack adds nothing."""
 
 import httpx
+import pytest
 
 from tests.api.conftest import SignIn
 from tests.harness import demo_seed
@@ -68,3 +69,27 @@ def _sign_in_on(stack: Stack) -> SignIn:
         return api_client(stack.api_url, stack.dex.token(email))
 
     return client_for
+
+
+def _preview_client(statuses: dict[str, int]) -> httpx.Client:
+    def answer(request: httpx.Request) -> httpx.Response:
+        kind = request.url.path.rsplit("/preview", 1)[1].lstrip("/") or "email"
+        return httpx.Response(statuses.get(kind, 200), text="secret-body")
+
+    return httpx.Client(base_url="http://api", transport=httpx.MockTransport(answer))
+
+
+def test_a_preview_with_no_content_is_skipped_and_another_failure_raises() -> None:
+    campaign = {"id": "c1", "draft": {"subject": "s"}, "variant_b": None}
+
+    with _preview_client({"social": 409}) as client:
+        assets = demo_seed._assets(client, campaign)
+    assert "social" not in assets["previews"]
+    assert "email" in assets["previews"]
+
+    with _preview_client({"cards": 500}) as client:
+        with pytest.raises(RuntimeError) as failed:
+            demo_seed._assets(client, campaign)
+    assert "cards" in str(failed.value)
+    assert "500" in str(failed.value)
+    assert "secret-body" not in str(failed.value)
