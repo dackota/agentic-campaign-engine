@@ -2,6 +2,7 @@
 
 import json
 import uuid
+import warnings
 from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
@@ -19,12 +20,15 @@ from sqlalchemy import (
     UniqueConstraint,
     Uuid,
     create_engine,
+    exc,
     func,
+    inspect,
     select,
     text,
 )
-from sqlalchemy.engine import Dialect, Engine
+from sqlalchemy.engine import Connection, Dialect, Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.schema import CreateTable
 from sqlalchemy.types import TypeEngine, UserDefinedType
 
 DRAFTING = "drafting"
@@ -629,10 +633,51 @@ def campaign_traceparent(engine: Engine, campaign_id: uuid.UUID) -> str | None:
 
 
 def make_engine(database_url: str) -> Engine:
+    """An engine on a database brought up to the models: the vector extension, the missing
+    tables, then the missing columns and indexes (docs/decisions/additive-schema-at-start.md).
+    On Postgres it is all one transaction under the extension lock, so the API, the worker,
+    and the learnings MCP server, which start together, take turns."""
     engine = create_engine(database_url, pool_pre_ping=True)
-    if engine.dialect.name == "postgresql":
-        with engine.begin() as conn:
+    with engine.begin() as conn:
+        if engine.dialect.name == "postgresql":
             conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _EXTENSION_LOCK})
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    Base.metadata.create_all(engine)
+        Base.metadata.create_all(conn)
+        for statement in missing_schema_statements(conn):
+            conn.execute(text(statement))
     return engine
+
+
+def missing_schema_statements(conn: Connection) -> list[str]:
+    """The DDL that adds each model column and index the database lacks. It only adds: a
+    column the models no longer have stays. Every name is quoted, as DDL takes no bound
+    parameters (`CreateColumn` and `Index.create` leave plain names bare)."""
+    q = conn.dialect.identifier_preparer.quote_identifier
+    found = inspect(conn)
+    statements: list[str] = []
+    for table in Base.metadata.sorted_tables:
+        # Renders each server default the way `create_all` does.
+        ddl = conn.dialect.ddl_compiler(conn.dialect, CreateTable(table))
+        with warnings.catch_warnings():
+            # Reflection does not know pgvector's type; only the names are read.
+            warnings.filterwarnings("ignore", "Did not recognize type", exc.SAWarning)
+            have = {c["name"] for c in found.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in have:
+                continue
+            spec = f"{q(column.name)} {column.type.compile(dialect=conn.dialect)}"
+            default = ddl.get_column_default_string(column)
+            if default is not None:
+                spec += f" DEFAULT {default}"
+            if not column.nullable:
+                spec += " NOT NULL"
+            statements.append(f"ALTER TABLE {q(table.name)} ADD COLUMN {spec}")
+        indexes = {i["name"] for i in found.get_indexes(table.name)}
+        for index in sorted(table.indexes, key=lambda i: str(i.name)):
+            if index.name in indexes:
+                continue
+            columns = ", ".join(q(c.name) for c in index.columns)
+            statements.append(
+                f"CREATE INDEX IF NOT EXISTS {q(str(index.name))} ON {q(table.name)} ({columns})"
+            )
+    return statements

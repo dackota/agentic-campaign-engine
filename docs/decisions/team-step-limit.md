@@ -31,6 +31,10 @@ counts the same rows.
 
 ## Database
 
+Each start now applies this (`make_engine` adds the table and its index,
+`row_security.install` the grant and policy):
+[additive-schema-at-start.md](additive-schema-at-start.md).
+
 New table, additive only:
 
 ```sql

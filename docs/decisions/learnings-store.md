@@ -40,6 +40,9 @@ MCP tool `search_learnings` before they write. Approvers delete a bad learning i
 
 ## Live database
 
+Each start now applies this (`make_engine` adds the table, `row_security.install` the grant
+and policy): [additive-schema-at-start.md](additive-schema-at-start.md).
+
 `Base.metadata.create_all` creates the new table but never adds columns. For the
 end-of-batch deploy, the additive SQL is:
 
