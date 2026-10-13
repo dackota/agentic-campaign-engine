@@ -98,11 +98,10 @@ def test_config_maps_web_and_dex_ports_through_the_load_balancer() -> None:
         assert NODEPORT_MIN <= int(node) <= NODEPORT_MAX, host
 
 
-def test_host_ports_differ_from_playwright_defaults() -> None:
-    defaults = set(re.findall(r'\?\? "(\d+)"', PLAYWRIGHT.read_text()))
-    assert {"18080", "15173", "15556"} <= defaults
-    host_ports = {p["port"].split(":")[0] for p in _config()["ports"]}
-    assert not host_ports & defaults
+def test_playwright_has_no_fixed_default_port() -> None:
+    # A fixed default clashes with a port-forward or another run on the same machine.
+    defaults = re.findall(r'\?\? "(\d+)"', PLAYWRIGHT.read_text())
+    assert defaults == []
 
 
 def test_recipes_and_platform_scripts_never_name_the_spike_cluster() -> None:

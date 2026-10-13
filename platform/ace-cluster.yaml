@@ -15,8 +15,8 @@ registries:
   create:
     name: ace-registry
     host: "0.0.0.0"
-# Fixed host ports through the k3d load balancer (decisions A21). They must stay clear of
-# the browser seam's defaults in apps/web/playwright.config.ts (18080, 15173, 15556).
+# Fixed host ports through the k3d load balancer (decisions A21). The browser seam picks
+# free ports of its own (apps/web/playwright.config.ts), so the two run side by side.
 ports:
   - port: 15180:30180 # web NodePort
     nodeFilters: [loadbalancer]

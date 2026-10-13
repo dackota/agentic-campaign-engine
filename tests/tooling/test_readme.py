@@ -33,9 +33,6 @@ def test_readme_gives_urls_ports_and_demo_sign_in() -> None:
         "http://dex.ace.localhost:15656/dex",
         "15180",
         "15656",
-        "18080",
-        "15173",
-        "15556",
         "demo-password",
     ):
         assert text in README, text

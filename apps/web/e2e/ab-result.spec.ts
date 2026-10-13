@@ -1,8 +1,9 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
 import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
 
-// The fake Marketo's port is pinned in playwright.config.ts so a spec can steer its audience.
-const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";
+// playwright.config.ts sets the fake Marketo's port before the workers start, so a spec can steer its audience.
+const marketoPort = process.env.ACE_MARKETO_PORT;
+if (!marketoPort) throw new Error("ACE_MARKETO_PORT is unset: run the specs through playwright.config.ts");
 const AUDIENCE_URL = `http://127.0.0.1:${marketoPort}/_audience`;
 // Seed 1 opens variant A far more than B. The default speed is a simulated day per second.
 const SEED = 1;
