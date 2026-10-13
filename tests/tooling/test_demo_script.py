@@ -79,3 +79,8 @@ def test_readme_demo_section_names_seed_command_and_video_link() -> None:
     assert "make seed-demo" in body
     assert "docs/demo-script.md" in body
     assert re.search(r"\[[^\]]*video[^\]]*\]\(https?://\S+\)", body, re.I)
+
+
+def test_demo_report_fits_the_scripted_email_body_so_the_draft_is_not_cut_off() -> None:
+    # The scripted agent copies the first 300 characters of the report into the email body.
+    assert len(REPORT.strip()) <= 300
