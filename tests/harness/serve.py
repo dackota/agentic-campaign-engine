@@ -8,6 +8,12 @@ import threading
 from tests.harness.stack import Pinned, Stack
 
 
+# The browser specs run in parallel on one team, and one default-workflow campaign runs five
+# model steps at once, so the engine's default team limit would make steps queue and the
+# specs time out. The limit itself is tested at the API seam (tests/api/test_team_step_limit.py).
+BROWSER_TEAM_STEP_LIMIT = 1000
+
+
 def main() -> None:
     pinned = Pinned(
         api_port=int(os.environ["ACE_API_PORT"]),
@@ -23,7 +29,10 @@ def main() -> None:
     # SIGTERM (Playwright's graceful shutdown) raises KeyboardInterrupt as SIGINT does, so the
     # stack stops even when the signal comes while it is still starting.
     signal.signal(signal.SIGTERM, signal.default_int_handler)
-    with contextlib.suppress(KeyboardInterrupt), Stack(pinned=pinned):
+    with (
+        contextlib.suppress(KeyboardInterrupt),
+        Stack(pinned=pinned, team_step_limit=BROWSER_TEAM_STEP_LIMIT),
+    ):
         threading.Event().wait()
 
 
