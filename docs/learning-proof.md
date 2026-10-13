@@ -13,7 +13,8 @@ cluster against the simulated audience (the fake Marketo):
 
 It writes `learning-curve/trend.svg` (the trend chart), `results.md` (the tables below) and
 `results.json`. `--learnings on|off` runs one side only. Click rate is clicks over opens.
-How learnings are switched off: docs/decisions/learnings-off.md.
+How learnings are switched off: docs/decisions/learnings-off.md. When both sides run, the off side runs first so the on run's kept learnings
+cannot reach its baseline.
 
 The fast-depth run (scripted agent) proves the script works, not the claim: the scripted
 agent writes the same email every time.
