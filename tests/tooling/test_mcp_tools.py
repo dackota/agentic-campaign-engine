@@ -97,20 +97,17 @@ def test_research_binds_only_workfront_reads_and_no_other_agent_binds_tools() ->
 def test_invoker_reads_the_tools_an_agent_called_off_the_task() -> None:
     call = {
         "data": {"name": "get_project", "args": {"project_id": "p1"}, "id": "c1"},
-        "metadata": {"kagent_type": "function_call"},
+        "metadata": {"kagent.dev/a2a/part-type": "function_call"},
     }
     response = {
         "data": {"name": "get_project", "response": {}, "id": "c1"},
-        "metadata": {"kagent_type": "function_response"},
+        "metadata": {"kagent.dev/a2a/part-type": "function_response"},
     }
     task = {
         "id": "t",
         "contextId": "ctx",
-        "history": [
-            {"role": "ROLE_AGENT", "parts": [call]},
-            {"role": "ROLE_AGENT", "parts": [response]},
-        ],
-        "artifacts": [{"parts": [{"text": '{"ok": true}'}]}],
+        # Alpha9 puts the tool parts in the artifact before the text (seen live on k3d-ace).
+        "artifacts": [{"parts": [call, response, {"text": '{"ok": true}'}]}],
     }
 
     def reply(_: httpx.Request) -> httpx.Response:

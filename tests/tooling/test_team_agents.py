@@ -18,6 +18,7 @@ TEAMS_DIR = ROOT / "agents/teams"
 TEAM_GATEWAY = TEAMS_DIR / "gateway.yaml"
 GATEWAY_URL = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local"
 TEAMS = sorted({user.team for user in DEMO_USERS.values()})
+LIVE_CAMPAIGN_PEAK_TOKENS_PER_MINUTE = 80_000
 
 
 def _overlay(team: str) -> dict[str, Any]:
@@ -128,7 +129,10 @@ def test_every_team_model_goes_through_its_own_token_limited_route(team: str) ->
         and "rateLimit" in p["spec"].get("traffic", {})
     ]
     assert len(limits) == 1
-    assert limits[0][0]["tokens"] > 0 and limits[0][0]["unit"] == "Minutes"
+    assert limits[0][0]["unit"] == "Minutes"
+    # One live campaign peaked near 80k tokens a minute, throttled, on k3d-ace (2026-10-12);
+    # the limit leaves room for two at once.
+    assert limits[0][0]["tokens"] >= 2 * LIVE_CAMPAIGN_PEAK_TOKENS_PER_MINUTE
 
 
 def test_install_applies_every_team_and_waits_for_its_agents() -> None:
