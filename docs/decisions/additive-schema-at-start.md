@@ -13,6 +13,10 @@ Date: 2026-10-13. Status: proposed (#84).
   column left in the database after it left the models stays.
 - One process does this at a time (a Postgres advisory lock), because the API and the worker
   start together.
+- A column the database cannot add with the rows it holds (NOT NULL with no server default,
+  on a table with rows) stops the start with an error that names `table.column`. The api pod
+  stays unready and `make up` fails at the Helm wait. Nothing is half-changed: the step runs
+  in one transaction.
 - No Alembic. No migration scripts, no version table.
 
 ## Rules for a model change
