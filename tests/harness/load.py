@@ -168,16 +168,31 @@ def _read_campaign(response: httpx.Response) -> _Campaign:
     steps = _default_if_none(cost.get("steps"), [])
     cost_usd = _default_if_none(cost.get("cost_usd"), 0.0)
     is_steps = isinstance(steps, list) and all(isinstance(s, dict) for s in steps)
-    is_number = isinstance(cost_usd, int | float) and not isinstance(cost_usd, bool)
-    if not is_steps or not is_number or not math.isfinite(cost_usd):
-        raise UnreadableReply("campaign reply has a bad cost.steps or cost.cost_usd")
+    hits = [_default_if_none(s.get("cache_hit"), False) for s in steps] if is_steps else []
+    if (
+        not is_steps
+        or not all(isinstance(h, bool) for h in hits)
+        or not _is_finite_number(cost_usd)
+    ):
+        raise UnreadableReply("campaign reply has a bad cost.steps, cost.cost_usd or cache_hit")
     return _Campaign(
         status=status,
         failure_reason=reason,
         cost_usd=float(cost_usd),
         agent_steps=len(steps),
-        cache_hits=sum(1 for s in steps if s.get("cache_hit")),
+        cache_hits=sum(hits),
     )
+
+
+def _is_finite_number(value: object) -> bool:
+    """A JSON number that becomes a finite float: not a bool, not inf (1e400), and not an int
+    too large for a float (float() raises OverflowError on it)."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except OverflowError:
+        return False
 
 
 def _default_if_none[T](value: T | None, default: T) -> T:
