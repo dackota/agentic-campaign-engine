@@ -1,0 +1,45 @@
+{
+  "margin": 0.05,
+  "reports": {
+    "volt-typhoon": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "lockbit-ferry": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "harbor-phish": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "northwind-supply": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "glasshouse-cloud": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "quill-mobile": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "ember-ics": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "saffron-deepfake": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "tidewater-dns": {
+      "quality": 1.0,
+      "judge": 1.0
+    },
+    "marlin-insider": {
+      "quality": 1.0,
+      "judge": 1.0
+    }
+  }
+}
