@@ -210,22 +210,26 @@ class ScriptedAgent:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
                 )
-            artifact: dict[str, Any] = {
-                "artifactId": str(uuid.uuid4()),
-                "parts": [{"text": reply}],
-                "metadata": {USAGE_KEY: scripted_usage(text)},
-            }
-            task: dict[str, Any] = {
-                "id": str(uuid.uuid4()),
-                "contextId": context_id,
-                "status": {"state": COMPLETED},
-                "artifacts": [artifact],
-            }
-            if ROLES["research"].prompt in text:
-                task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
-            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
+            return _completed_task(body, context_id, text, reply)
 
         return app
+
+
+def _completed_task(body: dict[str, Any], context_id: str, text: str, reply: str) -> JSONResponse:
+    artifact: dict[str, Any] = {
+        "artifactId": str(uuid.uuid4()),
+        "parts": [{"text": reply}],
+        "metadata": {USAGE_KEY: scripted_usage(text)},
+    }
+    task: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "contextId": context_id,
+        "status": {"state": COMPLETED},
+        "artifacts": [artifact],
+    }
+    if ROLES["research"].prompt in text:
+        task["history"] = [_tool_call_message(RESEARCH_TOOL, {"project_id": "demo"})]
+    return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
 
 def _failed_task(body: dict[str, Any], context_id: str) -> JSONResponse:
