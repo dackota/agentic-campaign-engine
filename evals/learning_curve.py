@@ -269,3 +269,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     sys.stdout.write(table)
     return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

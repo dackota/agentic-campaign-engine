@@ -5,6 +5,8 @@ called, so the next campaign's agents find none. Fast depth here, with the scrip
 the real numbers come from a live run (docs/learning-proof.md)."""
 
 import re
+import subprocess
+import sys
 from pathlib import Path
 
 import httpx
@@ -127,3 +129,15 @@ def test_cli_writes_chart_table_and_results_for_both_runs(
     table = (tmp_path / "results.md").read_text()
     assert "learnings on" in table and "learnings off" in table
     assert (tmp_path / "results.json").exists()
+
+
+def test_documented_command_runs_the_script() -> None:
+    result = subprocess.run(
+        [sys.executable, "-m", "evals.learning_curve", "--help"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0
+    assert "--campaigns" in result.stdout
