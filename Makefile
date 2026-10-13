@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
+.PHONY: evals smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -22,6 +22,10 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 	pnpm --filter web test
 	pnpm --filter web exec playwright install --with-deps chromium
 	pnpm --filter web e2e
+
+# EVALS_ARGS=--update-baseline rewrites the baseline on purpose; nothing else changes it.
+evals: ## Run the golden set at fast depth (needs only Docker) and fail on a drop past the baseline margin
+	PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp uv run python -m tests.harness.run_evals --baseline evals/baseline.json --agreement-out evals/judge_agreement.json $(EVALS_ARGS)
 
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py
