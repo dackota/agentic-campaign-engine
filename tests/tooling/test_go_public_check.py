@@ -2,6 +2,7 @@
 Each test builds a throwaway git repo at run time; the fake secret and the brand name are
 assembled here so no tracked file holds either."""
 
+import itertools
 import secrets
 import string
 import subprocess
@@ -144,6 +145,34 @@ def test_license_classifier_flags_copyleft_and_unknown(license_text: str, verdic
     )
 
     assert result.stdout.strip() == verdict
+
+
+PERMISSIVE_TERMS = ["MIT", "Apache-2.0", "BSD-3-Clause", "ISC"]
+COPYLEFT_TERMS = ["GPL-2.0", "GPL-3.0-only", "AGPL-3.0", "LGPL-3.0-only"]
+
+
+@pytest.mark.parametrize(
+    ("permissive", "copyleft", "joiner"),
+    list(itertools.product(PERMISSIVE_TERMS, COPYLEFT_TERMS, [" AND ", " and ", " / "]))
+    + list(itertools.product(COPYLEFT_TERMS, PERMISSIVE_TERMS, [" AND "])),
+)
+def test_copyleft_outside_an_or_choice_is_flagged(
+    permissive: str, copyleft: str, joiner: str
+) -> None:
+    text = permissive + joiner + copyleft if joiner != " / " else copyleft + joiner + permissive
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--classify", text], capture_output=True, text=True
+    )
+
+    assert result.stdout.strip() == "flagged", text
+
+
+def test_or_choice_with_a_permissive_side_is_ok() -> None:
+    result = subprocess.run(
+        ["bash", str(SCRIPT), "--classify", "MIT OR GPL-2.0"], capture_output=True, text=True
+    )
+
+    assert result.stdout.strip() == "ok"
 
 
 def test_no_license_file_is_added() -> None:

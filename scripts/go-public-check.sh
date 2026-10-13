@@ -16,21 +16,25 @@ BRAND_SKIP=(scripts/go-public-check.sh docs/go-public.md)
 FLAGGED_PATTERN='gpl|general public|^$|unknown|^none$|proprietary'
 PERMISSIVE_PATTERN='mit|apache|bsd|isc|psf|python software|mpl|unlicense|zlib|0bsd|cc0|hpnd|bsl|public domain'
 
+classify_one() {
+  if [[ "$1" =~ $FLAGGED_PATTERN ]]; then echo flagged
+  elif [[ "$1" =~ $PERMISSIVE_PATTERN ]]; then echo ok
+  else echo flagged; fi
+}
+
+# An OR choice is ok when any one side is ok; a copyleft term outside a choice flags.
 classify() {
-  local text; text="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
-  if [[ "$text" =~ $FLAGGED_PATTERN ]] && ! [[ "$text" =~ ^(mit|bsd|apache) ]]; then
-    echo flagged
-  elif [[ "$text" =~ $PERMISSIVE_PATTERN ]]; then
-    echo ok
-  else
-    echo flagged
-  fi
+  local text alt; text="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+  while IFS= read -r alt; do
+    [[ "$(classify_one "$alt")" == ok ]] && { echo ok; return; }
+  done <<<"${text// or /$'\n'}"
+  echo flagged
 }
 
 if [[ "${1:-}" == "--classify" ]]; then classify "${2:-}"; exit 0; fi
 
 ROOT="$(git rev-parse --show-toplevel)" || { echo "not inside a git repo" >&2; exit 1; }
-cd "$ROOT"
+cd "$ROOT" || exit 1
 SECRET_FAIL=0
 FINDINGS=0
 
@@ -42,14 +46,17 @@ secret_scan() {
   if [[ $code -ne 0 && $code -ne 1 ]]; then
     echo "secret scan: FAIL (gitleaks could not run, exit $code)"; rm -f "$report"; SECRET_FAIL=1; return
   fi
-  local count; count="$(jq 'length' "$report" 2>/dev/null || echo 0)"
-  if [[ "$count" -gt 0 ]]; then
-    echo "secret scan: FAIL ($count findings, values redacted)"
-    jq -r '.[] | "  rule=\(.RuleID) file=\(.File) commit=\(.Commit[0:12])"' "$report"
-    SECRET_FAIL=1
-  else
-    echo "secret scan: PASS (0 findings, all refs)"
+  if [[ $code -eq 0 ]]; then
+    echo "secret scan: PASS (0 findings, all refs)"; rm -f "$report"; return
   fi
+  local count lines
+  if ! count="$(jq 'length' "$report")" || ! lines="$(jq -r '.[] | "  rule=\(.RuleID) file=\(.File) commit=\(.Commit[0:12])"' "$report")"; then
+    echo "secret scan: FAIL (gitleaks reported leaks but its report could not be read)"
+    rm -f "$report"; SECRET_FAIL=1; return
+  fi
+  echo "secret scan: FAIL ($count findings, values redacted)"
+  printf '%s\n' "$lines"
+  SECRET_FAIL=1
   rm -f "$report"
 }
 
@@ -69,7 +76,8 @@ python_licenses() {
   "${runner[@]}" - <<'PY'
 import re, tomllib
 from importlib import metadata
-deps = tomllib.load(open("pyproject.toml", "rb")).get("project", {}).get("dependencies", [])
+with open("pyproject.toml", "rb") as f:
+    deps = tomllib.load(f).get("project", {}).get("dependencies", [])
 for dep in deps:
     name = re.split(r"[\[<>=!~ ;]", dep, maxsplit=1)[0]
     try:
@@ -86,7 +94,7 @@ PY
 }
 
 js_licenses() {
-  local manifest pkg dir name license
+  local manifest dir name license
   for manifest in $(git ls-files '*package.json' | grep -v '^package.json$'); do
     dir="$(dirname "$manifest")"
     for name in $(jq -r '((.dependencies // {}) + (.devDependencies // {})) | keys[]' "$manifest"); do
@@ -98,8 +106,10 @@ js_licenses() {
 }
 
 license_scan() {
-  local rows; rows="$( { python_licenses; js_licenses; } 2>/dev/null | sort -u)"
-  local flagged=0 name license
+  local rows py js flagged=0 name license
+  if ! py="$(python_licenses)"; then echo "licenses: FAIL (python lister failed)"; FINDINGS=1; fi
+  if ! js="$(js_licenses)"; then echo "licenses: FAIL (js lister failed)"; FINDINGS=1; fi
+  rows="$(printf '%s\n%s\n' "$py" "$js" | sort -u)"
   echo "licenses:"
   while IFS=$'\t' read -r name license; do
     [[ -z "$name" ]] && continue

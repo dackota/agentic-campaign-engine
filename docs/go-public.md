@@ -1,6 +1,6 @@
 # Go-public check
 
-One run of `bash scripts/go-public-check.sh` on branch `impl/63-prep` (base commit 4b68df0). Run it again before going public. It exits 0 when clean, 1 when the secret scan fails, 2 when only brand hits or flagged licenses remain. Its brand scan skips `scripts/go-public-check.sh` and this file, since both name the deny list, so every count below excludes both.
+One run of `bash scripts/go-public-check.sh` on branch `impl/63-prep` (base commit 52c70f9). Run it again before going public. It exits 0 when clean, 1 when the secret scan fails, 2 when only brand hits or flagged licenses remain. Its brand scan skips `scripts/go-public-check.sh` and this file, since both name the deny list, so every count below excludes both.
 
 Nothing was changed to remove a brand, no LICENSE was added, no history was rewritten, and repo visibility was not touched.
 
