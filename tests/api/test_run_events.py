@@ -16,6 +16,9 @@ def test_stream_emits_step_events_in_order_ending_in_final_state(api: httpx.Clie
     assert steps == [
         ("email_draft", "started"),
         ("email_draft", "succeeded"),
+        ("judge", "started"),
+        ("judge", "succeeded"),
+        ("email_draft", "scored"),
         ("run", "awaiting_approval"),
     ]
     assert [e["seq"] for e in events] == sorted(e["seq"] for e in events)

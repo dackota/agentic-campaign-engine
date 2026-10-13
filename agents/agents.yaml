@@ -53,6 +53,13 @@ spec:
 ---
 apiVersion: api.kagent.dev/v1alpha3
 kind: Agent
+metadata: {name: ace-judge, namespace: kagent}
+spec:
+  templateRef: {name: ace-judge}
+  harnessRef: {name: spike-harness}
+---
+apiVersion: api.kagent.dev/v1alpha3
+kind: Agent
 metadata: {name: ace-design-agent, namespace: kagent}
 spec:
   templateRef: {name: ace-design-agent}

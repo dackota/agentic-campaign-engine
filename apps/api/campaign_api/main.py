@@ -106,6 +106,14 @@ class FlagOut(BaseModel):
     issues: list[dict[str, Any]]
 
 
+class ScoreOut(BaseModel):
+    """The judge's score for one asset and its reason."""
+
+    step: str
+    score: int
+    reason: str
+
+
 class AbResultOut(BaseModel):
     status: Literal["winner", "no_decision"]
     winner: str | None
@@ -125,6 +133,7 @@ class RunDetail:
 
     engagement: dict[str, dict[str, int]] = field(default_factory=dict)
     flags: list[FlagOut] = field(default_factory=list)
+    scores: list[ScoreOut] = field(default_factory=list)
     usage: list[db.StepUsage] = field(default_factory=list)
 
 
@@ -150,6 +159,8 @@ class CampaignOut(BaseModel):
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
     # What the brand reviewer still flags after its fix rounds, by step.
     flags: list[FlagOut] = Field(default_factory=list)
+    # What the judge scored each asset, with its reason.
+    scores: list[ScoreOut] = Field(default_factory=list)
     ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
     budget_usd: float | None = None
     # Tokens and cost per agent step and in total.
@@ -187,6 +198,7 @@ class CampaignOut(BaseModel):
             edges=list(c.dag.get("edges", [])),
             engagement=detail.engagement,
             flags=detail.flags,
+            scores=detail.scores,
             ab_result=AbResultOut.of(decide(detail.engagement)),
             budget_usd=budget_usd(c),
             cost=CostOut.of(detail.usage),
@@ -294,6 +306,12 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
                 flags=[
                     FlagOut(step=e.step, issues=json.loads(e.reason or "[]"))
                     for e in db.review_flags(session, campaign_id)
+                ],
+                scores=[
+                    ScoreOut(step=step, **found)
+                    for step, found in db.asset_scores(session, [campaign_id])
+                    .get(campaign_id, {})
+                    .items()
                 ],
                 usage=db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
             ),

@@ -1,11 +1,11 @@
 """The workflow every deployment seeds: "Threat report to campaign". A strategist and a
-research agent run first, then the design agent and four writers at the same time, then a
-human approves and the email goes out."""
+research agent run first, then the design agent and four writers at the same time, then the judge
+scores their assets, then a human approves and the email goes out."""
 
 from typing import Any
 
 DEFAULT_WORKFLOW_NAME = "threat-report-to-campaign"
-DEFAULT_WORKFLOW_VERSION = 1
+DEFAULT_WORKFLOW_VERSION = 2
 
 # Every writer's draft goes to the brand reviewer before a human sees it.
 REVIEW_ROUNDS = 2
@@ -22,6 +22,8 @@ def default_workflow_dag() -> dict[str, Any]:
             # Declared before the writers: the publish step sends the last agent step's output.
             {"id": "design", "kind": "agent"},
             *({"id": w, "kind": "agent", "review_rounds": REVIEW_ROUNDS} for w in _WRITERS),
+            # Scores every asset before a human sees one; a score below the floor stops the run.
+            {"id": "judge", "kind": "agent"},
             {"id": "approval", "kind": "approval"},
             {"id": "publish", "kind": "publish"},
         ],
@@ -29,8 +31,9 @@ def default_workflow_dag() -> dict[str, Any]:
             {"from": "strategist", "to": "research"},
             {"from": "research", "to": "design"},
             *({"from": "research", "to": w} for w in _WRITERS),
-            {"from": "design", "to": "approval"},
-            *({"from": w, "to": "approval"} for w in _WRITERS),
+            {"from": "design", "to": "judge"},
+            *({"from": w, "to": "judge"} for w in _WRITERS),
+            {"from": "judge", "to": "approval"},
             {"from": "approval", "to": "publish"},
         ],
     }

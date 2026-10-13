@@ -33,10 +33,12 @@ from temporalio.exceptions import TimeoutError as ActivityTimedOut
 from temporalio.workflow import ActivityCancellationType
 
 with workflow.unsafe.imports_passed_through():
+    from ace_engine import assets
     from ace_engine import dag as graph
     from ace_engine.agent_roles import role_for
     from ace_engine.cost import BUDGET_SPENT
     from ace_engine.db import STEP_STARTED, STEP_SUCCEEDED
+    from ace_engine.judge import JUDGE_STEP
 
     from campaign_worker.activities import RedoJob
 
@@ -325,6 +327,20 @@ class CampaignWorkflow:
             await self._save_cards(campaign_id, step, result["output"])
         await self._db("save_agent_output", campaign_id, step_id, result)
         self._outputs[step_id] = result["output"]
+        if role_for(step_id).judges:
+            await self._hold_to_floor(campaign_id, dag, step_id, result["output"])
+
+    async def _hold_to_floor(
+        self, campaign_id: str, dag: dict[str, Any], step_id: str, output: object
+    ) -> None:
+        """Record the judge's scores; a score below the floor stops the run, naming the asset."""
+        reasons: list[str] = await workflow.execute_activity(
+            "record_scores",
+            args=[campaign_id, step_id, assets.asset_steps(dag), output],
+            start_to_close_timeout=DB_STEP_TIMEOUT,
+        )
+        if reasons:
+            raise StepFailed(step_id, "; ".join(reasons))
 
     async def _save_cards(self, campaign_id: str, step: dict[str, Any], output: object) -> None:
         policy = step_policy(step)
@@ -382,7 +398,9 @@ class CampaignWorkflow:
 
     async def _publish(self, campaign_id: str, dag: dict[str, Any], step: dict[str, Any]) -> None:
         step_id, policy = step["id"], step_policy(step)
-        source = graph.latest_ancestor_of_kind(dag, step_id, graph.AGENT)
+        source = graph.latest_ancestor_of_kind(
+            dag, step_id, graph.AGENT, skip=frozenset({JUDGE_STEP})
+        )
         if source is None:
             raise StepFailed(step_id, f"publish step {step_id!r} has no agent step before it")
         await self._db("mark_step", campaign_id, step_id, STEP_STARTED)

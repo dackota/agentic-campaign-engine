@@ -11,6 +11,9 @@ export interface InboxAsset {
   preview_url: string | null;
   output: unknown;
   flags: ReviewFlag[];
+  /** The judge's score (1 to 5) and reason; null when the asset was not judged. */
+  score: number | null;
+  score_reason: string | null;
 }
 
 export interface ReviewFlag {
@@ -32,6 +35,8 @@ function isInboxAsset(value: unknown): value is InboxAsset {
     typeof a.title === "string" &&
     typeof a.step === "string" &&
     (a.preview_url === null || typeof a.preview_url === "string") &&
+    (a.score === null || typeof a.score === "number") &&
+    (a.score_reason === null || typeof a.score_reason === "string") &&
     Array.isArray(a.flags) &&
     a.flags.every(isFlag)
   );
