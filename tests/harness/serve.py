@@ -7,7 +7,6 @@ import threading
 
 from tests.harness.stack import Pinned, Stack
 
-
 # The browser specs run in parallel on one team, and one default-workflow campaign runs five
 # model steps at once, so the engine's default team limit would make steps queue and the
 # specs time out. The limit itself is tested at the API seam (tests/api/test_team_step_limit.py).
