@@ -1,13 +1,13 @@
 """Checks on what an agent hands a tool, before any of it reaches an upstream path."""
 
 import re
-from typing import Any
+from collections.abc import Mapping
 
 _SEGMENT = re.compile(r"[A-Za-z0-9_-]+")
 _DOT_SEGMENTS = (".", "..")
 
 
-def segment(args: dict[str, Any], name: str) -> str:
+def segment(args: Mapping[str, object], name: str) -> str:
     """A required argument that must be one path segment: an ID or a slug.
 
     Anything with a `/`, `.`, `?` or `#` could leave the route it is put in, so it is refused.
@@ -18,12 +18,12 @@ def segment(args: dict[str, Any], name: str) -> str:
     return value
 
 
-def optional_segment(args: dict[str, Any], name: str) -> str:
+def optional_segment(args: Mapping[str, object], name: str) -> str:
     """Like `segment`, for a filter that may be left out (an empty value is no filter)."""
     return segment(args, name) if args.get(name) else ""
 
 
-def key_path(args: dict[str, Any], name: str) -> str:
+def key_path(args: Mapping[str, object], name: str) -> str:
     """A required object key: slashes are fine, `.` and `..` segments are not."""
     value = str(args[name])
     if not value or any(part in _DOT_SEGMENTS for part in value.split("/")):

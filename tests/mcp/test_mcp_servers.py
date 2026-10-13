@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from collections.abc import Mapping
 from typing import Any
 
 import httpx
@@ -25,7 +26,7 @@ CLIENT_SECRET = "mcp-client-secret-value"
 HOOK = "http://127.0.0.1:9/hook"
 
 
-def rpc(mcp: TestClient, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+def rpc(mcp: TestClient, method: str, params: Mapping[str, object] | None = None) -> dict[str, Any]:
     response = mcp.post(
         "/mcp", json={"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
     )
@@ -34,7 +35,7 @@ def rpc(mcp: TestClient, method: str, params: dict[str, Any] | None = None) -> d
     return body
 
 
-def call(mcp: TestClient, tool: str, arguments: dict[str, Any]) -> Any:  # noqa: ANN401  parsed JSON of any shape; the tests index into it
+def call(mcp: TestClient, tool: str, arguments: Mapping[str, object]) -> Any:  # noqa: ANN401  parsed JSON of any shape; the tests index into it
     result = rpc(mcp, "tools/call", {"name": tool, "arguments": arguments})["result"]
     assert result["isError"] is False, result
     return json.loads(result["content"][0]["text"])
@@ -224,7 +225,7 @@ ESCAPING_CALLS = [
 
 @pytest.mark.parametrize(("server", "tool", "arguments"), ESCAPING_CALLS)
 def test_an_id_that_escapes_its_path_segment_is_a_tool_error_with_no_upstream_call(
-    server: str, tool: str, arguments: dict[str, Any]
+    server: str, tool: str, arguments: Mapping[str, object]
 ) -> None:
     apps, paths = _recording_apps()
 
@@ -235,7 +236,7 @@ def test_an_id_that_escapes_its_path_segment_is_a_tool_error_with_no_upstream_ca
 
 
 def test_a_tool_runs_off_the_event_loop() -> None:
-    def run(reader: Reader, args: dict[str, Any]) -> str:
+    def run(reader: Reader, args: Mapping[str, object]) -> str:
         try:
             asyncio.get_running_loop()
         except RuntimeError:
