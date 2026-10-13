@@ -8,6 +8,7 @@ from typing import Any
 
 import yaml
 
+from tests.harness.stack import LIVE_AGENT_TIMEOUT_SECONDS
 from tests.tooling.chart_files import CHART, by_kind, raw_render, render
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -265,3 +266,10 @@ def test_worker_gets_the_kagent_controller_address_for_the_sandbox_cli() -> None
     assert worker["ACE_KAGENT_API_URL"] == "http://kagent-controller.kagent.svc.cluster.local:8083"
     changed = _values(_named(render("worker.kagentApiUrl=http://k:1"), "Deployment", "worker"))
     assert changed["ACE_KAGENT_API_URL"] == "http://k:1"
+
+
+def test_worker_waits_as_long_for_a_live_agent_as_the_live_test_stack_does() -> None:
+    worker = _values(_named(render(), "Deployment", "worker"))
+    assert float(worker["ACE_AGENT_TIMEOUT_SECONDS"]) == LIVE_AGENT_TIMEOUT_SECONDS
+    changed = _values(_named(render("worker.agentTimeoutSeconds=60"), "Deployment", "worker"))
+    assert changed["ACE_AGENT_TIMEOUT_SECONDS"] == "60"
