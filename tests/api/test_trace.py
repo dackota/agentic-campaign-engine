@@ -27,6 +27,8 @@ from tests.harness.stack import Stack
 
 OTHER_TEAM_OWNER = "pm-owner@demo.example"
 SPAN_WAIT_SECONDS = 5
+SPAN_POLL_SECONDS = 0.05
+HTTP_TIMEOUT_SECONDS = 30
 # Every service of the run names itself on the spans it makes (`ace.service`).
 RUN_SERVICES = {"campaign-api", "campaign-worker", "render", "fake-marketo", "fake-s3", "fake-cms"}
 AGENT_OPERATIONS = {"invoke_agent", "chat", "execute_tool"}
@@ -155,7 +157,7 @@ def test_no_span_records_the_access_token_of_the_event_stream(
     response = httpx.get(
         f"{stack.api_url}/campaigns/{campaign_id}/events",
         params={"access_token": token},
-        timeout=30,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
 
     assert response.status_code == 200
@@ -198,7 +200,7 @@ def _server_spans_of(
         ]
         if until(found) or time.monotonic() > deadline:
             return found
-        time.sleep(0.05)
+        time.sleep(SPAN_POLL_SECONDS)
 
 
 def _assert_outside_campaign_trace(stack: Stack, campaign_id: str, trace_id: int) -> None:
@@ -221,12 +223,12 @@ def test_another_teams_request_is_not_in_the_campaign_trace(
             return httpx.get(
                 f"{stack.api_url}/campaigns/{campaign_id}/events",
                 params={"access_token": token},
-                timeout=30,
+                timeout=HTTP_TIMEOUT_SECONDS,
             )
         return httpx.get(
             f"{stack.api_url}/campaigns/{campaign_id}",
             headers={"Authorization": f"Bearer {token}"},
-            timeout=30,
+            timeout=HTTP_TIMEOUT_SECONDS,
         )
 
     response, trace_id = _traced_by_test(send)
@@ -242,7 +244,11 @@ def test_a_request_without_a_valid_token_is_not_in_the_campaign_trace(
     campaign_id = create(api)["id"]
 
     response, trace_id = _traced_by_test(
-        lambda: httpx.get(f"{stack.api_url}/campaigns/{campaign_id}", headers=headers, timeout=30)
+        lambda: httpx.get(
+            f"{stack.api_url}/campaigns/{campaign_id}",
+            headers=headers,
+            timeout=HTTP_TIMEOUT_SECONDS,
+        )
     )
 
     assert response.status_code == 401, response.text
@@ -264,7 +270,7 @@ def test_the_campaign_teams_requests_join_its_trace(
         return lambda: httpx.get(
             f"{stack.api_url}/campaigns/{campaign_id}/{path}",
             params={"access_token": token},
-            timeout=30,
+            timeout=HTTP_TIMEOUT_SECONDS,
         )
 
     by_query = [_traced_by_test(by_query_token(path)) for path in ("preview", "events")]
@@ -302,7 +308,10 @@ def test_an_unsigned_webhook_is_not_in_the_campaign_trace(
 
     response, trace_id = _traced_by_test(
         lambda: httpx.post(
-            f"{stack.api_url}{MARKETO_WEBHOOK_PATH}", content=body, headers=headers, timeout=30
+            f"{stack.api_url}{MARKETO_WEBHOOK_PATH}",
+            content=body,
+            headers=headers,
+            timeout=HTTP_TIMEOUT_SECONDS,
         )
     )
 
@@ -317,7 +326,7 @@ def test_a_malformed_webhook_body_gets_the_routes_answer(stack: Stack) -> None:
         f"{stack.api_url}{MARKETO_WEBHOOK_PATH}",
         content=body,
         headers=signed_headers(stack.marketo_webhook_secret, body),
-        timeout=30,
+        timeout=HTTP_TIMEOUT_SECONDS,
     )
 
     assert response.status_code == 422, response.text
