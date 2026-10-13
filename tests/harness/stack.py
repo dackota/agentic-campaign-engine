@@ -131,6 +131,9 @@ NOTHING_PINNED = Pinned()
 
 
 class Stack:
+    # What the API lifespan raised: uvicorn only logs it, then exits the stack's loop.
+    _api_error: BaseException | None = None
+
     def __init__(
         self,
         depth: str | None = None,
@@ -178,8 +181,6 @@ class Stack:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._thread: threading.Thread | None = None
         self._error: BaseException | None = None
-        # What the API lifespan raised: uvicorn only logs it, then exits the stack's loop.
-        self._api_error: BaseException | None = None
         self._postgres: PostgresContainer | None = None
         self._port_forward: subprocess.Popen[bytes] | None = None
         self._kagent_url = ""
