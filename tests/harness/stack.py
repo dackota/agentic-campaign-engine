@@ -16,6 +16,7 @@ import socket
 import subprocess
 import threading
 import time
+from collections.abc import AsyncIterator
 from concurrent.futures import ThreadPoolExecutor
 from types import TracebackType
 from typing import TYPE_CHECKING, Any
@@ -130,6 +131,9 @@ NOTHING_PINNED = Pinned()
 
 
 class Stack:
+    # What the API lifespan raised: uvicorn only logs it, then exits the stack's loop.
+    _api_error: BaseException | None = None
+
     def __init__(
         self,
         depth: str | None = None,
@@ -332,7 +336,8 @@ class Stack:
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
             if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
-                raise RuntimeError(f"stack did not start: {self._error!r}")
+                cause = self._api_error or self._error
+                raise RuntimeError(f"stack did not start: {cause!r}") from cause
         except BaseException:
             self.stop()
             raise
@@ -373,7 +378,8 @@ class Stack:
         thread, self._thread = self._thread, None
         if thread is None:
             return
-        if self._loop is not None and self._stop is not None:
+        # A failed start has closed the loop already, and its error must reach the caller.
+        if self._loop is not None and self._stop is not None and not self._loop.is_closed():
             self._loop.call_soon_threadsafe(self._stop.set)
         thread.join(timeout=STOP_TIMEOUT_SECONDS)
 
@@ -513,7 +519,7 @@ class Stack:
             (create_cms(), self.cms_port),
             (create_s3(), self.s3_port),
             (create_workfront(workfront), self.workfront_port),
-            (create_app(settings), self.api_port),
+            (self._keeping_lifespan_error(create_app(settings)), self.api_port),
         ]
         if self.integrations:
             from fake_google.app import GoogleConfig
@@ -534,6 +540,22 @@ class Stack:
             uvicorn.Server(uvicorn.Config(app, port=port, host="127.0.0.1", log_level="warning"))
             for app, port in apps
         ]
+
+    def _keeping_lifespan_error(self, app: "FastAPI") -> "FastAPI":
+        """Wrap the app's lifespan so the error it raises reaches `start`'s RuntimeError."""
+        lifespan = app.router.lifespan_context
+
+        @contextlib.asynccontextmanager
+        async def keeping(app: "FastAPI") -> AsyncIterator[Any]:
+            try:
+                async with lifespan(app) as state:
+                    yield state
+            except Exception as exc:
+                self._api_error = exc
+                raise
+
+        app.router.lifespan_context = keeping
+        return app
 
     async def _run_workers(
         self, env: WorkflowEnvironment, settings: "Settings", executor: ThreadPoolExecutor

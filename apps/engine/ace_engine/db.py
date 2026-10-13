@@ -643,18 +643,28 @@ def make_engine(database_url: str) -> Engine:
             conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _EXTENSION_LOCK})
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(conn)
-        for statement in missing_schema_statements(conn):
-            conn.execute(text(statement))
+        for target, statement in missing_schema_statements(conn):
+            try:
+                conn.execute(text(statement))
+            except exc.IntegrityError as error:
+                # A NOT NULL column with no server default on a table with rows. The whole
+                # transaction rolls back, so the start changes nothing.
+                raise RuntimeError(
+                    f"cannot add {target}: the table has rows and the column is NOT NULL with"
+                    " no server default. It needs a server default or SQL of its own"
+                    " (docs/decisions/additive-schema-at-start.md)."
+                ) from error
     return engine
 
 
-def missing_schema_statements(conn: Connection) -> list[str]:
-    """The DDL that adds each model column and index the database lacks. It only adds: a
-    column the models no longer have stays. Every name is quoted, as DDL takes no bound
-    parameters (`CreateColumn` and `Index.create` leave plain names bare)."""
+def missing_schema_statements(conn: Connection) -> list[tuple[str, str]]:
+    """The DDL that adds each model column and index the database lacks, each after the
+    `table.column` or index it adds. It only adds: a column the models no longer have stays.
+    Every name is quoted, as DDL takes no bound parameters (`CreateColumn` and `Index.create`
+    leave plain names bare)."""
     q = conn.dialect.identifier_preparer.quote_identifier
     found = inspect(conn)
-    statements: list[str] = []
+    statements: list[tuple[str, str]] = []
     for table in Base.metadata.sorted_tables:
         # Renders each server default the way `create_all` does.
         ddl = conn.dialect.ddl_compiler(conn.dialect, CreateTable(table))
@@ -671,13 +681,16 @@ def missing_schema_statements(conn: Connection) -> list[str]:
                 spec += f" DEFAULT {default}"
             if not column.nullable:
                 spec += " NOT NULL"
-            statements.append(f"ALTER TABLE {q(table.name)} ADD COLUMN {spec}")
+            statements.append(
+                (f"{table.name}.{column.name}", f"ALTER TABLE {q(table.name)} ADD COLUMN {spec}")
+            )
         indexes = {i["name"] for i in found.get_indexes(table.name)}
         for index in sorted(table.indexes, key=lambda i: str(i.name)):
             if index.name in indexes:
                 continue
+            name = str(index.name)
             columns = ", ".join(q(c.name) for c in index.columns)
             statements.append(
-                f"CREATE INDEX IF NOT EXISTS {q(str(index.name))} ON {q(table.name)} ({columns})"
+                (name, f"CREATE INDEX IF NOT EXISTS {q(name)} ON {q(table.name)} ({columns})")
             )
     return statements
