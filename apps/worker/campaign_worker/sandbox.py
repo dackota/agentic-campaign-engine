@@ -7,6 +7,7 @@ import asyncio
 import base64
 import binascii
 import json
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -73,7 +74,13 @@ def _cards_from(stdout: str) -> dict[str, Any]:
 
 async def run_design_program(program: str, config: SandboxConfig) -> dict[str, Any]:
     """Run `program` (a shell script) in a new sandbox; return the cards it printed."""
-    created = json.loads(await _kagent(config, "sandbox", "create", config.template, "-o", "json"))
+    # The CLI requires a request id (an idempotency key for the create); each run is new.
+    request_id = f"design-{uuid.uuid4().hex[:12]}"
+    created = json.loads(
+        await _kagent(
+            config, "sandbox", "create", config.template, "--request-id", request_id, "-o", "json"
+        )
+    )
     sandbox_id = created["id"]
     try:
         encoded = base64.b64encode(program.encode()).decode()
