@@ -70,7 +70,9 @@ def describe(tool: Tool) -> dict[str, Any]:
 
 
 def _reply(
-    body: dict[str, Any], result: dict[str, Any] | None = None, error: tuple[int, str] | None = None
+    body: Mapping[str, object],
+    result: dict[str, Any] | None = None,
+    error: tuple[int, str] | None = None,
 ) -> JSONResponse:
     envelope: dict[str, Any] = {"jsonrpc": "2.0", "id": body.get("id")}
     if error is not None:
