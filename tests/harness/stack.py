@@ -9,6 +9,7 @@ model calls go through agentgateway. The cluster must be up (`make up`).
 """
 
 import asyncio
+import contextlib
 import dataclasses
 import secrets
 import socket
@@ -22,12 +23,15 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import uvicorn
 from ace_engine.settings import Depth
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
+from testcontainers.core.docker_client import DockerClient
 
 from tests.harness.dex import CLIENT_ID, Dex
 from tests.harness.scripted_agent import ScriptedAgent
@@ -37,6 +41,9 @@ if TYPE_CHECKING:
     from fastapi import FastAPI
 
 POSTGRES_IMAGE = "postgres:16-alpine"
+# Every container a stack makes carries this label with the stack's own run id, so stop()
+# finds it even when a start was cut off before testcontainers had a handle to it.
+RUN_LABEL = "ace.harness.run"
 START_TIMEOUT_SECONDS = 180
 STOP_TIMEOUT_SECONDS = 60
 WORKER_THREADS = 8
@@ -86,33 +93,61 @@ def _install_span_exporter() -> InMemorySpanExporter:
     return _SPAN_EXPORTER
 
 
+_METRIC_READER = InMemoryMetricReader()
+
+
+def _install_metric_reader() -> InMemoryMetricReader:
+    """The test metric reader, set up the first time a stack is built (one meter provider per
+    process, like the tracer provider)."""
+    if not isinstance(metrics.get_meter_provider(), MeterProvider):
+        metrics.set_meter_provider(MeterProvider(metric_readers=[_METRIC_READER]))
+    return _METRIC_READER
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
         return int(s.getsockname()[1])
 
 
+@dataclasses.dataclass(frozen=True)
+class Pinned:
+    """What a browser spec has to know before the stack starts. None is chosen fresh."""
+
+    api_port: int | None = None
+    dex_port: int | None = None
+    web_origin: str = "http://127.0.0.1:5173"
+    marketo_port: int | None = None
+    alert_webhook_token: str | None = None
+
+
+NOTHING_PINNED = Pinned()
+
+
 class Stack:
     def __init__(
         self,
         depth: str | None = None,
-        api_port: int | None = None,
-        dex_port: int | None = None,
-        web_origin: str = "http://127.0.0.1:5173",
         integrations: bool = False,
-        marketo_port: int | None = None,
+        pinned: Pinned = NOTHING_PINNED,
     ) -> None:
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         # Every service runs in this process, so one in-memory exporter holds every span.
         self.spans = _install_span_exporter()
+        self._metric_reader = _install_metric_reader()
+        # What Grafana's alert webhook sends as its bearer token. Fresh per stack unless a
+        # browser spec has to know it up front.
+        self.alert_webhook_token = pinned.alert_webhook_token or secrets.token_urlsafe(24)
         self.agent = ScriptedAgent()
-        self.api_port = api_port or free_port()
-        self.marketo_port = marketo_port or free_port()
+        self.api_port = pinned.api_port or free_port()
+        self.marketo_port = pinned.marketo_port or free_port()
         self.cms_port = free_port()
         self.s3_port = free_port()
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
-        self.dex = Dex(dex_port or free_port(), web_origin)
+        self.web_origin = pinned.web_origin
+        self._labels = {RUN_LABEL: secrets.token_hex(8)}
+        self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin, self._labels)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
         self.slack_port = free_port()
@@ -122,13 +157,7 @@ class Stack:
         self.google_client_id = f"gid-{secrets.token_hex(4)}"
         self.google_client_secret = secrets.token_urlsafe(24)
         self.google_refresh_token = secrets.token_urlsafe(24)
-        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
-        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
-        self.marketo_client_secret = secrets.token_urlsafe(24)
-        self.marketo_webhook_secret = secrets.token_urlsafe(24)
-        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
-        self.workfront_client_secret = secrets.token_urlsafe(24)
-        self.workfront_webhook_secret = secrets.token_urlsafe(24)
+        self._fresh_secrets()
         self._restart_requested: asyncio.Event | None = None
         self._restarted = threading.Event()
         self._ready = threading.Event()
@@ -140,9 +169,52 @@ class Stack:
         self._port_forward: subprocess.Popen[bytes] | None = None
         self._kagent_url = ""
 
+    def _fresh_secrets(self) -> None:
+        # Fresh per stack, never in code: the fake's OAuth2 client and its webhook key.
+        self.marketo_client_id = f"ace-{secrets.token_hex(4)}"
+        self.marketo_client_secret = secrets.token_urlsafe(24)
+        self.marketo_webhook_secret = secrets.token_urlsafe(24)
+        self.workfront_client_id = f"ace-{secrets.token_hex(4)}"
+        self.workfront_client_secret = secrets.token_urlsafe(24)
+        self.workfront_webhook_secret = secrets.token_urlsafe(24)
+
+    def _metric_points(self, name: str, **attributes: str) -> list[Any]:
+        data = self._metric_reader.get_metrics_data()
+        found = []
+        for resource in data.resource_metrics if data else []:
+            for scope in resource.scope_metrics:
+                for metric in scope.metrics:
+                    if metric.name != name:
+                        continue
+                    found += [
+                        p
+                        for p in metric.data.data_points
+                        if all((p.attributes or {}).get(k) == v for k, v in attributes.items())
+                    ]
+        return found
+
+    def metric_total(self, name: str, **attributes: str) -> float:
+        """The sum of a counter, or of a histogram's recorded values, over the data points
+        whose attributes include `attributes`."""
+        points = self._metric_points(name, **attributes)
+        totals: list[float] = [
+            float(getattr(p, "value", None) or getattr(p, "sum", None) or 0) for p in points
+        ]
+        return sum(totals)
+
+    def metric_count(self, name: str, **attributes: str) -> int:
+        """How many values a histogram recorded."""
+        return int(sum(p.count for p in self._metric_points(name, **attributes)))
+
     @property
     def api_url(self) -> str:
         return f"http://127.0.0.1:{self.api_port}"
+
+    @property
+    def database_url(self) -> str:
+        """The stack's Postgres, for tests that check the database's own rules."""
+        assert self._postgres is not None, "the stack is not started"
+        return str(self._postgres.get_connection_url())
 
     @property
     def marketo_url(self) -> str:
@@ -233,16 +305,23 @@ class Stack:
             raise RuntimeError("worker did not restart")
 
     def start(self) -> "Stack":
-        if self.depth is Depth.LIVE:
-            self._open_kagent()
-        self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg")
-        self._postgres.start()
-        self.dex.start()
-        self._thread = threading.Thread(target=self._run, daemon=True)
-        self._thread.start()
-        if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
+        # A failed start removes what it started: testcontainers' atexit hook removes Ryuk
+        # before Ryuk can, so nothing else would.
+        try:
+            if self.depth is Depth.LIVE:
+                self._open_kagent()
+            self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(
+                labels=self._labels
+            )
+            self._postgres.start()
+            self.dex.start()
+            self._thread = threading.Thread(target=self._run, daemon=True)
+            self._thread.start()
+            if not self._ready.wait(START_TIMEOUT_SECONDS) or self._error is not None:
+                raise RuntimeError(f"stack did not start: {self._error!r}")
+        except BaseException:
             self.stop()
-            raise RuntimeError(f"stack did not start: {self._error!r}")
+            raise
         return self
 
     def _open_kagent(self) -> None:
@@ -268,21 +347,41 @@ class Stack:
         raise RuntimeError(f"kagent Agent {KAGENT_READY_AGENT} not reachable on {KAGENT_CONTEXT}")
 
     def _close_kagent(self) -> None:
-        if self._port_forward is not None:
-            self._port_forward.terminate()
-            self._port_forward.wait(timeout=STOP_TIMEOUT_SECONDS)
-            self._port_forward = None
+        forward, self._port_forward = self._port_forward, None
+        if forward is not None:
+            forward.terminate()
+            try:
+                forward.wait(timeout=STOP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                forward.kill()
 
-    def stop(self) -> None:
-        self._close_kagent()
+    def _stop_services(self) -> None:
+        thread, self._thread = self._thread, None
+        if thread is None:
+            return
         if self._loop is not None and self._stop is not None:
             self._loop.call_soon_threadsafe(self._stop.set)
-        if self._thread is not None:
-            self._thread.join(timeout=STOP_TIMEOUT_SECONDS)
-        if self._postgres is not None:
-            self._postgres.stop()
-            self._postgres = None
-        self.dex.stop()
+        thread.join(timeout=STOP_TIMEOUT_SECONDS)
+
+    def _remove_containers(self) -> None:
+        self._postgres = None
+        ((key, run_id),) = self._labels.items()
+        client = DockerClient().client
+        try:
+            for container in client.containers.list(all=True, filters={"label": f"{key}={run_id}"}):
+                container.remove(force=True, v=True)
+        finally:
+            client.close()
+
+    def stop(self) -> None:
+        """Remove whatever start made, even after a part failed. Safe to call twice."""
+        # An ExitStack runs every step, last first, even when one raises. The label sweep
+        # runs last: it removes only what the steps before it could not.
+        with contextlib.ExitStack() as steps:
+            steps.callback(self._remove_containers)
+            steps.callback(self.dex.stop)
+            steps.callback(self._stop_services)
+            steps.callback(self._close_kagent)
 
     def __enter__(self) -> "Stack":
         return self.start()
@@ -347,6 +446,7 @@ class Stack:
             s3_bucket=self.s3_bucket,
             oidc_issuer=self.dex.issuer,
             oidc_client_id=CLIENT_ID,
+            web_url=self.web_origin,
             marketo_client_id=self.marketo_client_id,
             marketo_client_secret=self.marketo_client_secret,
             marketo_webhook_secret=self.marketo_webhook_secret,
@@ -354,6 +454,7 @@ class Stack:
             workfront_client_id=self.workfront_client_id,
             workfront_client_secret=self.workfront_client_secret,
             workfront_webhook_secret=self.workfront_webhook_secret,
+            alert_webhook_token=self.alert_webhook_token,
         )
         if self.integrations:
             settings = dataclasses.replace(

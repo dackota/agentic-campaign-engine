@@ -11,6 +11,11 @@ repos:
         entry: uv run ruff format --check
         language: system
         types: [python]
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck -o check-set-e-suppressed
+        language: system
+        types: [shell]
       - id: eslint
         name: eslint
         entry: sh -c "pnpm install --frozen-lockfile && pnpm --filter web lint"

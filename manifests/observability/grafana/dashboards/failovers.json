@@ -1,0 +1,112 @@
+{
+  "uid": "ace-failovers",
+  "title": "ACE: gateway failovers",
+  "description": "When the gateway fails over from OpenCode Go to the backup provider.",
+  "tags": [
+    "ace"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "editable": true,
+  "refresh": "30s",
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Model calls by provider",
+      "type": "timeseries",
+      "description": "Spans the gateway exports per model call, by the provider that answered.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (gen_ai_provider_name) (increase(traces_span_metrics_calls_total{gen_ai_provider_name!=\"\"}[15m]))",
+          "legendFormat": "{{gen_ai_provider_name}}",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Calls answered by the backup provider",
+      "type": "timeseries",
+      "description": "Above zero means OpenCode Go failed and priority group 2 answered. The gateway-failover alert fires on it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(traces_span_metrics_calls_total{gen_ai_provider_name=\"anthropic\"}[5m]))",
+          "legendFormat": "backup",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Backup calls in the last day",
+      "type": "stat",
+      "description": "",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 8
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum(increase(traces_span_metrics_calls_total{gen_ai_provider_name=\"anthropic\"}[1d]))",
+          "legendFormat": "day",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          }
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ]
+}

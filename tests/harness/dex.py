@@ -69,9 +69,10 @@ def render_config(issuer: str, web_origin: str) -> dict[str, Any]:
 
 
 class Dex:
-    def __init__(self, port: int, web_origin: str) -> None:
+    def __init__(self, port: int, web_origin: str, labels: dict[str, str] | None = None) -> None:
         self.port = port
         self.web_origin = web_origin
+        self.labels = labels or {}
         self._container: DockerContainer | None = None
         self._dir: tempfile.TemporaryDirectory[str] | None = None
         self._tokens: dict[str, str] = {}
@@ -89,18 +90,27 @@ class Dex:
             .with_bind_ports(DEX_PORT_IN_CONTAINER, self.port)
             .with_volume_mapping(str(config_file), CONTAINER_CONFIG, "ro")
             .with_command(f"dex serve {CONTAINER_CONFIG}")
+            .with_kwargs(labels=self.labels)
         )
-        self._container.start()
-        self._wait_ready()
+        try:
+            self._container.start()
+            self._wait_ready()
+        except BaseException:
+            self.stop()
+            raise
         return self
 
     def stop(self) -> None:
-        if self._container is not None:
-            self._container.stop()
-            self._container = None
-        if self._dir is not None:
-            self._dir.cleanup()
-            self._dir = None
+        """Remove the container, also one that was created but failed to start. Safe to
+        call twice."""
+        container, self._container = self._container, None
+        config_dir, self._dir = self._dir, None
+        try:
+            if container is not None:
+                container.stop()
+        finally:
+            if config_dir is not None:
+                config_dir.cleanup()
 
     def token(self, email: str) -> str:
         """A real access token for a demo user, from Dex's password grant."""

@@ -1,0 +1,79 @@
+{{- /*
+One read-only MCP server per fake (services/mcp/ace_mcp), each its own Deployment and
+Service, named like its kagent RemoteMCPServer in agents/mcp.yaml. A server reads its fake
+over the fake's own API; none writes.
+*/ -}}
+{{- $root := . -}}
+{{- $servers := list
+  (dict "name" "workfront" "env" (list
+    (dict "name" "ACE_WORKFRONT_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.workfront.serviceName)) .Values.workfront.port))
+    (dict "name" "ACE_WORKFRONT_CLIENT_ID" "value" .Values.workfront.clientId)
+    (dict "name" "ACE_WORKFRONT_CLIENT_SECRET" "secretKey" "workfront-client-secret")))
+  (dict "name" "marketo" "env" (list
+    (dict "name" "ACE_MARKETO_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.marketo.serviceName)) .Values.marketo.port))
+    (dict "name" "ACE_MARKETO_CLIENT_ID" "value" .Values.marketo.clientId)
+    (dict "name" "ACE_MARKETO_CLIENT_SECRET" "secretKey" "marketo-client-secret")))
+  (dict "name" "cms" "env" (list
+    (dict "name" "ACE_CMS_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.cms.serviceName)) .Values.cms.port))))
+  (dict "name" "assets" "env" (list
+    (dict "name" "ACE_S3_URL" "value" (printf "http://%s:%v" (include "ace.host" (list . .Values.s3.serviceName)) .Values.s3.port))
+    (dict "name" "ACE_S3_BUCKET" "value" .Values.s3.bucket)))
+-}}
+{{- range $server := $servers }}
+{{- $name := printf "ace-mcp-%s" $server.name }}
+{{- $labels := include "ace.labels" (list $root $name) }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- $labels | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- $labels | nindent 8 }}
+    spec:
+      containers:
+        - name: {{ $name }}
+          {{- include "ace.pythonImage" $root | nindent 10 }}
+          command:
+            {{- include "ace.pythonCommand" (list $root (printf "ace_mcp.%s" $server.name)) | trim | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            {{- range $var := $server.env }}
+            {{- if $var.secretKey }}
+            {{- include "ace.secretEnv" (list $root $var.name $var.secretKey) | nindent 12 }}
+            {{- else }}
+            - name: {{ $var.name }}
+              value: {{ $var.value | quote }}
+            {{- end }}
+            {{- end }}
+            {{- include "ace.otelEnv" (list $root $name) | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- $labels | nindent 4 }}
+spec:
+  selector:
+    {{- $labels | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ $root.Values.mcp.port }}
+      targetPort: http
+{{- end }}

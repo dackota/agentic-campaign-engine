@@ -8,6 +8,7 @@ from typing import Any
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Integer,
@@ -44,7 +45,12 @@ RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
 STEP_SUCCEEDED = "succeeded"
+# An agent step read through an MCP tool; the event's reason is the tool's name.
+TOOL_READ = "tool_read"
 STEP_FAILED = "failed"
+# Run events for an approver's per-asset decisions: the comment is the event's reason.
+ASSET_APPROVED = "approved"
+ASSET_REJECTED = "rejected"
 # A failed run the owner asked to retry: it re-runs the step that stopped it.
 RETRYING = "retrying"
 
@@ -74,6 +80,8 @@ class Campaign(Base):
     dag: Mapped[dict[str, Any]] = mapped_column(JSON)
     # What the owner lets the run spend on models, in micro-dollars; None is no limit.
     budget_micros: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Whether the run reuses saved agent step results (the step cache).
+    use_step_cache: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -137,6 +145,36 @@ class StepOutput(Base):
     )
 
 
+class AssetSession(Base):
+    """The sessions the agent issued for a writer step, one per reply (variant). A rejected
+    asset goes back to these, so the writer keeps its conversation."""
+
+    __tablename__ = "asset_sessions"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    variant: Mapped[int] = mapped_column(Integer, primary_key=True)
+    agent_session: Mapped[str] = mapped_column(String(200))
+
+
+class AssetApproval(Base):
+    """An approver's approval of one asset (a writer step's output), once per asset."""
+
+    __tablename__ = "asset_approvals"
+
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("campaigns.id"), primary_key=True
+    )
+    step: Mapped[str] = mapped_column(String(40), primary_key=True)
+    approved_by: Mapped[str] = mapped_column(String(255))
+    comment: Mapped[str] = mapped_column(Text, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class StepUsage(Base):
     """The cost ledger: the tokens an agent step's model calls used and what they cost.
     One row per step; a re-run of the step replaces it."""
@@ -151,6 +189,25 @@ class StepUsage(Base):
     input_tokens: Mapped[int] = mapped_column(BigInteger)
     output_tokens: Mapped[int] = mapped_column(BigInteger)
     cost_micros: Mapped[int] = mapped_column(BigInteger)
+    # The step reused a saved result, so it used no tokens.
+    cache_hit: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
+class StepCacheEntry(Base):
+    """A saved agent step result, found again by the step type, the agent revision digest and
+    the hash of the input. Kept per team."""
+
+    __tablename__ = "step_cache"
+
+    team: Mapped[str] = mapped_column(String(100), primary_key=True)
+    step_type: Mapped[str] = mapped_column(String(80), primary_key=True)
+    agent_digest: Mapped[str] = mapped_column(String(64), primary_key=True)
+    input_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    output: Mapped[Any] = mapped_column(JSON)
+    model: Mapped[str] = mapped_column(String(100))
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
@@ -203,6 +260,22 @@ class TaskStatusEvent(Base):
     )
 
 
+class Alert(Base):
+    """An alert Grafana raised, kept once per fingerprint. Firing alerts show as the in-app
+    banner; a resolved one stays as history."""
+
+    __tablename__ = "alerts"
+
+    fingerprint: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200))
+    summary: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String(20), index=True)
+    fired_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 def add_event(
     session: Session,
     campaign_id: uuid.UUID,
@@ -242,6 +315,97 @@ def step_outputs(engine: Engine, campaign_id: uuid.UUID) -> list[StepOutput]:
         )
 
 
+def save_asset_sessions(
+    session: Session, campaign_id: uuid.UUID, step: str, agent_sessions: Collection[str]
+) -> None:
+    """Keep the sessions the agent issued for a writer step, replacing an earlier run's."""
+    for variant, agent_session in enumerate(agent_sessions):
+        session.merge(
+            AssetSession(
+                campaign_id=campaign_id, step=step, variant=variant, agent_session=agent_session
+            )
+        )
+
+
+def asset_sessions(engine: Engine, campaign_id: uuid.UUID, step: str) -> tuple[str, ...]:
+    """The agent sessions of a writer step, in reply order; empty when none were kept."""
+    with Session(engine) as session:
+        return tuple(
+            session.scalars(
+                select(AssetSession.agent_session)
+                .where(AssetSession.campaign_id == campaign_id, AssetSession.step == step)
+                .order_by(AssetSession.variant)
+            )
+        )
+
+
+def rejection_count(engine: Engine, campaign_id: uuid.UUID, step: str) -> int:
+    """How many times approvers have sent this step's asset back."""
+    with Session(engine) as session:
+        return int(
+            session.scalar(
+                select(func.count())
+                .select_from(RunEvent)
+                .where(
+                    RunEvent.campaign_id == campaign_id,
+                    RunEvent.step == step,
+                    RunEvent.status == ASSET_REJECTED,
+                )
+            )
+            or 0
+        )
+
+
+def waiting_campaigns(session: Session, excluding_creator: str) -> list[Campaign]:
+    """The campaigns that wait for approval, oldest first, left out the ones the named user
+    created (nobody approves their own). Row-level security limits them to the user's team."""
+    return list(
+        session.scalars(
+            select(Campaign)
+            .where(
+                Campaign.status == AWAITING_APPROVAL,
+                Campaign.created_by != excluding_creator,
+            )
+            .order_by(Campaign.created_at)
+        )
+    )
+
+
+def outputs_of(session: Session, campaign_id: uuid.UUID) -> dict[str, Any]:
+    """What each of the campaign's agent steps produced, by step."""
+    return outputs_by_campaign(session, [campaign_id]).get(campaign_id, {})
+
+
+def outputs_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, Any]]:
+    """`outputs_of` for these campaigns, in one query."""
+    found: dict[uuid.UUID, dict[str, Any]] = {}
+    rows = session.scalars(select(StepOutput).where(StepOutput.campaign_id.in_(campaign_ids)))
+    for row in rows:
+        found.setdefault(row.campaign_id, {})[row.step] = row.output
+    return found
+
+
+def approved_steps(session: Session, campaign_id: uuid.UUID) -> set[str]:
+    return approved_by_campaign(session, [campaign_id]).get(campaign_id, set())
+
+
+def approved_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, set[str]]:
+    """The approved steps of these campaigns, in one query."""
+    found: dict[uuid.UUID, set[str]] = {}
+    rows = session.execute(
+        select(AssetApproval.campaign_id, AssetApproval.step).where(
+            AssetApproval.campaign_id.in_(campaign_ids)
+        )
+    )
+    for campaign_id, step in rows:
+        found.setdefault(campaign_id, set()).add(step)
+    return found
+
+
 def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list[RunEvent]:
     with Session(engine) as session:
         return list(
@@ -255,14 +419,34 @@ def events_after(engine: Engine, campaign_id: uuid.UUID, after_seq: int) -> list
 
 def review_flags(session: Session, campaign_id: uuid.UUID) -> list[RunEvent]:
     """The events where a reviewer gave up on a step and flagged it for a human: the latest
-    one per step, so a retried step shows one flag."""
+    one per step, from the step's latest run only. A step that started again (a retry, or a
+    redo after a rejection) drops the flags of the run before it."""
+    return review_flags_by_campaign(session, [campaign_id]).get(campaign_id, [])
+
+
+def review_flags_by_campaign(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[RunEvent]]:
+    """`review_flags` of these campaigns, in one query, each list in event order."""
     events = session.scalars(
         select(RunEvent)
-        .where(RunEvent.campaign_id == campaign_id, RunEvent.status == FLAGGED)
+        .where(
+            RunEvent.campaign_id.in_(campaign_ids),
+            RunEvent.status.in_((FLAGGED, STEP_STARTED)),
+        )
         .order_by(RunEvent.seq)
     )
-    latest = {e.step: e for e in events}
-    return sorted(latest.values(), key=lambda e: e.seq)
+    latest: dict[uuid.UUID, dict[str, RunEvent]] = {}
+    for event in events:
+        steps = latest.setdefault(event.campaign_id, {})
+        if event.status == STEP_STARTED:
+            steps.pop(event.step, None)
+        else:
+            steps[event.step] = event
+    return {
+        campaign_id: sorted(steps.values(), key=lambda e: e.seq)
+        for campaign_id, steps in latest.items()
+    }
 
 
 def save_receipt(

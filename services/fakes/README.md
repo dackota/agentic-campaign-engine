@@ -28,13 +28,13 @@ Fake third-party services. Later tickets add more.
   client credentials for a bearer token; every `/attask/api/v15.0/...` call without one is a
   401. `POST /proj`, `/task`, and `/appr` make projects, tasks, and approvals, idempotent per
   `externalID` (project and task) or per task (approval); a repeat task write updates the
-  same task. `GET /proj/search`, `/task/search`, `/appr/search`, and `/task/{id}` read them
+  same task. `GET /proj/search`, `/task/search`, `/appr/search`, `/proj/{id}`, and `/task/{id}` read them
   back. `PUT /task/{id}` with a new `status` posts one HMAC-signed status event to the
   Campaign API webhook (`X-Workfront-Timestamp`,
   `X-Workfront-Signature: sha256=<hex of timestamp "." body>`), naming the task's
   `externalID` as `campaignId`. The client id, secret, and webhook key come from
-  `WorkfrontConfig` (`ACE_WORKFRONT_*`), never from code. The chart does not deploy it yet;
-  the worker and API publish to it only when `ACE_WORKFRONT_URL` is set.
+  `WorkfrontConfig` (`ACE_WORKFRONT_*`), never from code. The chart deploys it for the MCP server
+  to read; the worker and API publish to it only when `ACE_WORKFRONT_URL` is set.
 - `fake_slack`: a Slack with `POST /chat.postMessage` (bearer token, `channel` and `text`).
   A wrong token gets `{"ok": false, "error": "invalid_auth"}`. `GET /_messages` lists what it
   received. The token comes from `SlackConfig`, never from code.

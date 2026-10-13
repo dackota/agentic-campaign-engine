@@ -40,13 +40,16 @@ line-length = 100
 extend-exclude = ["node_modules"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP"]
+select = ["E", "F", "I", "B", "UP", "PLR0913", "ANN401", "ASYNC", "S608", "RUF012"]
+
+[tool.ruff.lint.pylint]
+max-args = 5
 
 [tool.mypy]
 strict = true
-files = ["tests", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
-mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+files = ["tests", "evals", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
+mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]

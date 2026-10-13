@@ -7,8 +7,11 @@ ROLLOUT_TIMEOUT="${ROLLOUT_TIMEOUT:-10s}"
 RELEASES="substrate-crds substrate kagent-crds kagent agentgateway-crds agentgateway"
 ROLLOUTS="ate-system/ate-controller ate-system/ate-api-server kagent/kagent-controller agentgateway-system/agentgateway-proxy"
 APP_NAMESPACE="ace"
-APP_DEPLOYMENTS="api worker fake-marketo fake-cms fake-s3 web postgres temporal"
-AGENTS="spike-agent spike-agent-mock ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer"
+APP_DEPLOYMENTS="api worker fake-marketo fake-cms fake-s3 web postgres temporal fake-workfront ace-mcp-workfront ace-mcp-marketo ace-mcp-cms ace-mcp-assets"
+# Each team runs the role Agents in its own namespace team-<team> (agents/teams).
+TEAMS="demand-gen product-marketing"
+ROLE_AGENTS="ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer"
+AGENTS="spike-agent spike-agent-mock ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer"
 ISSUER_FILE="$(cd "$(dirname "$0")" && pwd)/oidc-issuer.txt"
 DEX_TIMEOUT="${DEX_TIMEOUT:-5}"
 failed=0
@@ -36,6 +39,7 @@ check_releases() {
 check_rollouts() {
   local entry out
   for entry in $ROLLOUTS; do
+    # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
     if out="$(k rollout status "deployment/${entry#*/}" -n "${entry%%/*}" --timeout="$ROLLOUT_TIMEOUT" 2>&1)"; then
       pass "rollout ${entry#*/}"
     else
@@ -47,6 +51,7 @@ check_rollouts() {
 check_app() {
   local name out
   for name in $APP_DEPLOYMENTS; do
+    # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
     if out="$(k rollout status "deployment/$name" -n "$APP_NAMESPACE" --timeout="$ROLLOUT_TIMEOUT" 2>&1)"; then
       pass "app $name"
     else
@@ -55,15 +60,23 @@ check_app() {
   done
 }
 
+# check_agent NAMESPACE AGENT: ok when the Agent's Ready condition is True.
+check_agent() {
+  local ready
+  # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
+  if ready="$(k get agent "$2" -n "$1" -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
+    [ "$ready" = True ]; then
+    pass "agent $2 Ready in $1"
+  else
+    flunk "agent $2 Ready in $1 (saw: $(first_line "$ready"))"
+  fi
+}
+
 check_agents() {
-  local agent ready
-  for agent in $AGENTS; do
-    if ready="$(k get agent "$agent" -n kagent -o 'jsonpath={.status.conditions[?(@.type=="Ready")].status}' 2>&1)" &&
-      [ "$ready" = True ]; then
-      pass "agent $agent Ready"
-    else
-      flunk "agent $agent Ready (saw: $(first_line "$ready"))"
-    fi
+  local agent team
+  for agent in $AGENTS; do check_agent kagent "$agent"; done
+  for team in $TEAMS; do
+    for agent in $ROLE_AGENTS; do check_agent "team-$team" "$agent"; done
   done
 }
 

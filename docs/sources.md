@@ -61,6 +61,7 @@ page before you rely on a row.
 | [OpenCode Go](https://opencode.ai/docs/go/) | $10 a month. Endpoints under `https://opencode.ai/zen/go/v1/` in three formats: chat completions, responses, and Anthropic messages. Built for coding-agent traffic. Asks for your own user agent and an `x-opencode-session` header. Source of SPEC.md risks 4 and 7 |
 | [OpenCode Go model list](https://opencode.ai/zen/go/v1/models) | The live list of model IDs |
 | [agentgateway model failover](https://agentgateway.dev/docs/kubernetes/latest/llm/failover/) | Priority groups set failover order. Providers in one group are load balanced. A 429 with `Retry-After` sets the eviction time |
+| agentgateway model-call spans (docs/spike-log.md section 18, line 366) | A call the backup group answers carries `gen_ai.provider.name=anthropic`; the failover alert and dashboard count that value. Checked 2026-10-11 against the spike log, not a live page; see https://agentgateway.dev/docs/kubernetes/latest/llm/failover/ |
 | [agentgateway rate limiting](https://agentgateway.dev/docs/kubernetes/latest/llm/rate-limit/) | `traffic.rateLimit.local` with `tokens` and `unit` on an HTTPRoute sets a token budget. Over budget the gateway answers 429 with `retry-after` and `x-ratelimit-*` headers. Checked 2026-10-10 |
 | [kagent tracing](https://kagent.dev/docs/kagent/1.x/observability/tracing/) | Helm values `otel.traces.enabled` (default false), `otel.exporter.otlp.endpoint` (absolute http(s) URL, the collector's root) and `otel.exporter.otlp.protocol` (`grpc` default, or `http/protobuf`, which appends `/v1/traces`). `scripts/spike/install.sh` sets them when `ACE_OTEL_ENDPOINT` is set. Checked live 2026-10-11 against the 1.x docs, and against the pinned chart: `helm show values oci://ghcr.io/kagent-dev/kagent/helm/kagent --version 1.0.0-alpha9` lists `otel.traces.enabled`, `otel.exporter.otlp.endpoint` and `otel.exporter.otlp.protocol` (`grpc` or `http/protobuf`) |
 | [agentgateway traces setup](https://agentgateway.dev/docs/kubernetes/latest/observability/traces/setup.md) | `AgentgatewayPolicy` `spec.frontend.tracing` takes `backendRef` (`name`, `namespace`, `port` 4317), `protocol: GRPC` and `randomSampling: "true"`, and also `clientSampling`. The page does not mention a ReferenceGrant for a collector in another namespace; `manifests/observability/gateway-tracing.yaml` adds one to be safe. Checked 2026-10-11 on the `latest` docs and against the v1.6.0 pin: `helm pull oci://cr.agentgateway.dev/charts/agentgateway-crds --version v1.6.0` holds an `AgentgatewayPolicy` v1alpha1 CRD whose `spec.frontend.tracing` has `backendRef` (`name` required, `namespace`, `port`), `protocol` (enum `GRPC`, `HTTP`), `randomSampling` (string) and `clientSampling` |
@@ -78,3 +79,36 @@ installs, with its own `--help` and a local round trip (throwaway key pair, loca
 | `cosign sign` round trip (v3.1.3) | `--tlog-upload=false` alone fails: "--tlog-upload=false is not supported with --signing-config or --use-signing-config". `--use-signing-config=false --tlog-upload=false` signs, uploads nothing to Rekor, and stores the signature in the new bundle format as an OCI referrer next to the image |
 | `cosign verify --help` (v3.1.3) | `--insecure-ignore-tlog` defaults to false: "ignore transparency log verification, to be used when an artifact signature has not been uploaded to the transparency log". With `--insecure-ignore-tlog=true`, `cosign verify --key <pub>` exits 0 on a signature made as above; without it, verify exits 1 |
 | [Packages REST API](https://docs.github.com/en/rest/packages/packages#get-a-package-for-a-user) | `GET /users/{username}/packages/container/{package_name}` returns `visibility`. A package name with a slash is URL-encoded (`agentic-campaign-engine%2Face-web`). The page names classic tokens with `read:packages`; it does not say the job token works |
+| Grafana alerting provisioning (grafana/otel-lgtm), checked 2026-10-11 | Rules, contact points and policies load from YAML files in the provisioning/alerting folder (grafana/otel-lgtm reads `/otel-lgtm/grafana/conf/provisioning`, where `manifests/observability/collector.yaml` mounts them); a webhook contact point takes `authorization_scheme` and `authorization_credentials`, and `$__env{NAME}` reads an environment variable. Honeycomb takes OTLP at `api.honeycomb.io:443` with header `x-honeycomb-team` |
+
+## Agents bind MCP tools (#38)
+
+Written on 2026-10-12 from the CRD shapes already in `agents/`; no kagent docs page was read for this section. The CRD fields have not been checked against the live cluster (`kubectl --context k3d-ace explain`, read only): that check is owed to the proof runner, Kagent's A2A tool-call shape was checked live on k3d-ace on 2026-10-12: alpha9 puts parts with `metadata["kagent.dev/a2a/part-type"] = function_call` and `data.name` in the reply's artifact, which `apps/engine/ace_engine/invoker.py` reads.
+
+| Source | What it told us |
+|---|---|
+| Unchecked live: `kubectl explain remotemcpservers.spec --api-version=api.kagent.dev/v1alpha3` | `RemoteMCPServer` (api.kagent.dev/v1alpha3) takes `url` and `description` (both required) and `protocol` (`SSE` or `STREAMABLE_HTTP`) |
+| Checked live 2026-10-12: `kubectl --context k3d-ace explain agenttemplate.spec.tools.mcp.server` | An AgentTemplate binds tools with `spec.tools[].mcp = {server: {kind, name}, tools: [names], requireApproval}`; `tools` lists the tool names it may use. The server takes no `apiGroup`: a CRD rule rejects it (`apiGroup must be omitted`) |
+| MCP spec 2025-03-26, Streamable HTTP | A client POSTs JSON-RPC to one endpoint and may take a plain JSON reply; a notification gets 202. Tool annotations carry `readOnlyHint` |
+
+## Prompt caching
+
+| Source | What it told us |
+|---|---|
+| [OpenCode Go](https://opencode.ai/docs/go/) | Checked live 2026-10-12. Asks for a stable session ID in `x-opencode-session` "so we can optimize routing and prompt caching". Prices list a cached-read rate per model. `glm-5.3-flash` goes through `/v1/chat/completions`; the page documents no `cache_control` mark |
+| agentgateway access log on k3d-ace | Checked live 2026-10-12. Each model call logs `gen_ai.usage.input_tokens`, `gen_ai.usage.cache_read.input_tokens` and `agw.ai.time_to_first_token`. A repeat of a 5,755-token prompt read 5,440 tokens from the provider's cache. See `docs/decisions/prompt-caching.md` |
+| kagent A2A reply usage (`kagent.dev/a2a/usage`) | Checked live 2026-10-12. Holds `promptTokenCount`, `candidatesTokenCount`, `totalTokenCount` only: no cached-token count, so the cost ledger cannot show prompt-cache savings |
+| `kubectl kustomize` (kubectl v1.36.3, checked 2026-10-12) | A kustomization under `agents/teams/<team>` that lists `../..` fails: "cycle detected: candidate root ... contains visited root". Naming the files (`../../templates.yaml`) needs `--load-restrictor LoadRestrictionsNone`, which `kubectl apply -k` does not take, so install pipes `kubectl kustomize` into `kubectl apply -f -` |
+| `kubectl get workerpools -A` on k3d-ace (2026-10-12) | `WorkerPool` (`ate.dev/v1alpha1`) is namespaced. A team namespace needs its own pool: spec `replicas`, `sandboxClass: gvisor`, `workerImage` |
+| ActorTemplate `worker_selector` and WorkerPool labels on k3d-ace (2026-10-12) | kagent 1.0.0-alpha9 gives an Agent's ActorTemplate the selector `kagent.dev/worker-pool: <workerPoolRef name>`, matched against the WorkerPool's own labels. The kagent chart sets that label on `kagent-default`; a hand-made pool without it never runs the golden actor, and the Agent sits at `ActorTemplatePending` with no error. Adding the label made a team-namespace Agent Ready in about 30s |
+
+## Sandbox design agent
+
+Taken from `docs/spike-log.md` section 16 (kagent 1.0.0-alpha9, measured on the spike
+cluster). Recorded 2026-10-12. Not re-checked against the live kagent pages or a cluster.
+
+| Source | What it told us |
+|---|---|
+| `docs/spike-log.md` section 16 | In a standalone sandbox, egress is deny-by-default through Substrate's proxy: HTTP to any host, in-cluster services and the metadata address answer 403. DNS resolves; ICMP is lost. Nothing reaches a sandbox but `kagent sandbox exec/upload/download` (inferred, not probed) |
+| `docs/spike-log.md` section 16 | The `SandboxTemplate` CRD (`api.kagent.dev/v1alpha3`) has only `workload.image`, `env` and `substrate`: no egress field to widen (draft bug 6) |
+| `docs/spike-log.md` section 15 | `kagent sandbox create/exec/delete` and `get` work on a template; a sandbox is `RUNTIME_STATE_READY` at once and `RUNTIME_STATE_DELETED` after delete; the default TTL is 1 h |

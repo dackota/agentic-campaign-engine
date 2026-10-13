@@ -47,6 +47,7 @@ trap cleanup EXIT
 # the first call meets the fake key again.
 k delete -f "$TEST_MANIFEST" --ignore-not-found >/dev/null
 k apply -f "$TEST_MANIFEST" >/dev/null
+# shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
 k wait --for=jsonpath='{.status.conditions[?(@.type=="Accepted")].status}'=True \
   agentgatewaybackend/failover-test -n "$GW_NS" --timeout="$BACKEND_ACCEPT_TIMEOUT" >/dev/null || fail "failover-test backend not accepted"
 sleep "$FAILOVER_SETTLE_S"
@@ -79,6 +80,7 @@ model="$(jq -r '.model' "$tmp/out")"
 answer="$(jq -r '.choices[0].message.content' "$tmp/out")"
 [ "$model" = mock-anthropic ] || fail "failover call answered by $model, not priority group 2"
 sleep "$LOG_SETTLE_S"
+# shellcheck disable=SC2310  # wrapper: one pipeline, so with pipefail its status is the pipeline's
 line="$(log_since "$since" | grep 'route=agentgateway-system/failover-test' | tail -1 || true)"
 [ -n "$line" ] || fail "no gateway log line for the failover call"
 for want in 'endpoint=mock-llm' 'gen_ai.provider.name=anthropic' 'retry.attempt=1' 'http.status=200'; do
@@ -90,6 +92,7 @@ echo "gateway log: $line"
 # 2. Team token limits: team-a goes over, team-b still gets through to OpenCode Go.
 # A run in the last minute may have spent team-a's budget: wait for its window to reset,
 # so this run's team-a calls (and their token counts) land in the log.
+# shellcheck disable=SC2310  # wrapper: one curl call, so its status is curl's
 if [ "$(post team-a "$tmp/small.json")" = 429 ]; then
   wait_s="$(tr -d '\r' <"$tmp/headers" | awk -F': ' 'tolower($1)=="retry-after" {print $2}' || true)"
   # Retry-After may be an HTTP date; only a number of seconds is used.
@@ -122,9 +125,11 @@ team_sum() { # team field -> sum of gen_ai.usage.<field> over that team's log li
     awk '{s+=$1} END {print s+0}'
 }
 for team in team-a team-b; do
+  # shellcheck disable=SC2310  # wrapper: one pipeline, so with pipefail its status is the pipeline's
   in_sum="$(team_sum "$team" input_tokens || true)"
+  # shellcheck disable=SC2310  # wrapper: one pipeline, so with pipefail its status is the pipeline's
   out_sum="$(team_sum "$team" output_tokens || true)"
-  [ "${in_sum:-0}" -gt 0 ] && [ "${out_sum:-0}" -gt 0 ] || fail "no tokens logged for $team"
+  { [ "${in_sum:-0}" -gt 0 ] && [ "${out_sum:-0}" -gt 0 ]; } || fail "no tokens logged for $team"
   echo "tokens $team: input=$in_sum output=$out_sum"
 done
 echo "ok tokens per team in the gateway log"

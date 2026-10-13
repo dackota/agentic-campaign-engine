@@ -40,12 +40,28 @@ python:
 worker:
   # The kagent controller serves each Agent at <this>/<agent name> (wired by #29).
   agentUrl: http://kagent-controller.kagent.svc.cluster.local:8083/agents/kagent
+  # How long the worker waits for one agent reply. A live model, slowed by the team's token
+  # limit at the gateway, can take minutes; the live test stack waits as long.
+  agentTimeoutSeconds: 180
+  # The kagent controller itself: the worker's `kagent sandbox` CLI runs the design agent's
+  # program through it (docs/decisions/sandbox-design-agent.md).
+  kagentApiUrl: http://kagent-controller.kagent.svc.cluster.local:8083
 
 marketo:
   serviceName: fake-marketo
   port: 8000
   # Not a secret: Marketo's OAuth2 client id. Its secret is in the app Secret.
   clientId: ace-demo
+
+# The Workfront-shaped fake and the MCP servers that read it (and the other fakes).
+workfront:
+  serviceName: fake-workfront
+  port: 8000
+  clientId: ace-demo
+
+# One read-only MCP server per fake, registered in kagent by agents/mcp.yaml.
+mcp:
+  port: 8000
 
 # The CMS and the S3 store are fakes (docs/decisions/cms-and-asset-store.md).
 cms:

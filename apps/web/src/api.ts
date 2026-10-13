@@ -224,7 +224,7 @@ export function retryCampaign(id: string): Promise<Campaign> {
 
 /** A URL the browser loads itself (an iframe, an EventSource), so it cannot send the
  * Authorization header: the API also takes the token as the `access_token` parameter. */
-function withToken(path: string, extra: Record<string, string> = {}): string {
+export function withToken(path: string, extra: Record<string, string> = {}): string {
   const query = new URLSearchParams({ ...extra, access_token: accessToken() ?? "" });
   return `/api${path}?${query}`;
 }
@@ -295,4 +295,28 @@ export function watchRun(
   };
   // A dropped connection is retried by the browser, resuming from the last event id.
   return () => source.close();
+}
+
+/** An alert Grafana raised that has not resolved yet. */
+export interface FiringAlert {
+  name: string;
+  summary: string;
+  fired_at: string;
+}
+
+function isFiringAlert(value: unknown): value is FiringAlert {
+  if (typeof value !== "object" || value === null) return false;
+  const a = value as Record<string, unknown>;
+  return (
+    typeof a.name === "string" && typeof a.summary === "string" && typeof a.fired_at === "string"
+  );
+}
+
+/** The alerts firing now, for the banner. */
+export async function listAlerts(): Promise<FiringAlert[]> {
+  const body = await fetchJson("/alerts");
+  if (!Array.isArray(body) || !body.every(isFiringAlert)) {
+    throw new Error("the API returned an unexpected alert shape");
+  }
+  return body;
 }

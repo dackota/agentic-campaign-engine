@@ -67,6 +67,10 @@ imagePullPolicy: {{ .Values.python.image.pullPolicy }}
   value: {{ .Values.temporal.namespace | quote }}
 - name: ACE_AGENT_URL
   value: {{ .Values.worker.agentUrl | quote }}
+- name: ACE_AGENT_TIMEOUT_SECONDS
+  value: {{ .Values.worker.agentTimeoutSeconds | quote }}
+- name: ACE_KAGENT_API_URL
+  value: {{ .Values.worker.kagentApiUrl | quote }}
 - name: ACE_MARKETO_URL
   value: {{ printf "http://%s:%v" (include "ace.host" (list . .Values.marketo.serviceName)) .Values.marketo.port | quote }}
 - name: ACE_CMS_URL

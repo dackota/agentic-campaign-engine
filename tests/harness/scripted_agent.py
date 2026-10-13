@@ -34,6 +34,7 @@ VERSION_HEADER = "A2A-Version"
 SUPPORTED_VERSION = "1.0"
 COMPLETED = "TASK_STATE_COMPLETED"
 USAGE_KEY = "kagent.dev/a2a/usage"
+PART_TYPE_KEY = "kagent.dev/a2a/part-type"
 SUBJECT_HEADLINE_CHARS = 80
 BODY_REPORT_CHARS = 300
 SOCIAL_POST_CHARS = 280
@@ -41,11 +42,23 @@ SOCIAL_POST_CHARS = 280
 # behaviour without access to the agent: hold the reply, or reply with broken JSON.
 SLOW_MARKER = "[agent:slow]"
 BAD_JSON_MARKER = "[agent:bad-json]"
+# "[agent:flag]" in a report makes the brand reviewer always ask for a fix, so every writer's
+# draft ends up flagged for a human.
+FLAG_MARKER = "[agent:flag]"
+FLAG_ISSUE = {"check": "banned_claim", "detail": "100% protection is a banned claim"}
 SLOW_REPLY_SECONDS = 1.5
 # "[agent:down-N]" in a report makes the first N calls that carry that report answer with
 # an A2A error, so a step fails on cue and a later attempt succeeds.
 DOWN_MARKER = re.compile(r"\[agent:down-(\d{1,2})\]")
 JSONRPC_AGENT_DOWN = -32000
+# "[agent:task-failed-N]" makes the first N calls on that report answer as kagent does when
+# the model call fails: a task in state TASK_STATE_FAILED whose status message holds the error.
+TASK_FAILED_MARKER = re.compile(r"\[agent:task-failed-(\d{1,2})\]")
+TASK_FAILED = "TASK_STATE_FAILED"
+TASK_FAILED_TEXT = (
+    'llm error response (code STREAM_ERROR): "POST \\"http://agentgateway/v1/chat/completions'
+    '\\": 429 Too Many Requests "'
+)
 # The worker asks for the A/B test's second email with this phrase in its prompt.
 VARIANT_B_PHRASE = "variant B"
 # A step that works from earlier steps' output (a writer) takes this long to answer, so
@@ -54,7 +67,30 @@ WRITER_REPLY_SECONDS = 0.5
 CONTEXT_MARKER = "OUTPUT OF "
 MAX_SCRIPTED_FACTS = 3
 SERVICE = "scripted-agent"
+# The design step's answer: the same two cards for every report.
+FIXED_CARDS = tuple(
+    {
+        "name": f"social-card-{n}.svg",
+        "svg": (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630">'
+            f'<rect width="1200" height="630" fill="#0b5fff"/><text x="80" y="330" '
+            f'fill="#fff" font-size="56">Scripted card {n}</text></svg>'
+        ),
+    }
+    for n in (1, 2)
+)
+# The version on the agent card until a test publishes another.
+DEFAULT_REVISION = "1"
+# A report with this marker makes the design step reply with a program (the live-depth shape)
+# instead of cards, so the engine runs it in the sandbox.
+PROGRAM_MARKER = "DESIGN-BY-PROGRAM"
+DESIGN_PROGRAM = (
+    'for n in 1 2; do printf \'<svg width="1200" height="630"/>\' > /tmp/c$n.svg; '
+    "echo \"CARD $n $(base64 < /tmp/c$n.svg | tr -d '\\n')\"; done"
+)
 TOOL_NAME = "read_report"
+# The research agent reads the campaign's Workfront project through MCP before it answers.
+RESEARCH_TOOL = "get_project"
 
 # Every reply carries token usage on the A2A task, the way the ADR in
 # docs/decisions/token-usage-per-campaign.md reads it. "[agent:usage-IN-OUT]" in a report
@@ -75,7 +111,9 @@ class ScriptedAgent:
         self._modes: dict[str, str] = {}
         self._failed: dict[str, int] = {}
         self._message_ids: list[str] = []
+        self._texts: list[str] = []
         self._sessions: set[str] = set()
+        self._revision = DEFAULT_REVISION
         self.app = self._build_app()
 
     def script(self, replies: list[str]) -> None:
@@ -83,20 +121,42 @@ class ScriptedAgent:
         with self._lock:
             self._replies = list(replies)
 
+    def set_revision(self, revision: str) -> None:
+        """Publish a new agent revision: the agent card's version changes, as it does when
+        the Agent resource is updated."""
+        with self._lock:
+            self._revision = revision
+
+    def card(self) -> dict[str, Any]:
+        with self._lock:
+            return {"name": SERVICE, "version": self._revision, "skills": []}
+
     def message_ids(self) -> list[str]:
         """The A2A messageId of every call so far, in arrival order."""
         with self._lock:
             return list(self._message_ids)
 
+    def messages(self) -> list[str]:
+        """The text of every message so far, in arrival order."""
+        with self._lock:
+            return list(self._texts)
+
     def _is_down(self, text: str, message_id: str) -> bool:
         """Record the call; True when it must fail because its report says the agent is down."""
-        report = text.split(REPORT_MARKER, 1)[-1]
         with self._lock:
             self._message_ids.append(message_id)
-            found = DOWN_MARKER.search(report)
-            if found is None or self._failed.get(report, 0) >= int(found.group(1)):
+            self._texts.append(text)
+        return self._fails_on_cue(DOWN_MARKER, text)
+
+    def _fails_on_cue(self, marker: re.Pattern[str], text: str) -> bool:
+        """True for the first N calls on a report that carries `marker` with count N."""
+        report = text.split(REPORT_MARKER, 1)[-1]
+        key = f"{marker.pattern}|{report}"
+        with self._lock:
+            found = marker.search(report)
+            if found is None or self._failed.get(key, 0) >= int(found.group(1)):
                 return False
-            self._failed[report] = self._failed.get(report, 0) + 1
+            self._failed[key] = self._failed.get(key, 0) + 1
             return True
 
     def _next_reply(self, text: str, context_id: str) -> tuple[str, bool]:
@@ -131,6 +191,10 @@ class ScriptedAgent:
         def readyz() -> dict[str, str]:
             return {"status": "ok"}
 
+        @app.get("/.well-known/agent-card.json")
+        def agent_card() -> dict[str, Any]:
+            return self.card()
+
         @app.post("/")
         async def rpc(request: Request) -> JSONResponse:
             body = await request.json()
@@ -146,32 +210,68 @@ class ScriptedAgent:
             context_id = requested or self._open_session()
             if self._is_down(text, str(message.get("messageId", ""))):
                 return _error(body, JSONRPC_AGENT_DOWN, "agent unavailable")
+            if self._fails_on_cue(TASK_FAILED_MARKER, text):
+                return _failed_task(body, context_id)
             reply, is_slow = self._next_reply(text, context_id)
             _export_tool_and_model_spans()
             if is_slow:
                 await asyncio.sleep(
                     SLOW_REPLY_SECONDS if SLOW_MARKER in text else WRITER_REPLY_SECONDS
                 )
-            artifact: dict[str, Any] = {
-                "artifactId": str(uuid.uuid4()),
-                "parts": [{"text": reply}],
-                "metadata": {USAGE_KEY: scripted_usage(text)},
-            }
-            task: dict[str, Any] = {
-                "id": str(uuid.uuid4()),
-                "contextId": context_id,
-                "status": {"state": COMPLETED},
-                "artifacts": [artifact],
-            }
-            return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
+            return _completed_task(body, context_id, text, reply)
 
         return app
+
+
+def _completed_task(body: dict[str, Any], context_id: str, text: str, reply: str) -> JSONResponse:
+    tools = (
+        _tool_call_parts(RESEARCH_TOOL, {"project_id": "demo"})
+        if ROLES["research"].prompt in text
+        else []
+    )
+    artifact: dict[str, Any] = {
+        "artifactId": str(uuid.uuid4()),
+        "parts": [*tools, {"text": reply}],
+        "metadata": {USAGE_KEY: scripted_usage(text)},
+    }
+    task: dict[str, Any] = {
+        "id": str(uuid.uuid4()),
+        "contextId": context_id,
+        "status": {"state": COMPLETED},
+        "artifacts": [artifact],
+    }
+    return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
+
+
+def _failed_task(body: dict[str, Any], context_id: str) -> JSONResponse:
+    status = {
+        "state": TASK_FAILED,
+        "message": {"role": "ROLE_AGENT", "parts": [{"text": TASK_FAILED_TEXT}]},
+    }
+    task = {"id": str(uuid.uuid4()), "contextId": context_id, "status": status}
+    return JSONResponse({"jsonrpc": "2.0", "id": body.get("id"), "result": {"task": task}})
 
 
 def _error(body: dict[str, Any], code: int, message: str) -> JSONResponse:
     return JSONResponse(
         {"jsonrpc": "2.0", "id": body.get("id"), "error": {"code": code, "message": message}}
     )
+
+
+def _tool_call_parts(name: str, args: dict[str, Any]) -> list[dict[str, Any]]:
+    """One tool call and its result, as kagent alpha9 puts them in the reply's artifact before
+    the text (seen live on k3d-ace, 2026-10-12)."""
+    call_id = str(uuid.uuid4())
+    return [
+        {
+            "data": {"id": call_id, "name": name, "args": args},
+            "metadata": {PART_TYPE_KEY: "function_call"},
+        },
+        {
+            "data": {"id": call_id, "name": name, "response": {"output": "{}"}},
+            "metadata": {PART_TYPE_KEY: "function_response"},
+        },
+    ]
 
 
 def _export_tool_and_model_spans() -> None:
@@ -206,10 +306,12 @@ def _report_of(message_text: str) -> str:
     return report.removeprefix("\n")
 
 
-def default_reply(message_text: str) -> Any:
+def default_reply(message_text: str) -> dict[str, Any]:
     """What the scripted agent answers for the role whose prompt opens the message; an
     email draft when no role matches."""
     if BRAND_REVIEWER.prompt in message_text:
+        if FLAG_MARKER in _report_of(message_text):
+            return {"verdict": "fix", "issues": [FLAG_ISSUE]}
         return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
     report = _report_of(message_text)
@@ -240,6 +342,10 @@ def default_reply(message_text: str) -> Any:
                 "summary": report[:BODY_REPORT_CHARS],
                 "bullets": [_first_line(report)],
             }
+        case "design":
+            if PROGRAM_MARKER in message_text:
+                return {"program": DESIGN_PROGRAM}
+            return {"cards": list(FIXED_CARDS)}
         case _:
             return default_draft(message_text)
 

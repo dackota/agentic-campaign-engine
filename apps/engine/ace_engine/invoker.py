@@ -35,10 +35,18 @@ class Invocation:
     session_id: str
     # The tokens every call of this invocation used, the repair attempt's included.
     usage: Usage
+    # The names of the tools the agent called while it answered (MCP reads), in call order.
+    tool_calls: tuple[str, ...] = ()
 
 
 A2A_VERSION = "1.0"
 USAGE_KEY = "kagent.dev/a2a/usage"
+TASK_FAILED = "TASK_STATE_FAILED"
+# kagent marks the A2A parts that record a tool call: `metadata["kagent.dev/a2a/part-type"]` is
+# "function_call" and `data.name` is the tool. Alpha9 puts them in the reply's artifacts (seen
+# live on k3d-ace, 2026-10-12); the task's history is read too.
+PART_TYPE_KEY = "kagent.dev/a2a/part-type"
+FUNCTION_CALL = "function_call"
 
 
 def _reply_text(task: dict[str, Any]) -> str:
@@ -96,6 +104,10 @@ async def _send(
         task: dict[str, Any] = body["result"]["task"]
     except (KeyError, TypeError) as exc:
         raise AgentCallFailed(f"agent reply has no task: {body!r}") from exc
+    # kagent answers a failed model call (a 429 or 403 at the gateway) with a failed task whose
+    # status message holds the error. That is a failed call to retry, not a reply to repair.
+    if (task.get("status") or {}).get("state") == TASK_FAILED:
+        raise AgentCallFailed(f"agent task failed: {_reply_text(task)}")
     return task
 
 
@@ -121,6 +133,7 @@ async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> 
     if not isinstance(session_id, str):
         raise AgentCallFailed("agent reply carries no contextId")
     usage = _usage_of(result)
+    tool_calls = _tool_calls_of(result)
     output, problems = _parse(_reply_text(result), schema)
     if output is None:
         repair = (
@@ -130,6 +143,7 @@ async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> 
         )
         result = await _send(client, agent_url, session_id, f"{prefix}:2", repair)
         usage = usage + _usage_of(result)
+        tool_calls = tool_calls + _tool_calls_of(result)
         output, problems = _parse(_reply_text(result), schema)
     if output is None:
         raise AgentOutputInvalid(
@@ -139,7 +153,24 @@ async def invoke(client: httpx.AsyncClient, agent_url: str, call: AgentCall) -> 
         output=output,
         session_id=result.get("contextId", session_id),
         usage=usage,
+        tool_calls=tool_calls,
     )
+
+
+def _tool_calls_of(task: dict[str, Any]) -> tuple[str, ...]:
+    """The tools the agent called to answer, read off the task's artifacts and history."""
+    names: list[str] = []
+    for message in [*(task.get("artifacts") or []), *(task.get("history") or [])]:
+        for part in message.get("parts") or []:
+            data = part.get("data")
+            kind = (part.get("metadata") or {}).get(PART_TYPE_KEY)
+            if (
+                kind == FUNCTION_CALL
+                and isinstance(data, dict)
+                and isinstance(data.get("name"), str)
+            ):
+                names.append(data["name"])
+    return tuple(names)
 
 
 def _usage_of(task: dict[str, Any]) -> Usage:

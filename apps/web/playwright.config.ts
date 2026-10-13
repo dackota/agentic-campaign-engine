@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { delimiter, resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
 
@@ -6,22 +7,28 @@ const apiPort = process.env.ACE_API_PORT ?? "18080";
 const webPort = process.env.ACE_WEB_PORT ?? "15173";
 const dexPort = process.env.ACE_DEX_PORT ?? "15556";
 const root = resolve(import.meta.dirname, "../..");
-const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render"]
+const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
   .map((p) => resolve(root, p))
   .join(delimiter);
 const marketoPort = process.env.ACE_MARKETO_PORT ?? "18090";
+// The alert-banner spec posts to the alert webhook with this token, so it is made fresh here
+// (inherited by the test workers) and passed to the stack.
+process.env.ACE_ALERT_WEBHOOK_TOKEN ??= randomBytes(24).toString("hex");
+const alertToken = process.env.ACE_ALERT_WEBHOOK_TOKEN;
 const env = {
   ...process.env,
   ACE_API_PORT: apiPort,
   ACE_WEB_PORT: webPort,
   ACE_DEX_PORT: dexPort,
   ACE_MARKETO_PORT: marketoPort,
+  ACE_ALERT_WEBHOOK_TOKEN: alertToken,
   // The harness starts Dex on this port; the web app signs in against it.
   VITE_OIDC_ISSUER: `http://127.0.0.1:${dexPort}/dex`,
   PYTHONPATH: pythonPath,
 } as Record<string, string>;
 
 const STACK_START_TIMEOUT_MS = 240_000;
+const STACK_STOP_TIMEOUT_MS = 30_000;
 
 export default defineConfig({
   testDir: "./e2e",
@@ -35,6 +42,8 @@ export default defineConfig({
       url: `http://127.0.0.1:${apiPort}/healthz`,
       timeout: STACK_START_TIMEOUT_MS,
       reuseExistingServer: false,
+      // SIGTERM lets the stack remove its containers; the default SIGKILL leaves that to Ryuk.
+      gracefulShutdown: { signal: "SIGTERM", timeout: STACK_STOP_TIMEOUT_MS },
     },
     {
       command: `pnpm exec vite --host 127.0.0.1 --port ${webPort} --strictPort`,

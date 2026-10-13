@@ -10,7 +10,6 @@ root and everything the request does lands in the trace.
 import json
 import re
 import uuid
-from typing import Any
 
 from ace_engine import db, telemetry
 from fastapi import FastAPI
@@ -33,7 +32,7 @@ def remember(campaign_id: uuid.UUID, traceparent: str) -> None:
     _cached[campaign_id] = traceparent
 
 
-def _uuid_or_none(text: Any) -> uuid.UUID | None:
+def _uuid_or_none(text: object) -> uuid.UUID | None:
     try:
         return uuid.UUID(str(text))
     except ValueError:

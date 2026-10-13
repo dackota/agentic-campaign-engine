@@ -4,10 +4,11 @@
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
 
-lint: ## Run ruff, mypy, and eslint (same as CI)
+lint: ## Run ruff, mypy, shellcheck, and eslint (same as CI)
 	uv run ruff check .
 	uv run ruff format --check .
 	uv run mypy
+	git ls-files -z '*.sh' | xargs -0 shellcheck -o check-set-e-suppressed
 	pnpm install --frozen-lockfile
 	pnpm --filter web lint
 

@@ -1,0 +1,86 @@
+# S6: each team's own route to the model, with its own token limit, so a busy team cannot
+# starve another. A team's ModelConfig (agents/teams/<team>/team.yaml) points at its route;
+# the route sets x-team for the access log. The route is picked by path, so the split is a
+# budget split, not a security boundary (docs/decisions/team-isolation.md). The backend
+# and the gateway are the ones manifests/spike/gateway.yaml installs.
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: demand-gen, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /demand-gen/v1}
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: x-team, value: demand-gen}
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: demand-gen}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: opencode-go
+---
+# The team's token budget per minute, counted by the gateway on the model's replies.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: demand-gen-token-limit, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: demand-gen}
+  traffic:
+    rateLimit:
+      local:
+      - {tokens: 200000, unit: Minutes}
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: {name: product-marketing, namespace: agentgateway-system}
+spec:
+  parentRefs:
+  - {name: agentgateway-proxy, sectionName: http}
+  rules:
+  - matches:
+    - path: {type: PathPrefix, value: /product-marketing/v1}
+    filters:
+    - type: RequestHeaderModifier
+      requestHeaderModifier:
+        set:
+        - {name: x-team, value: product-marketing}
+        - {name: user-agent, value: agentic-campaign-engine/0.1}
+        - {name: x-opencode-session, value: product-marketing}
+    backendRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: opencode-go
+---
+# The team's token budget per minute, counted by the gateway on the model's replies.
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: product-marketing-token-limit, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: product-marketing}
+  traffic:
+    rateLimit:
+      local:
+      - {tokens: 200000, unit: Minutes}
+---
+# Retry once on the codes that evict a provider, as the spike's routes do
+# (docs/decisions/llm-gateway-failover.md).
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata: {name: team-failover-retry, namespace: agentgateway-system}
+spec:
+  targetRefs:
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: demand-gen}
+  - {group: gateway.networking.k8s.io, kind: HTTPRoute, name: product-marketing}
+  traffic:
+    retry:
+      attempts: 1
+      backoff: 1s
+      codes: [401, 403, 500, 502, 503, 504]

@@ -93,7 +93,7 @@ def _count(raw: dict[str, Any], keys: tuple[str, ...]) -> int | None:
     return None
 
 
-def usage_from(raw: Any) -> Usage:
+def usage_from(raw: object) -> Usage:
     """The usage an agent reported, or no usage when it reported none a ledger can trust.
     The reply is outside input, so anything malformed counts as unreported."""
     if not isinstance(raw, dict):

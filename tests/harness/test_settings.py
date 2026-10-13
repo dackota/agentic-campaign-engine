@@ -16,7 +16,7 @@ AGENT_TIMEOUT = 31.0
 MARKETO_TIMEOUT = 7.0
 
 
-def _settings(**overrides: Any) -> Settings:
+def _settings(**overrides: object) -> Settings:
     values: dict[str, Any] = {
         "depth": Depth.FAST,
         "database_url": "postgresql://unused",
@@ -64,7 +64,7 @@ def test_marketo_call_uses_its_own_timeout(monkeypatch: pytest.MonkeyPatch) -> N
 
     real_client = httpx.AsyncClient
 
-    def client(**kwargs: Any) -> httpx.AsyncClient:
+    def client(**kwargs: Any) -> httpx.AsyncClient:  # noqa: ANN401  stands in for httpx.AsyncClient and forwards its keywords
         return real_client(transport=httpx.MockTransport(reply), **kwargs)
 
     monkeypatch.setattr("campaign_worker.activities.httpx.AsyncClient", client)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Install the platform on the `ace` cluster: Substrate, kagent, agentgateway, Dex, the mock model,
-# the S0 agent, and a mock-backed twin of it. Usage: install.sh check-env|run
+# the S0 agent, a mock-backed twin of it, and each team's role Agents in its own namespace. Usage: install.sh check-env|run
 # The spike scripts do the installing; this script only calls them (always with KCTX set,
 # because they default to the other cluster). It never reads .env values: check-env only
 # asks whether OPENCODE_KEY has a value, and gateway-install.sh pipes the keys to kubectl.
@@ -19,9 +19,11 @@ SMOKE_TIMEOUT="${SMOKE_TIMEOUT:-120}"
 SMOKE_RETRY_DELAY="${SMOKE_RETRY_DELAY:-3}"
 TWIN="spike-agent-mock"
 AGENT="spike-agent"
-# The default workflow's six role Agents (agents/agents.yaml).
-ROLE_AGENTS="agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer"
+# The default workflow's role Agents (agents/agents.yaml).
+ROLE_AGENTS=(agent/ace-strategist agent/ace-research agent/ace-email-writer agent/ace-landing-page-writer agent/ace-social-writer agent/ace-one-pager-writer agent/ace-design-agent agent/ace-brand-reviewer)
 HARNESS="spike-harness"
+# The teams in Dex; each runs the role Agents in its own namespace team-<team> (agents/teams).
+TEAMS="demand-gen product-marketing"
 CA_POOLS_ATE="actor-id-jwt-pool actor-id-ca-pool egress-mitm-ca-pool"
 CA_POOLS_PODCERT="service-dns-ca-pool pod-identity-ca-pool"
 
@@ -65,6 +67,7 @@ fetch_kubectl_ate() {
   local target expected tmp actual
   if [ -x "$BIN_DIR/kubectl-ate" ]; then return 0; fi
   target="$(os_arch)"
+  # shellcheck disable=SC2310  # checked: returns 1 only for an unknown target
   expected="$(pinned_sha "$target")" || fail "no pinned kubectl-ate checksum for $target"
   mkdir -p "$BIN_DIR"
   tmp="$(mktemp "$BIN_DIR/kubectl-ate.XXXXXX")"
@@ -88,9 +91,12 @@ fetch_kubectl_ate() {
 platform_installed() {
   local pool release
   for release in substrate kagent; do
+    # shellcheck disable=SC2310  # predicate: is the line in the listing
     has_line "$release" "$1" || return 1
   done
+  # shellcheck disable=SC2310  # predicate: is the line in the listing
   for pool in $CA_POOLS_ATE; do has_line "secret/$pool" "$2" || return 1; done
+  # shellcheck disable=SC2310  # predicate: is the line in the listing
   for pool in $CA_POOLS_PODCERT; do has_line "secret/$pool" "$3" || return 1; done
 }
 
@@ -116,16 +122,30 @@ smoke_twin() {
   done
 }
 
+# Each team's gateway route and token limit, then its namespace of Agents on its own
+# ModelConfig. The overlays name role files outside their directory, hence the restrictor.
+apply_teams() {
+  local team
+  k apply -f "$ROOT/agents/teams/gateway.yaml"
+  for team in $TEAMS; do
+    k kustomize --load-restrictor LoadRestrictionsNone "$ROOT/agents/teams/$team" | k apply -f -
+    k wait --for=condition=Ready "${ROLE_AGENTS[@]}" -n "team-$team" --timeout="$READY_TIMEOUT"
+  done
+}
+
 run() {
   check_env
   fetch_kubectl_ate
   export PATH="$BIN_DIR:$PATH"
   local installed=0 releases ate_secrets podcert_secrets
   releases="$(helm --kube-context "$CTX" list -A --deployed -q)" || fail "could not list Helm releases"
+  # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
   ate_secrets="$(k get secret -n ate-system -o name)" || fail "could not list Secrets in ate-system"
+  # shellcheck disable=SC2310  # wrapper: k is one kubectl call, so its status is kubectl's
   podcert_secrets="$(k get secret -n podcertificate-controller-system -o name)" ||
     fail "could not list Secrets in podcertificate-controller-system"
   # FULL=1 (ACE_OTEL_ENDPOINT set) runs the kagent install again, to set its tracing values.
+  # shellcheck disable=SC2310  # predicate: are Substrate and kagent installed
   if platform_installed "$releases" "$ate_secrets" "$podcert_secrets" &&
     [ -z "${ACE_OTEL_ENDPOINT:-}" ]; then installed=1; fi
   if [ "$installed" = 1 ]; then
@@ -137,9 +157,11 @@ run() {
   "$ROOT/platform/dex/install.sh" run
   k apply -f "$ROOT/manifests/spike/mock-llm.yaml"
   k apply -f "$ROOT/platform/mock-agent.yaml"
+  k apply -f "$ROOT/agents/mcp.yaml"
   k apply -f "$ROOT/agents/templates.yaml"
   k apply -f "$ROOT/agents/agents.yaml"
-  k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" $ROLE_AGENTS -n kagent --timeout="$READY_TIMEOUT"
+  k wait --for=condition=Ready "agent/$AGENT" "agent/$TWIN" "${ROLE_AGENTS[@]}" -n kagent --timeout="$READY_TIMEOUT"
+  apply_teams
   smoke_twin
   echo "platform is up; total time ${SECONDS}s"
 }

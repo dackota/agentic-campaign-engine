@@ -8,6 +8,7 @@ WORKFLOW_NAME = "CampaignWorkflow"
 TASK_QUEUE = "campaigns"
 APPROVE_SIGNAL = "approve"
 RETRY_SIGNAL = "retry_step"
+REJECT_ASSET_SIGNAL = "reject_asset"
 RAISE_BUDGET_SIGNAL = "raise_budget"
 DEPTH_ENV = "ACE_DEPTH"
 REQUIRED_SECRETS = ("marketo_client_id", "marketo_client_secret", "marketo_webhook_secret")
@@ -72,11 +73,16 @@ class Settings:
     slack_token: str = field(default="", repr=False)
     slack_channel: str = ""
     slack_url: str = "https://slack.com/api"
+    # Where the web app is served; Slack's approval message links to the inbox item there.
+    web_url: str = ""
     google_client_id: str = ""
     google_client_secret: str = field(default="", repr=False)
     google_refresh_token: str = field(default="", repr=False)
     google_token_url: str = "https://oauth2.googleapis.com/token"
     google_docs_url: str = "https://docs.googleapis.com"
+
+    # The bearer token Grafana's alert webhook sends. Blank turns the webhook off.
+    alert_webhook_token: str = field(default="", repr=False)
 
     @property
     def slack_enabled(self) -> bool:

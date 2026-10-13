@@ -8,12 +8,21 @@ from typing import Any
 
 import yaml
 
+from tests.harness.stack import LIVE_AGENT_TIMEOUT_SECONDS
 from tests.tooling.chart_files import CHART, by_kind, raw_render, render
 
 ROOT = Path(__file__).resolve().parents[2]
 SECRET_TEMPLATE = CHART / "templates/secret.yaml"
-SECRET_KEYS = {"postgres-password", "marketo-client-secret", "marketo-webhook-secret"}
+SECRET_KEYS = {
+    "postgres-password",
+    "marketo-client-secret",
+    "marketo-webhook-secret",
+    "workfront-client-secret",
+    "workfront-webhook-secret",
+}
+MCP_SERVERS = {"ace-mcp-workfront", "ace-mcp-marketo", "ace-mcp-cms", "ace-mcp-assets"}
 PYTHON_COMPONENTS = {"api": "campaign_api", "worker": "campaign_worker"}
+ALERT_TOKEN_ENV = "ACE_ALERT_WEBHOOK_TOKEN"
 SECRET_WORDS = ("SECRET", "PASSWORD", "TOKEN", "KEY")
 
 
@@ -46,17 +55,22 @@ def test_chart_deploys_every_app_component_with_a_service() -> None:
     deployments = {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
     services = {d["metadata"]["name"] for d in by_kind(docs, "Service")}
 
-    assert deployments == {
-        "web",
-        "api",
-        "worker",
-        "fake-marketo",
-        "fake-cms",
-        "fake-s3",
-        "postgres",
-        "temporal",
-    }
-    assert services == {"web", "api", "fake-marketo", "fake-cms", "fake-s3", "postgres", "temporal"}
+    assert (
+        deployments
+        == {
+            "web",
+            "api",
+            "worker",
+            "fake-marketo",
+            "fake-workfront",
+            "fake-cms",
+            "fake-s3",
+            "postgres",
+            "temporal",
+        }
+        | MCP_SERVERS
+    )
+    assert services == deployments - {"worker"}
     for name in services:
         svc = _named(docs, "Service", name)
         labels = _named(docs, "Deployment", name)["spec"]["template"]["metadata"]["labels"]
@@ -156,7 +170,7 @@ def test_worker_agent_url_is_a_value() -> None:
     assert "#29" in values
 
 
-def test_one_secret_holds_the_three_generated_values() -> None:
+def test_one_secret_holds_the_generated_values() -> None:
     first = _secret(render())
     second = _secret(render())
 
@@ -181,13 +195,21 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
     secret_name = _secret(docs)["metadata"]["name"]
     wanted = {
         "postgres": {"POSTGRES_PASSWORD"},
-        "api": {"ACE_DATABASE_PASSWORD", "ACE_MARKETO_CLIENT_SECRET", "ACE_MARKETO_WEBHOOK_SECRET"},
+        "api": {
+            "ACE_DATABASE_PASSWORD",
+            "ACE_MARKETO_CLIENT_SECRET",
+            "ACE_MARKETO_WEBHOOK_SECRET",
+            ALERT_TOKEN_ENV,
+        },
         "worker": {
             "ACE_DATABASE_PASSWORD",
             "ACE_MARKETO_CLIENT_SECRET",
             "ACE_MARKETO_WEBHOOK_SECRET",
         },
         "fake-marketo": {"ACE_MARKETO_CLIENT_SECRET", "ACE_MARKETO_WEBHOOK_SECRET"},
+        "fake-workfront": {"ACE_WORKFRONT_CLIENT_SECRET", "ACE_WORKFRONT_WEBHOOK_SECRET"},
+        "ace-mcp-workfront": {"ACE_WORKFRONT_CLIENT_SECRET"},
+        "ace-mcp-marketo": {"ACE_MARKETO_CLIENT_SECRET"},
     }
     for deploy in by_kind(docs, "Deployment"):
         env = _env(deploy)
@@ -197,6 +219,14 @@ def test_secret_env_comes_only_from_secret_key_ref() -> None:
         for key in secretish:
             assert "value" not in env[key], (name, key)
             ref = env[key]["valueFrom"]["secretKeyRef"]
+            if key == ALERT_TOKEN_ENV:
+                # Made by platform/observability.sh, not by the chart; the API runs without it.
+                assert (ref["name"], ref["key"], ref["optional"]) == (
+                    "alert-webhook",
+                    "token",
+                    True,
+                )
+                continue
             assert ref["name"] == secret_name and ref["key"] in SECRET_KEYS, (name, key)
 
 
@@ -210,7 +240,7 @@ def test_render_and_values_hold_no_secret_literal() -> None:
     assert "sk-" not in out
     values = yaml.safe_load((CHART / "values.yaml").read_text())
 
-    def keys(node: Any) -> list[str]:
+    def keys(node: object) -> list[str]:
         if isinstance(node, dict):
             return [k for k, v in node.items() for k in (k, *keys(v))]
         return []
@@ -229,3 +259,17 @@ def test_api_and_worker_wait_for_postgres_and_temporal_before_starting() -> None
         assert init["image"] == _container(_named(docs, "Deployment", name))["image"]
         assert "postgres.ace.svc.cluster.local:5432" in init["command"], name
         assert "temporal.ace.svc.cluster.local:7233" in init["command"], name
+
+
+def test_worker_gets_the_kagent_controller_address_for_the_sandbox_cli() -> None:
+    worker = _values(_named(render(), "Deployment", "worker"))
+    assert worker["ACE_KAGENT_API_URL"] == "http://kagent-controller.kagent.svc.cluster.local:8083"
+    changed = _values(_named(render("worker.kagentApiUrl=http://k:1"), "Deployment", "worker"))
+    assert changed["ACE_KAGENT_API_URL"] == "http://k:1"
+
+
+def test_worker_waits_as_long_for_a_live_agent_as_the_live_test_stack_does() -> None:
+    worker = _values(_named(render(), "Deployment", "worker"))
+    assert float(worker["ACE_AGENT_TIMEOUT_SECONDS"]) == LIVE_AGENT_TIMEOUT_SECONDS
+    changed = _values(_named(render("worker.agentTimeoutSeconds=60"), "Deployment", "worker"))
+    assert changed["ACE_AGENT_TIMEOUT_SECONDS"] == "60"
