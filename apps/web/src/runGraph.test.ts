@@ -56,3 +56,12 @@ test("a step still running overlaps one that starts before it ends", () => {
   const summary = summarizeSteps([ev(1, "a", "started"), ev(2, "b", "started")]);
   assert.deepEqual(summary["a"]?.alongside, ["b"]);
 });
+
+test("a judge score on an asset does not change the asset's step status", () => {
+  const summary = summarizeSteps([
+    ev(1, "page", "started"),
+    ev(2, "page", "succeeded"),
+    ev(3, "page", "scored"),
+  ]);
+  assert.equal(summary.page.status, "succeeded");
+});

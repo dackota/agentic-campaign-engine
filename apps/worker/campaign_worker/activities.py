@@ -6,10 +6,21 @@ import json
 import os
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 import httpx
-from ace_engine import brand_review, cost, db, invoker, metrics, step_cache, telemetry
+from ace_engine import (
+    brand_review,
+    cost,
+    db,
+    invoker,
+    judge,
+    metrics,
+    step_cache,
+    team_slots,
+    telemetry,
+)
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for, team_namespace
 from ace_engine.contracts import AgentOutput, citation_problems
@@ -522,6 +533,24 @@ class Activities:
         self._record(campaign_id, step_id, status)
 
     @activity.defn
+    def claim_step_slot(self, campaign_id: str, key: str, lease_seconds: float) -> bool:
+        """Take one of the campaign's team's step slots for the step `key`; False when the
+        team's slots are all held."""
+        with Session(self._engine) as session, session.begin():
+            return team_slots.claim(
+                session,
+                uuid.UUID(campaign_id),
+                key,
+                self._settings.team_step_limit,
+                timedelta(seconds=lease_seconds),
+            )
+
+    @activity.defn
+    def release_step_slot(self, key: str) -> None:
+        with Session(self._engine) as session, session.begin():
+            team_slots.release(session, key)
+
+    @activity.defn
     def open_approval(self, campaign_id: str) -> None:
         with Session(self._engine) as session, session.begin():
             campaign = session.get_one(db.Campaign, uuid.UUID(campaign_id))
@@ -549,6 +578,18 @@ class Activities:
                 return
             campaign.status = db.DRAFTING
             db.add_event(session, campaign.id, db.RUN_STEP, db.DRAFTING)
+
+    @activity.defn
+    def record_scores(
+        self, campaign_id: str, step_id: str, assets: list[str], output: dict[str, Any]
+    ) -> list[str]:
+        """Record the judge's score and reason for each asset as a run event, and return a
+        sentence for each asset scored below the floor (none when the run may go on)."""
+        with Session(self._engine) as session, session.begin():
+            for scored in judge.asset_scores(output, assets):
+                reason = json.dumps({"score": scored["score"], "reason": scored["reason"]})
+                db.add_event(session, uuid.UUID(campaign_id), scored["step"], db.SCORED, reason)
+        return judge.blocking(output, assets)
 
     @activity.defn
     def mark_failed(self, campaign_id: str, step_id: str, reason: str) -> None:

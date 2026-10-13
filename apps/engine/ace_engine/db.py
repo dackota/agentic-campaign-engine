@@ -1,5 +1,6 @@
 """Campaign storage in Postgres."""
 
+import json
 import uuid
 from collections.abc import Collection
 from datetime import UTC, datetime
@@ -14,14 +15,17 @@ from sqlalchemy import (
     Integer,
     String,
     Text,
+    TypeDecorator,
     UniqueConstraint,
     Uuid,
     create_engine,
     func,
     select,
+    text,
 )
-from sqlalchemy.engine import Engine
+from sqlalchemy.engine import Dialect, Engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column
+from sqlalchemy.types import TypeEngine, UserDefinedType
 
 DRAFTING = "drafting"
 AWAITING_APPROVAL = "awaiting_approval"
@@ -41,6 +45,8 @@ BUDGET_PAUSED = "budget_paused"
 FLAGGED = "flagged"
 # A step the brand reviewer sent back to its writer for a fix.
 REVIEW_FIX = "review_fix"
+# An asset the judge scored; the reason is JSON with the score and the judge's reason.
+SCORED = "scored"
 RUN_STEP = "run"
 EMAIL_DRAFT_STEP = "email_draft"
 STEP_STARTED = "started"
@@ -213,6 +219,19 @@ class StepCacheEntry(Base):
     )
 
 
+class StepSlot(Base):
+    """One of a team's step slots, held by the step running in it (ace_engine.team_slots).
+    A slot whose holder never gave it back frees itself at `expires_at`."""
+
+    __tablename__ = "step_slots"
+
+    # The step's idempotency key (dag.step_key): a step holds at most one slot.
+    key: Mapped[str] = mapped_column(String(255), primary_key=True)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"))
+    team: Mapped[str] = mapped_column(String(100), index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
 class Activity(Base):
     """One activity webhook from a marketing system, recorded once per (source, event id)."""
 
@@ -274,6 +293,69 @@ class Alert(Base):
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# A learning's embedding has this many numbers: the stand-in's size and the size the
+# gateway is asked for (docs/decisions/learnings-store.md).
+EMBEDDING_DIMENSIONS = 256
+# One process creates the vector extension at a time: the API and the worker start together.
+_EXTENSION_LOCK = 4_040_041
+
+
+class _PgVector(UserDefinedType[list[float]]):
+    """pgvector's `vector(n)` column type."""
+
+    cache_ok = True
+
+    def __init__(self, dimensions: int) -> None:
+        self.dimensions = dimensions
+
+    def get_col_spec(self, **_kw: object) -> str:
+        return f"vector({self.dimensions})"
+
+
+class Embedding(TypeDecorator[list[float]]):
+    """A vector in pgvector on Postgres; its text form (`[0.1,0.2]`) anywhere else, so an
+    SQLite test database still builds every table."""
+
+    impl = Text
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect: Dialect) -> TypeEngine[Any]:
+        if dialect.name == "postgresql":
+            return dialect.type_descriptor(_PgVector(EMBEDDING_DIMENSIONS))
+        return dialect.type_descriptor(Text())
+
+    def process_bind_param(self, value: list[float] | None, dialect: Dialect) -> str | None:
+        if value is None:
+            return None
+        return "[" + ",".join(repr(float(x)) for x in value) + "]"
+
+    def process_result_value(self, value: Any, dialect: Dialect) -> list[float] | None:  # noqa: ANN401  the driver's text
+        if value is None:
+            return None
+        return [float(x) for x in str(value).strip("[]").split(",") if x]
+
+
+class Learning(Base):
+    """A called A/B winner kept for the agents: the winning lines, why they won, the
+    numbers, and an embedding to search by. One per campaign."""
+
+    __tablename__ = "learnings"
+    __table_args__ = (UniqueConstraint("campaign_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
+    campaign_id: Mapped[uuid.UUID] = mapped_column(Uuid, ForeignKey("campaigns.id"))
+    text: Mapped[str] = mapped_column(Text)
+    reason: Mapped[str] = mapped_column(Text)
+    metrics: Mapped[dict[str, Any]] = mapped_column(JSON)
+    embedding: Mapped[list[float]] = mapped_column(Embedding)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    # When an approver deleted it. The row stays, hidden from the view and the search, so
+    # the campaign's later opens do not make the learning again.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
 def add_event(
@@ -449,6 +531,21 @@ def review_flags_by_campaign(
     }
 
 
+def asset_scores(
+    session: Session, campaign_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, dict[str, dict[str, Any]]]:
+    """The judge's latest score and reason per asset step, by campaign."""
+    events = session.scalars(
+        select(RunEvent)
+        .where(RunEvent.campaign_id.in_(campaign_ids), RunEvent.status == SCORED)
+        .order_by(RunEvent.seq)
+    )
+    found: dict[uuid.UUID, dict[str, dict[str, Any]]] = {}
+    for event in events:
+        found.setdefault(event.campaign_id, {})[event.step] = json.loads(event.reason or "{}")
+    return found
+
+
 def save_receipt(
     engine: Engine, campaign_id: uuid.UUID, target: str, receipt_id: str, url: str
 ) -> None:
@@ -533,5 +630,9 @@ def campaign_traceparent(engine: Engine, campaign_id: uuid.UUID) -> str | None:
 
 def make_engine(database_url: str) -> Engine:
     engine = create_engine(database_url, pool_pre_ping=True)
+    if engine.dialect.name == "postgresql":
+        with engine.begin() as conn:
+            conn.execute(text("SELECT pg_advisory_xact_lock(:key)"), {"key": _EXTENSION_LOCK})
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
     Base.metadata.create_all(engine)
     return engine

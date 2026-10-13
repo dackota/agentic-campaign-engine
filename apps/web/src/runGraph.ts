@@ -19,6 +19,8 @@ export interface StepSummary {
 
 const STARTED = "started";
 const ENDED = ["succeeded", "failed"];
+/** A judge score is a note on an asset, not a change in its step's run. */
+const SCORED = "scored";
 
 /** Group step ids into levels by their longest path from a root, in declared order, so
  * steps that can run side by side share a level. */
@@ -52,6 +54,7 @@ export function summarizeSteps(events: GraphEvent[]): Record<string, StepSummary
   const spans = new Map<string, Span>();
   const summary: Record<string, StepSummary> = {};
   for (const e of [...events].sort((a, b) => a.seq - b.seq)) {
+    if (e.status === SCORED) continue;
     const current = summary[e.step] ?? { status: e.status, retries: -1, tokens: 0, alongside: [] };
     const span = spans.get(e.step) ?? { start: e.seq, end: Infinity };
     if (e.status === STARTED) current.retries += 1;

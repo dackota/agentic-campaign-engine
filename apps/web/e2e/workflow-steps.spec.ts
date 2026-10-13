@@ -40,5 +40,5 @@ test("the default workflow lists its steps before they run", async ({ page }) =>
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   const steps = page.getByRole("list", { name: "Run steps" }).getByRole("listitem");
-  await expect(steps).toHaveText([/^Email draft/, /^approval/, /^publish/]);
+  await expect(steps).toHaveText([/^Email draft/, /^judge/, /^approval/, /^publish/]);
 });

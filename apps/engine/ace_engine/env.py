@@ -17,10 +17,11 @@ PREFIX = "ACE_"
 DATABASE_PASSWORD_ENV = "ACE_DATABASE_PASSWORD"
 OIDC_FIELDS = ("oidc_issuer", "oidc_client_id")
 
-type Parsed = str | float | Depth
+type Parsed = str | int | float | Depth
 
 _PARSERS: dict[type[object], Callable[[str], Parsed]] = {
     str: str,
+    int: int,
     float: float,
     Depth: Depth.parse,
 }
@@ -76,6 +77,15 @@ def settings_from_env(environ: Mapping[str, str], *, is_api: bool) -> Settings:
         skip=() if is_api else OIDC_FIELDS,
         require=("oidc_issuer",) if is_api else (),
     )
+
+
+def database_url_from_env(environ: Mapping[str, str]) -> str:
+    """`ACE_DATABASE_URL` with `ACE_DATABASE_PASSWORD` put in when it is set. Fails naming
+    the variable, never its value, when the URL is unset or malformed."""
+    name = env_name("database_url")
+    if name not in environ:
+        raise ValueError(f"{name} is required: set it in the environment")
+    return _with_database_password(environ)[name]
 
 
 def _with_database_password(environ: Mapping[str, str]) -> Mapping[str, str]:

@@ -27,3 +27,4 @@ playwright-report/
 
 # local tool binaries fetched by make up (kubectl-ate)
 .bin/
+learning-curve/

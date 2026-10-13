@@ -63,6 +63,15 @@ workfront:
 mcp:
   port: 8000
 
+# The learnings store (docs/decisions/learnings-store.md). Each team gets its own learnings
+# search server. Embeddings come from the gateway's OpenAI-shaped route when both are set;
+# blank uses the fixed stand-in. OpenCode Go lists no embedding model (docs/sources.md), so
+# both stay blank until the gateway has an embedding backend.
+learnings:
+  teams: [demand-gen, product-marketing]
+  embeddingUrl: ""
+  embeddingModel: ""
+
 # The CMS and the S3 store are fakes (docs/decisions/cms-and-asset-store.md).
 cms:
   serviceName: fake-cms
@@ -75,7 +84,8 @@ s3:
 
 postgres:
   # Third-party images are pinned by digest (docs/pinned-versions.md).
-  image: postgres:16-alpine@sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+  # Postgres 16 with the pgvector extension, for the learnings store's embeddings.
+  image: pgvector/pgvector:0.8.1-pg16@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337
   serviceName: postgres
   port: 5432
   user: ace

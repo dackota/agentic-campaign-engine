@@ -56,10 +56,13 @@ FULL_ENV = {
     "ACE_GOOGLE_REFRESH_TOKEN": "sentinel-google-refresh-52aa",
     "ACE_GOOGLE_TOKEN_URL": "http://fake-google:8000/token",
     "ACE_GOOGLE_DOCS_URL": "http://fake-google:8000",
+    "ACE_EMBEDDING_URL": "http://gateway:80/demand-gen/v1",
+    "ACE_EMBEDDING_MODEL": "an-embedding-model",
     "ACE_CMS_URL": "http://fake-cms:8000",
     "ACE_S3_URL": "http://fake-s3:8000",
     "ACE_S3_BUCKET": "other-bucket",
     "ACE_CONTENT_TIMEOUT_SECONDS": "9",
+    "ACE_TEAM_STEP_LIMIT": "3",
 }
 
 
@@ -111,10 +114,13 @@ def test_api_loader_reads_every_settings_field() -> None:
         google_refresh_token="sentinel-google-refresh-52aa",
         google_token_url="http://fake-google:8000/token",
         google_docs_url="http://fake-google:8000",
+        embedding_url="http://gateway:80/demand-gen/v1",
+        embedding_model="an-embedding-model",
         cms_url="http://fake-cms:8000",
         s3_url="http://fake-s3:8000",
         s3_bucket="other-bucket",
         content_timeout_seconds=9.0,
+        team_step_limit=3,
         alert_webhook_token="sentinel-alert-token-6c3b",
     )
     # Every field differs from its default above, so a field the loader skipped would show.

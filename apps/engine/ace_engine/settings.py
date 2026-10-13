@@ -19,6 +19,9 @@ WORKFRONT_SECRETS = (
 )
 
 
+DEFAULT_TEAM_STEP_LIMIT = 8
+
+
 class Depth(StrEnum):
     FAST = "fast"
     LIVE = "live"
@@ -81,8 +84,17 @@ class Settings:
     google_token_url: str = "https://oauth2.googleapis.com/token"
     google_docs_url: str = "https://docs.googleapis.com"
 
+    # Where learnings get their embeddings at live depth: the model gateway's OpenAI-shaped
+    # base URL (ending in /v1) and the embedding model. Blank uses the fixed stand-in.
+    embedding_url: str = ""
+    embedding_model: str = ""
+
     # The bearer token Grafana's alert webhook sends. Blank turns the webhook off.
     alert_webhook_token: str = field(default="", repr=False)
+
+    # How many steps that call a model each team may run at once, so one team's campaigns
+    # cannot take every model call (docs/decisions/team-step-limit.md).
+    team_step_limit: int = DEFAULT_TEAM_STEP_LIMIT
 
     @property
     def slack_enabled(self) -> bool:
@@ -96,6 +108,8 @@ class Settings:
         )
 
     def __post_init__(self) -> None:
+        if self.team_step_limit < 1:
+            raise ValueError("team_step_limit must be at least 1")
         # Fail when the worker starts, not on the first send after an approval.
         if not self.marketo_url.strip():
             raise ValueError("marketo_url is required: set it to the Marketo base URL")

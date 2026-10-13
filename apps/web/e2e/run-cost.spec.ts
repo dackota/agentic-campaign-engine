@@ -13,7 +13,9 @@ test("the run view shows tokens and cost per step and in total", async ({ page }
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
   // The email draft step makes two replies: the A/B variants.
   await expect(page.getByTestId("step-cost-email_draft")).toHaveText("3,000 tokens, $0.0162");
-  await expect(page.getByTestId("run-cost")).toHaveText("3,000 tokens, $0.0162");
+  // The judge step makes one reply: 1500 tokens, $0.0081.
+  await expect(page.getByTestId("step-cost-judge")).toHaveText("1,500 tokens, $0.0081");
+  await expect(page.getByTestId("run-cost")).toHaveText("4,500 tokens, $0.0243");
 });
 
 test("a run paused at its budget resumes when the owner raises it", async ({

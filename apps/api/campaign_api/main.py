@@ -14,7 +14,8 @@ from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
-from ace_engine import cost, db, row_security, telemetry
+import httpx
+from ace_engine import cost, db, learnings, row_security, telemetry
 from ace_engine import dag as graph
 from ace_engine.settings import (
     APPROVE_SIGNAL,
@@ -47,7 +48,9 @@ from campaign_api.auth import (
     authorize,
 )
 from campaign_api.budget import BudgetUsd, CostOut, NewBudget, budget_usd, set_budget
+from campaign_api.dashboard import register_dashboard_routes
 from campaign_api.inbox import register_inbox_routes
+from campaign_api.learning_routes import register_learning_routes
 from campaign_api.trace_middleware import install_campaign_trace
 from campaign_api.trace_middleware import remember as remember_trace
 from campaign_api.webhook_routes import (
@@ -104,6 +107,14 @@ class FlagOut(BaseModel):
     issues: list[dict[str, Any]]
 
 
+class ScoreOut(BaseModel):
+    """The judge's score for one asset and its reason."""
+
+    step: str
+    score: int
+    reason: str
+
+
 class AbResultOut(BaseModel):
     status: Literal["winner", "no_decision"]
     winner: str | None
@@ -123,6 +134,7 @@ class RunDetail:
 
     engagement: dict[str, dict[str, int]] = field(default_factory=dict)
     flags: list[FlagOut] = field(default_factory=list)
+    scores: list[ScoreOut] = field(default_factory=list)
     usage: list[db.StepUsage] = field(default_factory=list)
 
 
@@ -148,6 +160,8 @@ class CampaignOut(BaseModel):
     engagement: dict[str, dict[str, int]] = Field(default_factory=dict)
     # What the brand reviewer still flags after its fix rounds, by step.
     flags: list[FlagOut] = Field(default_factory=list)
+    # What the judge scored each asset, with its reason.
+    scores: list[ScoreOut] = Field(default_factory=list)
     ab_result: AbResultOut = Field(default_factory=lambda: AbResultOut.of(NO_DECISION))
     budget_usd: float | None = None
     # Tokens and cost per agent step and in total.
@@ -185,6 +199,7 @@ class CampaignOut(BaseModel):
             edges=list(c.dag.get("edges", [])),
             engagement=detail.engagement,
             flags=detail.flags,
+            scores=detail.scores,
             ab_result=AbResultOut.of(decide(detail.engagement)),
             budget_usd=budget_usd(c),
             cost=CostOut.of(detail.usage),
@@ -292,6 +307,12 @@ def _find(engine: Engine, campaign_id: uuid.UUID) -> CampaignOut | None:
                 flags=[
                     FlagOut(step=e.step, issues=json.loads(e.reason or "[]"))
                     for e in db.review_flags(session, campaign_id)
+                ],
+                scores=[
+                    ScoreOut(step=step, **found)
+                    for step, found in db.asset_scores(session, [campaign_id])
+                    .get(campaign_id, {})
+                    .items()
                 ],
                 usage=db.usage_by_campaign(session, [campaign_id]).get(campaign_id, []),
             ),
@@ -587,6 +608,10 @@ def create_app(settings: Settings) -> FastAPI:
         app.state.engine = db.make_engine(settings.database_url)
         await run_in_threadpool(row_security.install, app.state.engine)
         await run_in_threadpool(seed_default_workflow, app.state.engine)
+        embed_client = httpx.Client(timeout=learnings.EMBED_TIMEOUT_SECONDS)
+        app.state.embed = learnings.embedder_for(
+            settings.depth, settings.embedding_url, settings.embedding_model, embed_client
+        )
         app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
         app.state.temporal = await Client.connect(
             settings.temporal_address,
@@ -594,6 +619,7 @@ def create_app(settings: Settings) -> FastAPI:
             interceptors=telemetry.temporal_interceptors(),
         )
         yield
+        await run_in_threadpool(embed_client.close)
         app.state.engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
@@ -616,5 +642,7 @@ def create_app(settings: Settings) -> FastAPI:
     _add_preview_route(app)
     _add_asset_preview_route(app)
     register_workflow_routes(app)
+    register_learning_routes(app)
+    register_dashboard_routes(app)
 
     return app

@@ -40,9 +40,14 @@ if TYPE_CHECKING:
     from ace_engine.settings import Settings
     from fastapi import FastAPI
 
-POSTGRES_IMAGE = "postgres:16-alpine"
+# Postgres with the vector extension, pinned by digest (docs/pinned-versions.md).
+POSTGRES_IMAGE = (
+    "pgvector/pgvector:0.8.1-pg16"
+    "@sha256:33198da2828a14c30348d2ccb4750833d5ed9a44c88d840a0e523d7417120337"
+)
 # Every container a stack makes carries this label with the stack's own run id, so stop()
 # finds it even when a start was cut off before testcontainers had a handle to it.
+POSTGRES_DATA_DIR = "/var/lib/postgresql/data"
 RUN_LABEL = "ace.harness.run"
 START_TIMEOUT_SECONDS = 180
 STOP_TIMEOUT_SECONDS = 60
@@ -130,7 +135,14 @@ class Stack:
         depth: str | None = None,
         integrations: bool = False,
         pinned: Pinned = NOTHING_PINNED,
+        data_volume: str | None = None,
+        team_step_limit: int | None = None,
     ) -> None:
+        # How many steps each team may run at once; None keeps the engine's default.
+        self._team_step_limit = team_step_limit
+        # A named Docker volume for the database, so what a run saved (the step cache) is
+        # still there for the next stack that names it. None is a fresh database.
+        self._data_volume = data_volume
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         # Every service runs in this process, so one in-memory exporter holds every span.
         self.spans = _install_span_exporter()
@@ -313,6 +325,8 @@ class Stack:
             self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(
                 labels=self._labels
             )
+            if self._data_volume:
+                self._postgres.with_volume_mapping(self._data_volume, POSTGRES_DATA_DIR, "rw")
             self._postgres.start()
             self.dex.start()
             self._thread = threading.Thread(target=self._run, daemon=True)
@@ -456,6 +470,8 @@ class Stack:
             workfront_webhook_secret=self.workfront_webhook_secret,
             alert_webhook_token=self.alert_webhook_token,
         )
+        if self._team_step_limit is not None:
+            settings = dataclasses.replace(settings, team_step_limit=self._team_step_limit)
         if self.integrations:
             settings = dataclasses.replace(
                 settings,

@@ -10,8 +10,8 @@ APP_NAMESPACE="ace"
 APP_DEPLOYMENTS="api worker fake-marketo fake-cms fake-s3 web postgres temporal fake-workfront ace-mcp-workfront ace-mcp-marketo ace-mcp-cms ace-mcp-assets"
 # Each team runs the role Agents in its own namespace team-<team> (agents/teams).
 TEAMS="demand-gen product-marketing"
-ROLE_AGENTS="ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer"
-AGENTS="spike-agent spike-agent-mock ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer"
+ROLE_AGENTS="ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer ace-judge"
+AGENTS="spike-agent spike-agent-mock ace-strategist ace-research ace-email-writer ace-landing-page-writer ace-social-writer ace-one-pager-writer ace-design-agent ace-brand-reviewer ace-judge"
 ISSUER_FILE="$(cd "$(dirname "$0")" && pwd)/oidc-issuer.txt"
 DEX_TIMEOUT="${DEX_TIMEOUT:-5}"
 failed=0

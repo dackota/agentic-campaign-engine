@@ -19,6 +19,8 @@ from ace_engine.contracts import (
     SOCIAL_POSTS_SCHEMA,
     STRATEGY_SCHEMA,
 )
+from ace_engine.judge import JUDGE_STEP, SCORES_SCHEMA
+from ace_engine.judge import PROMPT as JUDGE_PROMPT
 from ace_engine.limits import limits_line
 from ace_engine.settings import Depth
 
@@ -28,6 +30,11 @@ VARIANT_B_INSTRUCTION = (
     "Write variant B of an A/B test: the same facts, a different subject line and angle."
 )
 _JSON_ONLY = "Reply with only JSON that has"
+# The research and writer agents read what won before (the learnings search MCP tool).
+LEARNINGS_FIRST = (
+    "Before you write, call the search_learnings tool with what you are about to write "
+    "about, and use the lines that won before where they fit."
+)
 DESIGN_PROMPT = (
     "You are the design agent. Turn the strategy and research into two social cards, each an "
     "SVG image of 1200 by 630 pixels. Write a shell script that draws them and prints, for "
@@ -59,6 +66,8 @@ class Role:
     writes_draft: bool = False
     # Whether the output is the two social cards the engine saves to the asset library.
     makes_cards: bool = False
+    # Whether the output is the judge's scores, which the engine records and holds to the floor.
+    judges: bool = False
 
 
 def _role(
@@ -77,7 +86,7 @@ EMAIL_ROLE = Role(
     template="ace-email-writer",
     prompt=(
         "You are the email writer. Turn the threat report into a marketing email. "
-        f"{_JSON_ONLY} the keys subject, preheader, body, call_to_action."
+        f"{LEARNINGS_FIRST} {_JSON_ONLY} the keys subject, preheader, body, call_to_action."
     ),
     schema={
         "type": "array",
@@ -107,7 +116,8 @@ ROLES: Mapping[str, Role] = MappingProxyType(
                 "ace-research",
                 "You are the research agent. Pull the facts out of the threat report. Before you "
                 "answer, look up the campaign's Workfront project with the get_project tool "
-                "(search_projects finds it), for context only. Number the report's lines from 1. "
+                "(search_projects finds it), for context only. "
+                f"{LEARNINGS_FIRST} Number the report's lines from 1. "
                 "Every fact must cite the line it comes from and quote that text "
                 f"exactly. {_JSON_ONLY} the key facts: a list of objects with the keys claim, "
                 "line, quote.",
@@ -119,22 +129,33 @@ ROLES: Mapping[str, Role] = MappingProxyType(
                 "landing_page",
                 "ace-landing-page-writer",
                 "You are the landing page writer. Turn the strategy and research into a landing "
-                f"page. {_JSON_ONLY} the keys headline, subheadline, body, call_to_action.",
+                f"page. {LEARNINGS_FIRST} {_JSON_ONLY} the keys headline, subheadline, body, "
+                "call_to_action.",
                 LANDING_PAGE_SCHEMA,
             ),
             _role(
                 "social",
                 "ace-social-writer",
                 "You are the social writer. Turn the strategy and research into social posts. "
-                f"{_JSON_ONLY} the key posts: a list of objects with the keys channel, text.",
+                f"{LEARNINGS_FIRST} {_JSON_ONLY} the key posts: a list of objects with the keys "
+                "channel, text.",
                 SOCIAL_POSTS_SCHEMA,
             ),
             _role(
                 "one_pager",
                 "ace-one-pager-writer",
                 "You are the one-pager writer. Turn the strategy and research into a one-page "
-                f"brief. {_JSON_ONLY} the keys title, summary, bullets (a list of strings).",
+                f"brief. {LEARNINGS_FIRST} {_JSON_ONLY} the keys title, summary, bullets (a list "
+                "of strings).",
                 ONE_PAGER_SCHEMA,
+            ),
+            Role(
+                step_id=JUDGE_STEP,
+                template="ace-judge",
+                prompt=JUDGE_PROMPT,
+                schema=SCORES_SCHEMA,
+                reply_schema=SCORES_SCHEMA,
+                judges=True,
             ),
             Role(
                 step_id="design",

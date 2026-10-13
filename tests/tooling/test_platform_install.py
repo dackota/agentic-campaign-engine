@@ -667,3 +667,9 @@ def test_install_and_status_list_the_brand_reviewer_agent() -> None:
     assert "agent/ace-brand-reviewer" in _list(INSTALL, "ROLE_AGENTS")
     assert "ace-brand-reviewer" in _list(STATUS, "ROLE_AGENTS")
     assert "ace-brand-reviewer" in _list(STATUS, "AGENTS")
+
+
+def test_install_and_status_list_the_judge_agent() -> None:
+    assert "agent/ace-judge" in _list(INSTALL, "ROLE_AGENTS")
+    assert "ace-judge" in _list(STATUS, "ROLE_AGENTS")
+    assert "ace-judge" in _list(STATUS, "AGENTS")

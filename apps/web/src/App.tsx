@@ -9,7 +9,9 @@ import {
   raiseBudget,
   retryCampaign,
   SignedOutError,
+  MAX_SCORE,
   type AbResult,
+  type AssetScore,
   type Campaign,
   type CampaignCost,
   type EmailDraft,
@@ -19,7 +21,9 @@ import {
 } from "./api";
 import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
+import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
+import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
@@ -89,6 +93,32 @@ function RunCost({ cost }: { cost: CampaignCost }) {
         Cost: <span data-testid="run-cost">{costText(cost)}</span>
       </p>
     </section>
+  );
+}
+
+/** The judge's score and reason for each asset of the run. */
+function RunScores({ scores }: { scores: AssetScore[] }) {
+  if (scores.length === 0) return null;
+  return (
+    <section aria-label="Judge scores">
+      <ul>
+        {scores.map((s) => (
+          <li key={s.step}>
+            {s.step}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
+            <span data-testid={`judge-reason-${s.step}`}>{s.reason}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RunCostAndScores({ campaign }: { campaign: Campaign }) {
+  return (
+    <>
+      <RunCost cost={campaign.cost} />
+      <RunScores scores={campaign.scores} />
+    </>
   );
 }
 
@@ -411,7 +441,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   return (
     <>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
-      <RunCost cost={campaign.cost} />
+      <RunCostAndScores campaign={campaign} />
       {campaign.budget_usd !== null && (
         <p>
           Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>
@@ -457,6 +487,35 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   );
 }
 
+type View = "campaigns" | "builder" | "inbox" | "learnings" | "dashboard";
+
+function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
+  return (
+    <nav>
+      <button type="button" onClick={() => onView("campaigns")}>
+        Campaigns
+      </button>{" "}
+      <button type="button" onClick={() => onView("builder")}>
+        Workflow builder
+      </button>{" "}
+      <button type="button" onClick={() => onView("learnings")}>
+        Learnings
+      </button>{" "}
+      <button type="button" onClick={() => onView("dashboard")}>
+        Dashboard
+      </button>
+      {me.roles.includes("approver") && (
+        <>
+          {" "}
+          <button type="button" onClick={() => onView("inbox")}>
+            Inbox
+          </button>
+        </>
+      )}
+    </nav>
+  );
+}
+
 interface WorkspaceProps {
   me: Me;
   onSignOut: () => void;
@@ -468,34 +527,28 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const { campaigns, refresh } = useCampaignList(fail);
   const run = useCampaignRun(fail, setError, refresh);
   const [linkedCampaign] = useState(takeInboxLink);
-  const [view, setView] = useState<"campaigns" | "builder" | "inbox">(
-    linkedCampaign ? "inbox" : "campaigns",
-  );
+  const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
 
   return (
     <main>
       <SignedInBar email={me.email} onSignOut={onSignOut} />
       <AlertBanner onSignedOut={onSignOut} />
-      <nav>
-        <button type="button" onClick={() => setView("campaigns")}>
-          Campaigns
-        </button>{" "}
-        <button type="button" onClick={() => setView("builder")}>
-          Workflow builder
-        </button>
-        {me.roles.includes("approver") && (
-          <>
-            {" "}
-            <button type="button" onClick={() => setView("inbox")}>
-              Inbox
-            </button>
-          </>
-        )}
-      </nav>
+      <ViewNav me={me} onView={setView} />
       {view === "builder" ? (
         <Builder />
+      ) : view === "dashboard" ? (
+        <Dashboard onSignOut={onSignOut} />
       ) : view === "inbox" ? (
         <Inbox onSignOut={onSignOut} linkedCampaign={linkedCampaign} />
+      ) : view === "learnings" ? (
+        <Learnings
+          canDelete={me.roles.includes("approver")}
+          onOpenCampaign={(id) => {
+            setView("campaigns");
+            void run.open(id);
+          }}
+          onSignOut={onSignOut}
+        />
       ) : (
         <Campaigns
           me={me}

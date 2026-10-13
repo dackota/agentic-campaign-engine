@@ -12,6 +12,7 @@ import yaml
 from ace_engine.agent_roles import ROLES
 
 from tests.harness.dex import DEMO_USERS
+from tests.tooling.chart_files import CHART, by_kind, render
 from tests.tooling.gateway_files import ROOT, yaml_docs
 
 TEAMS_DIR = ROOT / "agents/teams"
@@ -53,8 +54,8 @@ def test_every_team_has_every_role_agent_in_its_own_namespace_on_its_model(team:
     assert _named(docs, "Namespace", f"team-{team}")
     model = _named(docs, "ModelConfig", f"{team}-model")
     assert model["spec"]["openAI"]["baseUrl"] == f"{GATEWAY_URL}/{team}/v1"
-    (patch,) = overlay["patches"]
-    assert patch["target"] == {"kind": "AgentTemplate"}
+    patches = {p["target"]["kind"]: p for p in overlay["patches"]}
+    patch = patches["AgentTemplate"]
     assert f"value: {team}-model" in patch["patch"]
     assert "path: /spec/modelConfig/name" in patch["patch"]
 
@@ -86,6 +87,27 @@ def test_every_team_overlay_builds_into_the_teams_namespace(team: str) -> None:
         for tool in d["spec"].get("tools", [])
     }
     assert named and named <= servers
+
+
+@pytest.mark.parametrize("team", TEAMS)
+def test_every_team_searches_only_its_own_learnings(team: str) -> None:
+    """The learnings search server reads under one team's row-level security, so each
+    team's copy of the RemoteMCPServer points at that team's own server."""
+    patches = {p["target"]["kind"]: p for p in _overlay(team)["patches"]}
+
+    patch = patches["RemoteMCPServer"]
+    assert patch["target"]["name"] == "ace-mcp-learnings"
+    assert "path: /spec/url" in patch["patch"]
+    assert (
+        f"value: http://ace-mcp-learnings-{team}.ace.svc.cluster.local:8000/mcp" in patch["patch"]
+    )
+    # ...and the chart runs that server, so the team's Agents resolve it.
+    docs = render()
+    server = f"ace-mcp-learnings-{team}"
+    assert server in {d["metadata"]["name"] for d in by_kind(docs, "Deployment")}
+    assert server in {d["metadata"]["name"] for d in by_kind(docs, "Service")}
+    values = yaml.safe_load((CHART / "values.yaml").read_text())
+    assert team in values["learnings"]["teams"]
 
 
 def test_the_shared_team_parts_match_the_kagent_namespace() -> None:

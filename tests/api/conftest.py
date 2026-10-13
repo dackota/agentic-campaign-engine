@@ -4,9 +4,8 @@ import httpx
 import pytest
 
 from tests.api.helpers import APPROVER, OWNER
+from tests.harness.api_client import api_client
 from tests.harness.stack import Stack
-
-HTTP_TIMEOUT_SECONDS = 30
 
 SignIn = Callable[[str], httpx.Client]
 
@@ -23,11 +22,7 @@ def sign_in(stack: Stack) -> Iterator[SignIn]:
     clients: list[httpx.Client] = []
 
     def client_for(email: str) -> httpx.Client:
-        client = httpx.Client(
-            base_url=stack.api_url,
-            timeout=HTTP_TIMEOUT_SECONDS,
-            headers={"Authorization": f"Bearer {stack.dex.token(email)}"},
-        )
+        client = api_client(stack.api_url, stack.dex.token(email))
         clients.append(client)
         return client
 

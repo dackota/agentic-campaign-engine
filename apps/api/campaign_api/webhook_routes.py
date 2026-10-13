@@ -1,18 +1,23 @@
 """The signed webhooks of the marketing systems (Marketo activity, Workfront task status):
 each is verified, size-capped, and recorded once per event id."""
 
+import logging
 import uuid
-from typing import Literal
+from typing import Literal, NamedTuple
 
-from ace_engine import db, webhooks
+import httpx
+from ace_engine import db, learnings, webhooks
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from sqlalchemy import func, select
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from campaign_api.ab_result import decide
+
+log = logging.getLogger(__name__)
 MARKETO_SOURCE = "marketo"
 WORKFRONT_SOURCE = "workfront"
 WORKFRONT_HEADERS = webhooks.SignatureHeaders("X-Workfront-Signature", "X-Workfront-Timestamp")
@@ -82,6 +87,22 @@ def _record(engine: Engine, event: ActivityEvent) -> None:
     _record_once(engine, event.campaignId, row)
 
 
+def _learn_if_called(engine: Engine, campaign_id: uuid.UUID, embed: learnings.Embed) -> None:
+    """When the A/B test can now call a winner, keep its winning lines as a learning. The
+    activity is already recorded: a failure here (the gateway's embedding call) is logged,
+    and the campaign's next open tries again."""
+    with Session(engine) as session:
+        engagement = engagement_by_variant(session, campaign_id)
+    result = decide(engagement)
+    if result.winner is None or result.confidence is None:
+        return
+    winner = learnings.Winner(result.winner, result.confidence, engagement)
+    try:
+        learnings.learn_from_winner(engine, campaign_id, winner, embed)
+    except (httpx.HTTPError, ValueError, SQLAlchemyError):
+        log.exception("could not keep the A/B winner of campaign %s as a learning", campaign_id)
+
+
 def _record_task_status(engine: Engine, event: TaskStatusChange) -> None:
     row = db.TaskStatusEvent(
         source=WORKFRONT_SOURCE,
@@ -99,6 +120,28 @@ def activities(engine: Engine, campaign_id: uuid.UUID) -> list[ActivityOut]:
             session.query(db.Activity).filter_by(campaign_id=campaign_id).order_by(db.Activity.seq)
         )
         return [ActivityOut(id=r.event_id, type=r.type, variant=r.variant) for r in rows]
+
+
+class Engagement(NamedTuple):
+    opens: int
+    clicks: int
+
+
+NO_ENGAGEMENT = Engagement(opens=0, clicks=0)
+
+
+def engagement_by_campaign(session: Session) -> dict[uuid.UUID, Engagement]:
+    """Opens and clicks of every visible campaign that has any, both variants together."""
+    rows = session.execute(
+        select(db.Activity.campaign_id, db.Activity.type, func.count())
+        .where(db.Activity.type.in_(("open", "click")))
+        .group_by(db.Activity.campaign_id, db.Activity.type)
+    )
+    found: dict[uuid.UUID, Engagement] = {}
+    for campaign_id, kind, total in rows:
+        field = "opens" if kind == "open" else "clicks"
+        found[campaign_id] = found.get(campaign_id, NO_ENGAGEMENT)._replace(**{field: total})
+    return found
 
 
 def engagement_by_variant(session: Session, campaign_id: uuid.UUID) -> dict[str, dict[str, int]]:
@@ -131,6 +174,13 @@ def register_webhook_routes(app: FastAPI, secret: str) -> None:
                 detail=f"webhook body is not an activity: {exc.error_count()} errors",
             ) from None
         await run_in_threadpool(_record, request.app.state.engine, event)
+        if event.type == "open":
+            await run_in_threadpool(
+                _learn_if_called,
+                request.app.state.engine,
+                event.campaignId,
+                request.app.state.embed,
+            )
         return {"id": event.id}
 
 

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "calm-routers",
+    "report": "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.\nPatching and credential rotation stop the known intrusion path.",
+    "step": "landing_page",
+    "acceptable": true
+  },
+  {
+    "id": "calm-phishing",
+    "report": "Credential phishing kits spoof single sign-on pages\nVictims enter passwords on look-alike domains.\nHardware security keys block the stolen-password path.",
+    "step": "landing_page",
+    "acceptable": true
+  },
+  {
+    "id": "calm-ransomware",
+    "report": "A ransomware crew abuses exposed remote desktop services\nThey disable backups before they encrypt files.\nOffline backups and closing the exposed port limit the harm.",
+    "step": "one_pager",
+    "acceptable": true
+  },
+  {
+    "id": "calm-supply-chain",
+    "report": "A poisoned build plugin ships in signed updates\nThe plugin sends build secrets to an outside server.\nPinning plugin versions and rotating secrets contain it.",
+    "step": "social",
+    "acceptable": true
+  },
+  {
+    "id": "overclaim-guarantee",
+    "report": "Volt Typhoon targets edge routers\nOur agent gives 100% protection and guarantees nothing is ever breached.",
+    "step": "landing_page",
+    "acceptable": false
+  },
+  {
+    "id": "overclaim-panic",
+    "report": "A terrifying, unstoppable worm is a catastrophic nightmare for every network\nBuy now before the doomsday arrives.",
+    "step": "landing_page",
+    "acceptable": false
+  }
+]

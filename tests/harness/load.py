@@ -1,0 +1,318 @@
+"""`make load`: the load test. It starts N campaigns at once through the Campaign API, waits
+until each one's drafting ends, and writes what it saw as JSON: cost per campaign, p50 and
+p95 run time, the step cache hit rate, the runs lost, and the 429 replies.
+
+It speaks only HTTP, so the depth is whatever the API behind it runs at. With no --api-url
+it starts the harness stack (ACE_DEPTH picks fast or live depth) and signs in as a Demand
+Gen owner; with one, it sends the token in ACE_API_TOKEN. The numbers for the live run go
+in docs/load-test.md."""
+
+import argparse
+import json
+import math
+import os
+import sys
+import time
+from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import asdict, dataclass
+from pathlib import Path
+from typing import Any
+
+import httpx
+
+from tests.harness.api_client import api_client
+
+DEFAULT_CAMPAIGNS = 20
+DEFAULT_OUT = "load-test.json"
+TOKEN_ENV = "ACE_API_TOKEN"
+DEPTH_ENV = "ACE_DEPTH"
+FAST_TIMEOUT_SECONDS = 120
+LIVE_TIMEOUT_SECONDS = 1800
+POLL_INTERVAL_SECONDS = 0.5
+TOO_MANY_REQUESTS = 429
+# What a step's failure reason holds when the model gateway rate-limited it: kagent's failed
+# task carries the gateway's reply in its status message. Not yet seen live: taken from the
+# scripted agent's failed task (docs/sources.md); the live check confirms it.
+MODEL_429_PHRASE = "429 Too Many Requests"
+P50_PERCENT = 50
+P95_PERCENT = 95
+AWAITING = "awaiting_approval"
+FAILED = "failed"
+DRAFTING_ENDED = (AWAITING, FAILED)
+REPORT = (
+    "Volt Typhoon targets edge routers\n"
+    "Actors exploit unpatched VPN appliances to reach internal networks.\n"
+    "Patch the appliances and rotate the credentials stored on them."
+)
+
+
+@dataclass(frozen=True)
+class Run:
+    """One campaign of the load: how it ended, how long drafting took, what it cost."""
+
+    status: str
+    seconds: float
+    cost_usd: float = 0.0
+    agent_steps: int = 0
+    cache_hits: int = 0
+    replies_429: int = 0
+    failure_reason: str = ""
+
+
+@dataclass(frozen=True)
+class LoadResult:
+    campaigns: int
+    finished: int
+    lost: int
+    cost_per_campaign_usd: float
+    total_cost_usd: float
+    p50_seconds: float
+    p95_seconds: float
+    cache_hit_rate: float
+    replies_429: int
+    # Why each lost run was lost, in the order the runs started.
+    lost_reasons: tuple[str, ...]
+
+
+def percentile(values: list[float], percent: float) -> float:
+    """The nearest-rank percentile of `values`; 0 when there are none."""
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    rank = max(1, math.ceil(percent / 100 * len(ordered)))
+    return ordered[rank - 1]
+
+
+def _is_429_failure(run: Run) -> bool:
+    return MODEL_429_PHRASE in run.failure_reason
+
+
+def summarize(runs: list[Run]) -> LoadResult:
+    """The load's numbers. A run is lost unless its drafting ended waiting for approval. The
+    429 count is the Campaign API's 429 replies plus the runs a model 429 stopped."""
+    finished = [r for r in runs if r.status == AWAITING]
+    steps = sum(r.agent_steps for r in runs)
+    total_cost = sum(r.cost_usd for r in runs)
+    return LoadResult(
+        campaigns=len(runs),
+        finished=len(finished),
+        lost=len(runs) - len(finished),
+        cost_per_campaign_usd=total_cost / len(runs) if runs else 0.0,
+        total_cost_usd=total_cost,
+        p50_seconds=percentile([r.seconds for r in finished], P50_PERCENT),
+        p95_seconds=percentile([r.seconds for r in finished], P95_PERCENT),
+        cache_hit_rate=sum(r.cache_hits for r in runs) / steps if steps else 0.0,
+        replies_429=sum(r.replies_429 for r in runs) + sum(1 for r in runs if _is_429_failure(r)),
+        lost_reasons=tuple(r.failure_reason or r.status for r in runs if r.status != AWAITING),
+    )
+
+
+class _Counted:
+    """The API client, counting the 429 replies one campaign's calls got. A 429 is retried
+    after the poll interval, so a busy API slows the run instead of losing it."""
+
+    def __init__(self, api: httpx.Client, deadline: float) -> None:
+        self._api = api
+        self._deadline = deadline
+        self.replies_429 = 0
+
+    def call(self, send: Callable[[httpx.Client], httpx.Response]) -> httpx.Response:
+        while True:
+            response = send(self._api)
+            if response.status_code != TOO_MANY_REQUESTS or time.monotonic() > self._deadline:
+                return response
+            self.replies_429 += 1
+            time.sleep(POLL_INTERVAL_SECONDS)
+
+
+# A run whose calls failed outright: the API could not be reached or answered with a body the
+# script cannot read. The run is lost with the error as its reason; the load goes on.
+ERROR = "error"
+
+
+class UnreadableReply(ValueError):
+    """A Campaign API reply that does not have the shape the script reads."""
+
+
+@dataclass(frozen=True)
+class _Campaign:
+    """The fields the script reads from a campaign reply, checked."""
+
+    status: str
+    failure_reason: str
+    cost_usd: float
+    agent_steps: int
+    cache_hits: int
+
+
+def _json_object(response: httpx.Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError as exc:
+        raise UnreadableReply(f"reply is not JSON: {exc}") from exc
+    if not isinstance(body, dict):
+        raise UnreadableReply("reply is not a JSON object")
+    return body
+
+
+def _read_campaign(response: httpx.Response) -> _Campaign:
+    """The one place a campaign reply is read: every field is checked before it is used, and
+    a reply of the wrong shape raises UnreadableReply."""
+    body = _json_object(response)
+    status = body.get("status")
+    reason = _default_if_none(body.get("failure_reason"), "")
+    cost = _default_if_none(body.get("cost"), {})
+    if not isinstance(status, str) or not isinstance(reason, str) or not isinstance(cost, dict):
+        raise UnreadableReply("campaign reply has no status, or a bad failure_reason or cost")
+    steps = _default_if_none(cost.get("steps"), [])
+    cost_usd = _default_if_none(cost.get("cost_usd"), 0.0)
+    is_steps = isinstance(steps, list) and all(isinstance(s, dict) for s in steps)
+    is_number = isinstance(cost_usd, int | float) and not isinstance(cost_usd, bool)
+    if not is_steps or not is_number or not math.isfinite(cost_usd):
+        raise UnreadableReply("campaign reply has a bad cost.steps or cost.cost_usd")
+    return _Campaign(
+        status=status,
+        failure_reason=reason,
+        cost_usd=float(cost_usd),
+        agent_steps=len(steps),
+        cache_hits=sum(1 for s in steps if s.get("cache_hit")),
+    )
+
+
+def _default_if_none[T](value: T | None, default: T) -> T:
+    """Only an absent (null) field takes its default; a falsy value of the wrong type stays
+    as it is, for the type check to reject."""
+    return default if value is None else value
+
+
+def _read_id(response: httpx.Response) -> str:
+    campaign_id = _json_object(response).get("id")
+    if not isinstance(campaign_id, str) or not campaign_id:
+        raise UnreadableReply("create reply has no campaign id")
+    return campaign_id
+
+
+def _run_one(api: httpx.Client, report: str, use_step_cache: bool, timeout: float) -> Run:
+    """Create one campaign and wait until its drafting ends or `timeout` passes. A transport
+    error or an unreadable reply loses this run only, with the error as its reason."""
+    started = time.monotonic()
+    try:
+        return _drive(api, report, use_step_cache, timeout, started)
+    except (httpx.HTTPError, UnreadableReply) as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        return Run(ERROR, time.monotonic() - started, failure_reason=reason)
+
+
+def _drive(
+    api: httpx.Client, report: str, use_step_cache: bool, timeout: float, started: float
+) -> Run:
+    client = _Counted(api, started + timeout)
+    created = client.call(
+        lambda a: a.post("/campaigns", json={"report": report, "use_step_cache": use_step_cache})
+    )
+    if created.status_code != httpx.codes.CREATED:
+        return Run(
+            f"create_failed_{created.status_code}",
+            0.0,
+            replies_429=client.replies_429,
+            failure_reason=f"create answered {created.status_code}",
+        )
+    campaign_id = _read_id(created)
+    campaign = _Campaign("unknown", "", 0.0, 0, 0)
+    poll_error = ""
+    while time.monotonic() - started < timeout:
+        response = client.call(lambda a: a.get(f"/campaigns/{campaign_id}"))
+        # A failed poll is asked again, and the last one is kept as the reason if the run
+        # never ends; only the deadline ends the run, so it is counted.
+        if response.status_code != httpx.codes.OK:
+            poll_error = f"; the last poll answered {response.status_code}"
+        else:
+            poll_error = ""
+            campaign = _read_campaign(response)
+            if campaign.status in DRAFTING_ENDED:
+                break
+        time.sleep(POLL_INTERVAL_SECONDS)
+    return Run(
+        status=campaign.status,
+        seconds=time.monotonic() - started,
+        cost_usd=campaign.cost_usd,
+        agent_steps=campaign.agent_steps,
+        cache_hits=campaign.cache_hits,
+        replies_429=client.replies_429,
+        failure_reason=_reason(campaign, timeout, poll_error),
+    )
+
+
+def _reason(campaign: _Campaign, timeout: float, poll_error: str) -> str:
+    """Why the run is lost: the campaign's own failure reason, or the deadline it missed."""
+    if campaign.status in DRAFTING_ENDED:
+        return campaign.failure_reason
+    return f"drafting did not end within {timeout:g}s (status {campaign.status}){poll_error}"
+
+
+def run_load(
+    api: httpx.Client, campaigns: int, report: str, use_step_cache: bool, timeout: float
+) -> LoadResult:
+    """Start `campaigns` campaigns at once, each on its own thread, and sum up the runs."""
+    with ThreadPoolExecutor(max_workers=campaigns) as pool:
+        futures = [
+            pool.submit(_run_one, api, report, use_step_cache, timeout) for _ in range(campaigns)
+        ]
+        return summarize([f.result() for f in futures])
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Run campaigns at once and write the numbers.")
+    parser.add_argument("--campaigns", type=int, default=DEFAULT_CAMPAIGNS)
+    parser.add_argument("--out", type=Path, default=Path(DEFAULT_OUT))
+    parser.add_argument("--api-url", help="a running Campaign API; none starts the stack")
+    parser.add_argument("--report-file", type=Path, help="the threat report every campaign gets")
+    parser.add_argument("--no-step-cache", action="store_true", help="turn the step cache off")
+    parser.add_argument("--timeout", type=float, help="seconds a campaign may take to draft")
+    return parser
+
+
+def _default_timeout() -> float:
+    return LIVE_TIMEOUT_SECONDS if os.environ.get(DEPTH_ENV) == "live" else FAST_TIMEOUT_SECONDS
+
+
+def _load(api: httpx.Client, options: argparse.Namespace) -> int:
+    report = options.report_file.read_text() if options.report_file else REPORT
+    timeout = _default_timeout() if options.timeout is None else options.timeout
+    result = run_load(api, options.campaigns, report, not options.no_step_cache, timeout)
+    options.out.write_text(json.dumps(asdict(result), indent=2) + "\n")
+    print(json.dumps(asdict(result)))
+    return 0 if result.lost == 0 else 1
+
+
+def main(args: list[str], api: httpx.Client | None = None) -> int:
+    """Run the load and write the result to --out. Exit 1 when a run was lost. `api` is a
+    signed-in client to use instead of --api-url."""
+    options = _parser().parse_args(args)
+    if options.campaigns < 1:
+        raise SystemExit("--campaigns must be at least 1")
+    if options.timeout is not None and options.timeout <= 0:
+        raise SystemExit("--timeout must be above 0")
+    if api is not None:
+        return _load(api, options)
+    if options.api_url:
+        token = os.environ.get(TOKEN_ENV)
+        if not token:
+            raise SystemExit(f"{TOKEN_ENV} is required with --api-url")
+        with api_client(options.api_url, token) as client:
+            return _load(client, options)
+    return _on_stack(options)
+
+
+def _on_stack(options: argparse.Namespace) -> int:
+    from tests.api.helpers import OWNER
+    from tests.harness.stack import Stack
+
+    with Stack() as stack:
+        with api_client(stack.api_url, stack.dex.token(OWNER)) as client:
+            return _load(client, options)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
