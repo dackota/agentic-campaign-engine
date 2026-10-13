@@ -25,6 +25,8 @@ def test_seed_loads_acme_campaigns_for_both_teams(sign_in: SignIn) -> None:
         assert item["status"] == "sent"
         assert item["steps"], item
         assert item["scores"], item
+        assert item["assets"]["email"], item
+        assert item["assets"]["previews"]["email"], item
         assert all(score > 0 for score in item["scores"].values())
         assert "Acme Security" in item["title"]
     # Row-level security: each team sees its own seeded campaign and not the other's.

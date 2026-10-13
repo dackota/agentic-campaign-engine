@@ -1,4 +1,5 @@
 .DEFAULT_GOAL := help
+PY_PATH := PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp
 .PHONY: seed-demo evals load smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
 
 help: ## List the targets
@@ -25,15 +26,15 @@ test: ## Run both seams at fast depth (needs only Docker) and the web unit tests
 
 # EVALS_ARGS=--update-baseline rewrites the baseline on purpose; nothing else changes it.
 evals: ## Run the golden set at fast depth (needs only Docker) and fail on a drop past the baseline margin
-	PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp uv run python -m tests.harness.run_evals --baseline evals/baseline.json --agreement-out evals/judge_agreement.json $(EVALS_ARGS)
+	$(PY_PATH) uv run python -m tests.harness.run_evals --baseline evals/baseline.json --agreement-out evals/judge_agreement.json $(EVALS_ARGS)
 
 # LOAD_ARGS takes the load script's flags, e.g. --campaigns 20 --out load-test.json.
 load: ## Run campaigns at once through the Campaign API and write cost, p50/p95 run time, cache hit rate and 429s (ACE_DEPTH=live for the cluster)
-	PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp uv run python -m tests.harness.load $(LOAD_ARGS)
+	$(PY_PATH) uv run python -m tests.harness.load $(LOAD_ARGS)
 
 # SEED_ARGS takes the seed's flags, e.g. --api-url http://... --tokens-file tokens.json.
 seed-demo: ## Load the demo data (Acme Security, two teams) through the Campaign API; with no --api-url it seeds a fast stack and prints the summary
-	PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp uv run python -m tests.harness.demo_seed $(SEED_ARGS)
+	$(PY_PATH) uv run python -m tests.harness.demo_seed $(SEED_ARGS)
 
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py

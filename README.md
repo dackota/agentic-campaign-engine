@@ -38,8 +38,9 @@ same on every run. To seed a running API, pass
 to a token.
 
 Video: [Watch the demo video](https://example.com/owed-demo-video). The link is a
-placeholder: the recording is owed, and the user adds the real link here once it is made. The demo GIF is owed too: it needs a screen recorder and a GIF converter,
-and would be saved as `docs/demo.gif` (under 5 MB).
+placeholder: the recording is owed, and the user adds the real link here once it is made.
+The demo GIF is owed too: it needs a screen recorder and a GIF converter, and would be
+saved as `docs/demo.gif` (under 5 MB).
 
 ## Job bullet to proof
 

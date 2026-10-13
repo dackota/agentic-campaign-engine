@@ -14,6 +14,7 @@ check that the seed repeats. With --api-url it seeds that API; --tokens-file is 
 of each demo user's email to a bearer token."""
 
 import argparse
+import hashlib
 import json
 import sys
 from collections.abc import Callable
@@ -23,11 +24,13 @@ from typing import Any
 
 import httpx
 
-from tests.api.helpers import AWAITING, SENT, create, settle, until_status
+from tests.api.helpers import AWAITING, FINISHED, SENT, create, settle, until_status
 from tests.harness.api_client import api_client
 
 SignIn = Callable[[str], httpx.Client]
-FINISHED_STATES = (SENT, "finished")
+FINISHED_STATES = (SENT, FINISHED)
+# The brand-rendered assets whose bytes are the same on every run (the PDF and deck are not).
+TEXT_ASSET_KINDS = ("landing-page", "social", "cards", "graphic")
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,17 @@ def _sent(owner: httpx.Client, approver: httpx.Client, team: DemoTeam) -> dict[s
     return campaign
 
 
-def _summary(team: DemoTeam, campaign: dict[str, Any]) -> dict[str, Any]:
+def _assets(owner: httpx.Client, campaign: dict[str, Any]) -> dict[str, Any]:
+    """The email as written, and a hash of each rendered asset: content, no ids or times."""
+    previews = {}
+    for kind, path in (("email", ""), *((k, f"/{k}") for k in TEXT_ASSET_KINDS)):
+        reply = owner.get(f"/campaigns/{campaign['id']}/preview{path}")
+        if reply.status_code == httpx.codes.OK:
+            previews[kind] = hashlib.sha256(reply.content).hexdigest()
+    return {"email": campaign["draft"], "variant_b": campaign["variant_b"], "previews": previews}
+
+
+def _summary(team: DemoTeam, campaign: dict[str, Any], assets: dict[str, Any]) -> dict[str, Any]:
     """What must be the same on every clean stack: no ids, no times."""
     return {
         "team": team.team,
@@ -99,6 +112,7 @@ def _summary(team: DemoTeam, campaign: dict[str, Any]) -> dict[str, Any]:
         "status": SENT,
         "steps": [s["id"] for s in campaign["steps"]],
         "scores": {s["step"]: s["score"] for s in campaign["scores"]},
+        "assets": assets,
     }
 
 
@@ -106,8 +120,9 @@ def seed(sign_in: SignIn) -> list[dict[str, Any]]:
     """Load the demo data; `sign_in` gives a Campaign API client for a demo user's email."""
     summaries = []
     for team in DEMO_TEAMS:
-        campaign = _sent(sign_in(team.owner), sign_in(team.approver), team)
-        summaries.append(_summary(team, campaign))
+        owner = sign_in(team.owner)
+        campaign = _sent(owner, sign_in(team.approver), team)
+        summaries.append(_summary(team, campaign, _assets(owner, campaign)))
     return summaries
 
 
@@ -118,22 +133,42 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _print_summary(summaries: list[dict[str, Any]]) -> None:
+    print(json.dumps(summaries, indent=2))
+
+
+def _read_tokens(path: Path) -> dict[str, str]:
+    """The tokens file, checked: a JSON object of email to token with every demo user in it.
+    A problem names the file or the missing email, never a token."""
+    try:
+        tokens = json.loads(path.read_text())
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"cannot read the tokens file {path}: {type(exc).__name__}") from exc
+    if not isinstance(tokens, dict) or not all(
+        isinstance(k, str) and isinstance(v, str) for k, v in tokens.items()
+    ):
+        raise SystemExit("the tokens file must be a JSON object of email to token")
+    for team in DEMO_TEAMS:
+        for email in (team.owner, team.approver):
+            if email not in tokens:
+                raise SystemExit(f"the tokens file has no token for {email}")
+    return tokens
+
+
 def main(args: list[str]) -> int:
+    """The seed CLI: with --api-url seed that API using --tokens-file; with none, seed a
+    fast-depth stack and print the summary."""
     options = _parser().parse_args(args)
     if options.api_url:
         if not options.tokens_file:
             raise SystemExit("--tokens-file is required with --api-url")
-        tokens: dict[str, str] = json.loads(options.tokens_file.read_text())
-        print(json.dumps(seed(lambda email: api_client(options.api_url, tokens[email])), indent=2))
+        tokens = _read_tokens(options.tokens_file)
+        _print_summary(seed(lambda email: api_client(options.api_url, tokens[email])))
         return 0
     from tests.harness.stack import Stack
 
     with Stack() as stack:
-        print(
-            json.dumps(
-                seed(lambda email: api_client(stack.api_url, stack.dex.token(email))), indent=2
-            )
-        )
+        _print_summary(seed(lambda email: api_client(stack.api_url, stack.dex.token(email))))
     return 0
 
 

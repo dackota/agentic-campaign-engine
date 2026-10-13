@@ -39,7 +39,7 @@ The whole thing costs cents, and a team can set a spending limit before it start
 
 On screen: the `Judge scores` list, then the `Email draft`.
 
-Before a person sees anything, a judge helper scores each piece against our written rules and
+Before a person sees anything, a judge helper scores the email against our written rules and
 says why. A brand checker flags words we should not use. Anything that scores too low stops
 the run, with the reason, instead of reaching a customer. Here is the email. The subject is
 clear, the call to action is clear, and it sticks to what the report says.
@@ -59,8 +59,7 @@ there is proof of what was sent.
 On screen: the `A/B result` line on the campaign, then the `Learnings` page and the `Dashboard`.
 
 We always send two versions of the email to different slices of the audience. After a while the
-system counts opens and clicks and calls a winner, with a confidence level. Here version B won.
-That result becomes a learning, in plain words, saved for the team. The next time a helper
+system counts opens and clicks and calls a winner, with a confidence level. The page shows which version won. That a learning, in plain words, saved for the team. The next time a helper
 drafts for this team, it reads those learnings first. So the second campaign starts smarter
 than the first. The dashboard shows the click rate climbing across campaigns, and an approver
 can delete a learning that looks wrong.
