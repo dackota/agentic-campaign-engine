@@ -33,7 +33,7 @@ def run(api: httpx.Client) -> dict[str, Any]:
 
 
 def test_default_workflow_is_seeded_and_valid(api: httpx.Client) -> None:
-    response = api.get(f"/workflows/{DEFAULT_WORKFLOW_NAME}/versions/1")
+    response = api.get(f"/workflows/{DEFAULT_WORKFLOW_NAME}/versions/2")
 
     assert response.status_code == 200, response.text
     ids = [s["id"] for s in response.json()["dag"]["steps"]]

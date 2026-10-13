@@ -5,7 +5,7 @@ scores their assets, then a human approves and the email goes out."""
 from typing import Any
 
 DEFAULT_WORKFLOW_NAME = "threat-report-to-campaign"
-DEFAULT_WORKFLOW_VERSION = 1
+DEFAULT_WORKFLOW_VERSION = 2
 
 # Every writer's draft goes to the brand reviewer before a human sees it.
 REVIEW_ROUNDS = 2
