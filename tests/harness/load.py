@@ -125,15 +125,38 @@ class _Counted:
             time.sleep(POLL_INTERVAL_SECONDS)
 
 
+# A run whose calls failed outright: the API could not be reached or answered with a body the
+# script cannot read. The run is lost with the error as its reason; the load goes on.
+ERROR = "error"
+# What a reply the script cannot read raises: bad JSON, a missing key, a wrong type.
+_UNREADABLE = (ValueError, KeyError, TypeError)
+
+
 def _run_one(api: httpx.Client, report: str, use_step_cache: bool, timeout: float) -> Run:
-    """Create one campaign and wait until its drafting ends or `timeout` passes."""
+    """Create one campaign and wait until its drafting ends or `timeout` passes. A transport
+    error or an unreadable reply loses this run only, with the error as its reason."""
     started = time.monotonic()
+    try:
+        return _drive(api, report, use_step_cache, timeout, started)
+    except (httpx.HTTPError, *_UNREADABLE) as exc:
+        reason = f"{type(exc).__name__}: {exc}"
+        return Run(ERROR, time.monotonic() - started, failure_reason=reason)
+
+
+def _drive(
+    api: httpx.Client, report: str, use_step_cache: bool, timeout: float, started: float
+) -> Run:
     client = _Counted(api, started + timeout)
     created = client.call(
         lambda a: a.post("/campaigns", json={"report": report, "use_step_cache": use_step_cache})
     )
     if created.status_code != httpx.codes.CREATED:
-        return Run(f"create_failed_{created.status_code}", 0.0, replies_429=client.replies_429)
+        return Run(
+            f"create_failed_{created.status_code}",
+            0.0,
+            replies_429=client.replies_429,
+            failure_reason=f"create answered {created.status_code}",
+        )
     campaign_id = created.json()["id"]
     body: dict[str, Any] = {"status": "unknown"}
     poll_error = ""

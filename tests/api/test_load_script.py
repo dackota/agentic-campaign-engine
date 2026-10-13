@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 
 from tests.harness import load
+from tests.harness.stack import free_port
 
 CAMPAIGNS = 20
 # Long enough for a step to fail its three attempts at fast depth.
@@ -87,3 +89,22 @@ def test_a_run_that_misses_the_deadline_is_lost_with_its_reason(
     assert written["lost"] == 1
     assert written["replies_429"] == 0
     assert written["lost_reasons"][0].startswith(f"drafting did not end within {DEADLINE_SECONDS}s")
+
+
+def test_an_unreachable_api_loses_every_run_and_still_writes_the_numbers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    out = tmp_path / "load.json"
+    monkeypatch.setenv(load.TOKEN_ENV, "not-a-real-token")
+    # Nothing listens on a port that was free a moment ago.
+    dead_api = f"http://127.0.0.1:{free_port()}"
+
+    exit_code = load.main(
+        ["--campaigns", "2", "--api-url", dead_api, "--out", str(out), "--timeout", "5"]
+    )
+
+    written = json.loads(out.read_text())
+    assert exit_code == 1
+    assert written["lost"] == 2
+    assert written["finished"] == 0
+    assert all(r.startswith("ConnectError") for r in written["lost_reasons"])
