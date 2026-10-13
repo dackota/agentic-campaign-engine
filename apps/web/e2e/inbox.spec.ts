@@ -28,7 +28,8 @@ test("an approver previews assets, sees the reviewer's flags, approves one and r
   await expect(card("landing_page")).toBeVisible();
   await expect(card("email_writer")).toBeVisible();
   // The landing page shows its rendered preview and what the brand reviewer flagged.
-  const preview = approver.frameLocator('iframe[title="Preview of landing_page"]');
+  // Scoped to the card: other specs' runs share the inbox and have their own landing_page preview.
+  const preview = card("landing_page").frameLocator('iframe[title="Preview of landing_page"]');
   await expect(preview.locator("body")).toContainText(title);
   await expect(card("landing_page").getByTestId("asset-flags")).toContainText("banned_claim");
 

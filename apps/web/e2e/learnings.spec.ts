@@ -10,6 +10,8 @@ const SEED = 1;
 const DAY_SPEED = 100_000;
 const DEFAULT_SPEED = 86_400;
 const SETTLE_MS = 30_000;
+// The draft and judge steps run before the draft shows; a loaded full run outlasts the 5s default.
+const DRAFT_WAIT_MS = 30_000;
 
 async function setAudience(page: Page, timeSpeed: number): Promise<void> {
   const response = await page.request.put(AUDIENCE_URL, {
@@ -24,7 +26,7 @@ async function sendUntilWinner(page: Page, browser: Browser, report: string): Pr
   await signIn(page, OWNER);
   await page.getByLabel("Threat report").fill(report);
   await page.getByRole("button", { name: "Create campaign" }).click();
-  await expect(page.getByTestId("draft-subject")).not.toBeEmpty();
+  await expect(page.getByTestId("draft-subject")).not.toBeEmpty({ timeout: DRAFT_WAIT_MS });
 
   const approverPage = await (await browser.newContext()).newPage();
   await signIn(approverPage, APPROVER);
