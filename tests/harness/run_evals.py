@@ -9,9 +9,13 @@ from evals.runner import TOKEN_ENV, main
 from tests.api.helpers import OWNER
 from tests.harness.stack import Stack
 
+# The database lives here between runs, so the step cache does too. `docker volume rm` it to
+# start cold.
+CACHE_VOLUME = "ace-evals-cache"
+
 
 def run(args: list[str]) -> int:
-    with Stack() as stack:
+    with Stack(data_volume=CACHE_VOLUME) as stack:
         os.environ[TOKEN_ENV] = stack.dex.token(OWNER)
         return main(["--api-url", stack.api_url, *args])
 

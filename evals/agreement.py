@@ -10,6 +10,8 @@ from typing import Any
 
 import httpx
 
+from evals.campaign import create_and_wait
+
 LABELS_PATH = Path(__file__).with_name("judge_labels.json")
 AGREEMENT_PATH = Path(__file__).with_name("judge_agreement.json")
 # Keep equal to ace_engine.judge.FLOOR (a test checks).
@@ -23,6 +25,10 @@ class Agreement:
     rows: list[dict[str, Any]]
 
     @property
+    def errored(self) -> int:
+        return sum("error" in r for r in self.rows)
+
+    @property
     def rate(self) -> float:
         return round(self.agreed / self.total, 4) if self.total else 0.0
 
@@ -33,23 +39,16 @@ def load_labels(path: Path = LABELS_PATH) -> list[dict[str, Any]]:
 
 
 def _row(api: httpx.Client, label: dict[str, Any], timeout: float) -> dict[str, Any]:
-    from evals.runner import WORKFLOW, wait_for
-
+    """One label's outcome. A failed request is recorded as an error, never as agreement."""
+    base = {"id": label["id"], "step": label["step"]}
     try:
-        created = api.post(
-            "/campaigns",
-            json={"report": label["report"], "workflow": WORKFLOW, "use_step_cache": True},
-        )
-        created.raise_for_status()
-        body = wait_for(api, created.json()["id"], timeout)
-    except httpx.HTTPError:
-        body = {}
-    scores = {s["step"]: s["score"] for s in body.get("scores", [])}
-    score = scores.get(label["step"])
+        _, body = create_and_wait(api, label["report"], timeout)
+    except httpx.HTTPError as err:
+        return {**base, "error": str(err)}
+    score = {s["step"]: s["score"] for s in body.get("scores", [])}.get(label["step"])
     judged_ok = score is not None and score >= FLOOR
     return {
-        "id": label["id"],
-        "step": label["step"],
+        **base,
         "human": "acceptable" if label["acceptable"] else "not acceptable",
         "score": score,
         "agrees": judged_ok == label["acceptable"],
@@ -57,8 +56,10 @@ def _row(api: httpx.Client, label: dict[str, Any], timeout: float) -> dict[str, 
 
 
 def measure(api: httpx.Client, labels: list[dict[str, Any]], timeout: float) -> Agreement:
+    """Agreement over the labels that ran; labels whose request failed are counted apart."""
     rows = [_row(api, label, timeout) for label in labels]
-    return Agreement(sum(r["agrees"] for r in rows), len(rows), rows)
+    judged = [r for r in rows if "error" not in r]
+    return Agreement(sum(r["agrees"] for r in judged), len(judged), rows)
 
 
 def write(path: Path, agreement: Agreement, depth: str) -> None:
@@ -67,6 +68,7 @@ def write(path: Path, agreement: Agreement, depth: str) -> None:
         "floor": FLOOR,
         "agreed": agreement.agreed,
         "total": agreement.total,
+        "errored": agreement.errored,
         "rate": agreement.rate,
         "rows": agreement.rows,
     }

@@ -19,6 +19,8 @@ def test_make_evals_runs_the_gate_and_help_lists_it() -> None:
 
 
 def test_no_workflow_runs_the_eval_stack_yet() -> None:
-    for workflow in (ROOT / ".github/workflows").glob("*.yml"):
+    workflows = [*(ROOT / ".github/workflows").glob("*.yml")]
+    workflows += (ROOT / ".github/workflows").glob("*.yaml")
+    for workflow in workflows:
         assert "make evals" not in workflow.read_text(), workflow.name
         assert "run_evals" not in workflow.read_text(), workflow.name

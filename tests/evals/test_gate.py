@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from evals.gate import BASELINE_PATH, Baseline, compare, render_verdict
+from evals.gate import BASELINE_PATH, Baseline, compare, load_baseline, render_verdict
 from evals.golden import GoldenReport, load_golden
 from evals.runner import ReportResult, main, run_golden
 from tests.api.helpers import OWNER
@@ -70,6 +70,14 @@ def test_committed_baseline_covers_every_golden_report() -> None:
 
     assert set(saved["reports"]) == {g.id for g in load_golden()}
     assert 0 < saved["margin"] < 1
+
+
+def test_malformed_baseline_names_the_file(tmp_path: Path) -> None:
+    path = tmp_path / "baseline.json"
+    path.write_text("{}")
+
+    with pytest.raises(ValueError, match=r"baseline\.json"):
+        load_baseline(path)
 
 
 def run_cli(stack: Stack, monkeypatch: pytest.MonkeyPatch, *args: str) -> int:

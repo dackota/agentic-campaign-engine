@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from evals.campaign import AWAITING
+
 if TYPE_CHECKING:
     from evals.runner import ReportResult
 
@@ -40,7 +42,7 @@ def quality(result: "ReportResult") -> float:
     approval, every key fact is carried, and every hard check passed."""
     everything = result.assets + ([result.research] if result.research else [])
     outcomes = [
-        result.status == "awaiting_approval" and not result.error,
+        result.status == AWAITING and not result.error,
         *result.key_facts.values(),
         *(c.passed for a in everything for c in a.checks),
     ]
@@ -63,6 +65,8 @@ def _round(value: float | None) -> float | None:
 
 def load_baseline(path: Path = BASELINE_PATH) -> Baseline:
     raw = json.loads(path.read_text())
+    if not isinstance(raw, dict) or "margin" not in raw or "reports" not in raw:
+        raise ValueError(f"{path.name} must be an object with margin and reports")
     return Baseline(float(raw["margin"]), dict(raw["reports"]))
 
 

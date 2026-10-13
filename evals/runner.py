@@ -5,7 +5,6 @@ against the cluster: the depth is whatever the API behind it runs at."""
 import argparse
 import os
 import sys
-import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -13,6 +12,7 @@ from typing import Any
 import httpx
 
 from evals.agreement import LABELS_PATH, depth, load_labels, measure, write
+from evals.campaign import AWAITING, create_and_wait
 from evals.checks import CheckResult, check_asset, texts
 from evals.gate import BASELINE_PATH, compare, load_baseline, render_verdict, write_baseline
 from evals.golden import GoldenReport, load_golden
@@ -20,13 +20,8 @@ from evals.report import render
 
 ASSET_STEPS = ("email_writer", "landing_page", "social", "one_pager")
 RESEARCH_STEP = "research"
-# The seeded workflow every deployment has (ace_engine.default_workflow).
-WORKFLOW = "threat-report-to-campaign"
-AWAITING = "awaiting_approval"
-FAILED = "failed"
 FAST_TIMEOUT_SECONDS = 30
 LIVE_TIMEOUT_SECONDS = 600
-POLL_INTERVAL_SECONDS = 0.5
 HTTP_TIMEOUT_SECONDS = 30
 TOKEN_ENV = "ACE_API_TOKEN"
 URL_ENV = "ACE_API_URL"
@@ -69,20 +64,6 @@ class ReportResult:
 
 def _timeout_seconds() -> int:
     return LIVE_TIMEOUT_SECONDS if os.environ.get("ACE_DEPTH") == "live" else FAST_TIMEOUT_SECONDS
-
-
-def wait_for(api: httpx.Client, campaign_id: str, timeout: float) -> dict[str, Any]:
-    """Poll until drafting ends; the last campaign body seen if it never does."""
-    deadline = time.monotonic() + timeout
-    body: dict[str, Any] = {"status": "unknown"}
-    while time.monotonic() < deadline:
-        response = api.get(f"/campaigns/{campaign_id}")
-        response.raise_for_status()
-        body = response.json()
-        if body["status"] in (AWAITING, FAILED):
-            return body
-        time.sleep(POLL_INTERVAL_SECONDS)
-    return body
 
 
 def _outputs(api: httpx.Client, campaign_id: str) -> dict[str, Any]:
@@ -128,13 +109,7 @@ def run_golden(
 def _run_one(api: httpx.Client, entry: GoldenReport, wait: float) -> ReportResult:
     """One report's run; an HTTP failure becomes a failed result, not an aborted run."""
     try:
-        created = api.post(
-            "/campaigns",
-            json={"report": entry.report, "workflow": WORKFLOW, "use_step_cache": True},
-        )
-        created.raise_for_status()
-        campaign_id = created.json()["id"]
-        body = wait_for(api, campaign_id, wait)
+        campaign_id, body = create_and_wait(api, entry.report, wait)
         return _grade(entry, body, _outputs(api, campaign_id))
     except httpx.HTTPError as err:
         return ReportResult(entry.id, "error", {}, [], error=str(err))
@@ -187,6 +162,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.limit is not None and args.limit < 1:
         parser.error("--limit must be at least 1")
     golden = load_golden()[: args.limit]
+    errored = 0
     with httpx.Client(
         base_url=args.api_url,
         timeout=HTTP_TIMEOUT_SECONDS,
@@ -196,9 +172,10 @@ def main(argv: list[str] | None = None) -> int:
         if args.agreement_out:
             found = measure(api, load_labels(args.labels), _timeout_seconds())
             write(args.agreement_out, found, depth())
+            errored = found.errored
     gate, holds = _gate_text(args, results)
     text = render(results) + _cache_text(results) + gate
     if args.out:
         args.out.write_text(text)
     sys.stdout.write(text)
-    return 0 if results and holds and all(r.passed for r in results) else 1
+    return 0 if results and holds and all(r.passed for r in results) and not errored else 1

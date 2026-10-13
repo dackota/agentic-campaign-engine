@@ -13,7 +13,9 @@ Status: accepted.
 - The baseline changes only with `--update-baseline` (`make evals EVALS_ARGS=--update-baseline`).
   A normal run never writes it. The change shows in the diff for review.
 - The runner turns the step cache on, so unchanged steps make no model call; the report prints
-  how many agent steps were reused.
+  how many agent steps were reused. `make evals` keeps its database in the Docker volume
+  `ace-evals-cache`, so a rerun of unchanged steps (same input, same agent revision) makes no model
+  call; `docker volume rm ace-evals-cache` starts cold.
 - Judge agreement: `judge_labels.json` is a small set of assets a person labeled acceptable or
   not. Each run writes `judge_agreement.json` with the share where the judge's score is on the
   same side of the floor as the label. At fast depth the scripted judge scores everything 5, so the

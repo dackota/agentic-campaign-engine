@@ -3,6 +3,7 @@
   "floor": 3,
   "agreed": 4,
   "total": 6,
+  "errored": 0,
   "rate": 0.6667,
   "rows": [
     {

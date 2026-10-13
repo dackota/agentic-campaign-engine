@@ -55,7 +55,7 @@ def test_agreement_is_measured_and_written_to_a_file(
     )
 
     saved = json.loads(out.read_text())
-    assert code in (0, 1)
+    assert code == 0
     assert (saved["agreed"], saved["total"], saved["rate"]) == (1, 2, 0.5)
     assert saved["floor"] == judge.FLOOR
 
@@ -78,3 +78,18 @@ def test_committed_agreement_file_records_the_labeled_set() -> None:
     assert saved["total"] == len(labels)
     assert {r["id"] for r in saved["rows"]} == {label["id"] for label in labels}
     assert 0 <= saved["rate"] <= 1
+
+
+def test_a_transport_failure_is_recorded_and_never_counts_as_agreement() -> None:
+    def refuse(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("api down", request=request)
+
+    api = httpx.Client(base_url="http://api.test", transport=httpx.MockTransport(refuse))
+
+    agreement = measure(api, [BAD], timeout=5)
+
+    assert (agreement.agreed, agreement.total, agreement.errored) == (0, 0, 1)
+    [row] = agreement.rows
+    assert row["id"] == "bad"
+    assert "api down" in row["error"]
+    assert "agrees" not in row
