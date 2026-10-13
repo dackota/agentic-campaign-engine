@@ -1,6 +1,6 @@
 # Go-public check
 
-One run of `bash scripts/go-public-check.sh` on branch `impl/63-prep` (base commit 52c70f9). Run it again before going public. It exits 0 when clean, 1 when the secret scan fails, 2 when only brand hits or flagged licenses remain. Its brand scan skips `scripts/go-public-check.sh` and this file, since both name the deny list, so every count below excludes both.
+One run of `bash scripts/go-public-check.sh` on branch `impl/63-prep`. Counts below are for that run, made with land/ace commit 49857e5 merged in; they drift as base moves, so run it again before going public. It exits 0 when clean, 1 when the secret scan fails, 2 when only brand hits or flagged licenses remain. Its brand scan skips `scripts/go-public-check.sh` and this file, since both name the deny list, so every count below excludes both.
 
 Nothing was changed to remove a brand, no LICENSE was added, no history was rewritten, and repo visibility was not touched.
 
@@ -21,7 +21,7 @@ Both lines are the same shell example that sets the owner and approver API token
 
 ## Brand hits
 
-Deny list: CrowdStrike, Adobe, Marketo, Workfront, Salesforce, Palo Alto, Okta, Microsoft, Google, Slack, Figma. 869 hit lines in tracked files. Chosen because each appears in the repo, and the first six all appear in the REAL_BRANDS ban list of tests/tooling/test_demo_script.py, along with Microsoft, Google and Slack. Stack tools (kagent, Temporal, Postgres, and so on) are not on the list.
+Deny list: CrowdStrike, Adobe, Marketo, Workfront, Salesforce, Palo Alto, Okta, Microsoft, Google, Slack, Figma. 881 hit lines in tracked files. Chosen because each appears in the repo, and the first six all appear in the REAL_BRANDS ban list of tests/tooling/test_demo_script.py, along with Microsoft, Google and Slack. Stack tools (kagent, Temporal, Postgres, and so on) are not on the list.
 
 Real company names outside an integration, with file:line:
 
@@ -32,7 +32,7 @@ Real company names outside an integration, with file:line:
 - tests/api/snapshots/email_preview.html:1 (Microsoft, an XML namespace in generated email HTML)
 - tests/tooling/test_demo_script.py:18 to :24 (CrowdStrike, Palo Alto, Microsoft, Salesforce, Adobe in the ban list of the script test)
 
-Brand names used as integration names (fakes, MCP servers, settings, tests, charts, docs): Marketo 372 lines, Workfront 244, Slack 129, Google 124, Figma 28. The script lists every one with file:line. Heaviest files by brand-line count: tests/harness/stack.py 86, test_env_settings.py 54, api/helpers.py 42, the engine settings.py 38, tooling test_chart_app.py 27, test_integration_settings.py 26.
+Brand names used as integration names (fakes, MCP servers, settings, tests, charts, docs): Marketo 379 lines, Workfront 250, Slack 129, Google 124, Figma 28. The script lists every one with file:line. Heaviest files by brand-line count: tests/harness/stack.py 86, test_env_settings.py 54, api/helpers.py 42, the engine settings.py 38, tooling test_chart_app.py 27, test_integration_settings.py 26.
 
 ## Licenses
 
