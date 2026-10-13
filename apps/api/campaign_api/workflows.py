@@ -100,7 +100,7 @@ def _find(engine: Engine, name: str, version: int | None) -> db.WorkflowVersion 
 
 
 def seed_default_workflow(engine: Engine) -> None:
-    """Save the default workflow as version 1 unless it is there; safe to run from every
+    """Save the default workflow at its current version unless it is there; safe to run from every
     API replica at once."""
     if _find(engine, DEFAULT_WORKFLOW_NAME, DEFAULT_WORKFLOW_VERSION) is not None:
         return

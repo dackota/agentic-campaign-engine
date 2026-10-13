@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any
 
 import httpx
-from ace_engine import brand_review, cost, db, invoker, metrics, step_cache, telemetry
+from ace_engine import brand_review, cost, db, invoker, judge, metrics, step_cache, telemetry
 from ace_engine import dag as graph
 from ace_engine.agent_roles import Role, agent_url_for, message_for, role_for, team_namespace
 from ace_engine.contracts import AgentOutput, citation_problems
@@ -549,6 +549,18 @@ class Activities:
                 return
             campaign.status = db.DRAFTING
             db.add_event(session, campaign.id, db.RUN_STEP, db.DRAFTING)
+
+    @activity.defn
+    def record_scores(
+        self, campaign_id: str, step_id: str, assets: list[str], output: dict[str, Any]
+    ) -> list[str]:
+        """Record the judge's score and reason for each asset as a run event, and return a
+        sentence for each asset scored below the floor (none when the run may go on)."""
+        with Session(self._engine) as session, session.begin():
+            for scored in judge.asset_scores(output, assets):
+                reason = json.dumps({"score": scored["score"], "reason": scored["reason"]})
+                db.add_event(session, uuid.UUID(campaign_id), scored["step"], db.SCORED, reason)
+        return judge.blocking(output, assets)
 
     @activity.defn
     def mark_failed(self, campaign_id: str, step_id: str, reason: str) -> None:

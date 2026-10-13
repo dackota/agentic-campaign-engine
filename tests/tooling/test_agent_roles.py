@@ -16,6 +16,7 @@ EXPECTED_STEPS = {
     "social",
     "one_pager",
     "design",
+    "judge",
 }
 
 

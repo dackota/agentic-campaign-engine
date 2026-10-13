@@ -9,7 +9,9 @@ import {
   raiseBudget,
   retryCampaign,
   SignedOutError,
+  MAX_SCORE,
   type AbResult,
+  type AssetScore,
   type Campaign,
   type CampaignCost,
   type EmailDraft,
@@ -90,6 +92,32 @@ function RunCost({ cost }: { cost: CampaignCost }) {
         Cost: <span data-testid="run-cost">{costText(cost)}</span>
       </p>
     </section>
+  );
+}
+
+/** The judge's score and reason for each asset of the run. */
+function RunScores({ scores }: { scores: AssetScore[] }) {
+  if (scores.length === 0) return null;
+  return (
+    <section aria-label="Judge scores">
+      <ul>
+        {scores.map((s) => (
+          <li key={s.step}>
+            {s.step}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
+            <span data-testid={`judge-reason-${s.step}`}>{s.reason}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+function RunCostAndScores({ campaign }: { campaign: Campaign }) {
+  return (
+    <>
+      <RunCost cost={campaign.cost} />
+      <RunScores scores={campaign.scores} />
+    </>
   );
 }
 
@@ -412,7 +440,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   return (
     <>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
-      <RunCost cost={campaign.cost} />
+      <RunCostAndScores campaign={campaign} />
       {campaign.budget_usd !== null && (
         <p>
           Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>

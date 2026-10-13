@@ -68,7 +68,8 @@ def test_each_step_reports_the_scripted_tokens_and_cost(api: httpx.Client) -> No
     assert campaign["status"] == AWAITING
     # The email draft step asks for two emails: two replies of 1200 in and 300 out, each
     # costing 1200 * 3 + 300 * 15 = 8100 micro-dollars.
-    assert campaign["cost"]["steps"] == [
+    steps = [s for s in campaign["cost"]["steps"] if s["step"] != "judge"]
+    assert steps == [
         {
             "step": "email_draft",
             "model": SCRIPTED_MODEL,
@@ -89,7 +90,7 @@ def test_usage_with_only_a_total_is_booked_at_the_output_price(api: httpx.Client
 
     # Two replies of 700 tokens with no split: booked as output, the dearer side, so a
     # budget never undercounts. 1400 * 15 = 21000 micro-dollars.
-    [email_draft] = campaign["cost"]["steps"]
+    [email_draft] = [s for s in campaign["cost"]["steps"] if s["step"] == "email_draft"]
     assert (email_draft["input_tokens"], email_draft["output_tokens"]) == (0, 1400)
     assert email_draft["total_tokens"] == 1400
     assert email_draft["cost_usd"] == pytest.approx(0.021)

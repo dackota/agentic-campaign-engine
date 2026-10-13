@@ -10,7 +10,8 @@ writer. The system prompt in each template is the role's prompt in
 `apps/engine/ace_engine/agent_roles.py`, and a test keeps the two equal. Each of those templates uses
 the `gateway-model` config, so every model call goes through agentgateway. That includes
 `ace-brand-reviewer`: the seeded default workflow sets `review_rounds` on every writer, and the
-worker sends those review calls to the reviewer Agent.
+worker sends those review calls to the reviewer Agent. `ace-judge` scores every asset against
+the rubric in `apps/engine/ace_engine/judge_rubric.md`; the default workflow's judge step runs it.
 
 ## agents.yaml
 

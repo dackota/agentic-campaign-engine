@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { SignedOutError } from "./api";
+import { MAX_SCORE, SignedOutError } from "./api";
 import { assetPreviewSrc, decideAsset, listInbox, type Decision, type InboxAsset } from "./inboxApi";
 import { messageOf } from "./messages";
 
@@ -58,6 +58,16 @@ function ReviewerFlags({ flags }: { flags: InboxAsset["flags"] }) {
   );
 }
 
+function JudgeScore({ asset }: { asset: InboxAsset }) {
+  if (asset.score === null) return null;
+  return (
+    <p aria-label="Judge score">
+      Judge: <strong data-testid="asset-score">{`${asset.score}/${MAX_SCORE}`}</strong>{" "}
+      <span data-testid="asset-score-reason">{asset.score_reason}</span>
+    </p>
+  );
+}
+
 function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
   const [comment, setComment] = useState("");
   const [isBusy, setIsBusy] = useState(false);
@@ -81,6 +91,7 @@ function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
         {asset.title} <small>({asset.step})</small>
       </h3>
       <AssetPreview asset={asset} />
+      <JudgeScore asset={asset} />
       <ReviewerFlags flags={asset.flags} />
       <label>
         Comment

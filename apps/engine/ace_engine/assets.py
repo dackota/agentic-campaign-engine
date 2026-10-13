@@ -1,13 +1,14 @@
 """Assets: what a writer step produced and an approver approves one by one.
 
 Every agent step is an asset except the two that prepare the writers' work (strategy and
-research). A saved workflow's own agent steps all write, so they are assets too."""
+research) and the judge, which scores the assets. A saved workflow's own agent steps all
+write, so they are assets too."""
 
 import uuid
 
 from ace_engine import dag as graph
 
-NOT_ASSETS = frozenset({"strategist", "research"})
+NOT_ASSETS = frozenset({"strategist", "research", "judge"})
 EMAIL_PREVIEW = "preview"
 # Asset step -> the brand-rendered preview route that shows it; the email's preview is the
 # draft itself.
