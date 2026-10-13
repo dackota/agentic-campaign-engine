@@ -2,7 +2,6 @@
 
 import os
 from collections.abc import Mapping
-from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -16,19 +15,19 @@ NAME = "ace-mcp-workfront"
 API = "/attask/api/v15.0"
 
 
-def _get_project(reader: Reader, args: dict[str, Any]) -> object:
+def _get_project(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/proj/{segment(args, 'project_id')}")
 
 
-def _search_projects(reader: Reader, args: dict[str, Any]) -> object:
+def _search_projects(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/proj/search", externalID=str(args.get("external_id", "")))
 
 
-def _get_task(reader: Reader, args: dict[str, Any]) -> object:
+def _get_task(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/task/{segment(args, 'task_id')}")
 
 
-def _search_tasks(reader: Reader, args: dict[str, Any]) -> object:
+def _search_tasks(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(
         f"{API}/task/search",
         projectID=optional_segment(args, "project_id"),
@@ -36,7 +35,7 @@ def _search_tasks(reader: Reader, args: dict[str, Any]) -> object:
     )
 
 
-def _search_approvals(reader: Reader, args: dict[str, Any]) -> object:
+def _search_approvals(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/appr/search", taskID=optional_segment(args, "task_id"))
 
 
