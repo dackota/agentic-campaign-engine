@@ -160,13 +160,16 @@ def _read_campaign(response: httpx.Response) -> _Campaign:
     """The one place a campaign reply is read: every field is checked before it is used, and
     a reply of the wrong shape raises UnreadableReply."""
     body = _json_object(response)
-    status, reason = body.get("status"), body.get("failure_reason") or ""
-    cost = body.get("cost") or {}
+    status = body.get("status")
+    reason = _default_if_none(body.get("failure_reason"), "")
+    cost = _default_if_none(body.get("cost"), {})
     if not isinstance(status, str) or not isinstance(reason, str) or not isinstance(cost, dict):
         raise UnreadableReply("campaign reply has no status, or a bad failure_reason or cost")
-    steps, cost_usd = cost.get("steps") or [], cost.get("cost_usd") or 0.0
+    steps = _default_if_none(cost.get("steps"), [])
+    cost_usd = _default_if_none(cost.get("cost_usd"), 0.0)
     is_steps = isinstance(steps, list) and all(isinstance(s, dict) for s in steps)
-    if not is_steps or isinstance(cost_usd, bool) or not isinstance(cost_usd, int | float):
+    is_number = isinstance(cost_usd, int | float) and not isinstance(cost_usd, bool)
+    if not is_steps or not is_number or not math.isfinite(cost_usd):
         raise UnreadableReply("campaign reply has a bad cost.steps or cost.cost_usd")
     return _Campaign(
         status=status,
@@ -175,6 +178,12 @@ def _read_campaign(response: httpx.Response) -> _Campaign:
         agent_steps=len(steps),
         cache_hits=sum(1 for s in steps if s.get("cache_hit")),
     )
+
+
+def _default_if_none[T](value: T | None, default: T) -> T:
+    """Only an absent (null) field takes its default; a falsy value of the wrong type stays
+    as it is, for the type check to reject."""
+    return default if value is None else value
 
 
 def _read_id(response: httpx.Response) -> str:
