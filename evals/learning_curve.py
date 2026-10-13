@@ -55,7 +55,7 @@ def _timeout_seconds() -> int:
     return LIVE_TIMEOUT_SECONDS if os.environ.get("ACE_DEPTH") == "live" else FAST_TIMEOUT_SECONDS
 
 
-def _get(api: httpx.Client, path: str) -> Any:
+def _get(api: httpx.Client, path: str) -> Any:  # noqa: ANN401 - JSON of any shape
     response = api.get(path)
     response.raise_for_status()
     return response.json()
