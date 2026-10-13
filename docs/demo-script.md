@@ -1,6 +1,6 @@
 # Demo script: one campaign, from report to results
 
-Length: about four minutes spoken (roughly 510 words). The company is Acme Security, a
+Length: about three and a half minutes spoken (roughly 525 words). The company is Acme Security, a
 made-up firm. Every system you see besides the app is a stand-in we built.
 
 Before you record: run `make seed-demo` against the stack you will film, sign in as
@@ -22,7 +22,8 @@ On screen: the `Threat report` box and the `Create campaign` button.
 
 It starts with a threat report, the kind the security researchers already write. I paste it in.
 This one is about fake delivery notices that steal staff passwords. I press create. That is the
-only thing I do to start.
+only thing I do to start. There is no setup, no meeting, and no hand-off to another team.
+The report goes in, and the run begins at once.
 
 ## Beat 3: the campaign runs
 
@@ -30,7 +31,8 @@ On screen: the `Run steps` list, then the `Run cost` box below it.
 
 Now watch the run. The steps appear in order: the email draft, a judge, an approval, and
 a publish step. Each one lights up as it finishes. Under the steps, the cost box lists what
-each model step cost. The whole run costs cents, and a team can type a spending limit in
+each model step cost. The whole run costs cents, so a leader can see what each campaign costs before asking for
+the next one. A team can type a spending limit in
 the `Budget (USD)` box before it starts.
 
 ## Beat 4: a judge checks the work
@@ -41,7 +43,8 @@ Before a person sees anything, a judge helper scores the email against our writt
 says why. Here it gives the email a five out of five and explains that it is clear,
 accurate and calm. Below that is the email itself. It has a subject, a short body taken
 from the report, and a call to action. Nothing in it is invented: it repeats what the
-report said.
+report said. The judge works before any person spends time reading, so the approver starts
+with a draft that already passed a first check.
 
 ## Beat 5: a person approves
 
@@ -71,4 +74,5 @@ On screen: the `Campaigns` list for one team.
 
 Two teams use the same system, Demand Gen and Product Marketing, and each sees only its own
 campaigns. To recap: one threat report in, an email out, scored by a judge, approved by a
-person, sent, measured, and remembered. Thank you.
+person, sent, measured, and remembered. If your team spends days turning threat news into customer messages, this shows a faster
+way that keeps a person in charge. Thank you.

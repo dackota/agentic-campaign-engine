@@ -28,9 +28,10 @@ JARGON = ("kagent", "temporal", "kubernetes", "a2a", "mcp", "dag", "llm", "json"
 
 
 def _spoken() -> str:
+    beats_only = SCRIPT[SCRIPT.index("## Beat 1") :]
     lines = [
         line
-        for line in SCRIPT.splitlines()
+        for line in beats_only.splitlines()
         if line.strip() and not line.startswith(("#", "On screen:"))
     ]
     return " ".join(lines)
