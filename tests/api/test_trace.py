@@ -2,15 +2,18 @@
 trace across the API, the worker, the render service, the fakes, and the agent."""
 
 import json
+import time
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 
 import httpx
 import pytest
 from ace_engine import telemetry
+from opentelemetry import trace
 from opentelemetry.sdk.trace import ReadableSpan
 from opentelemetry.trace import SpanKind
 
+from tests.api.conftest import SignIn
 from tests.api.helpers import (
     AWAITING,
     MARKETO_WEBHOOK_PATH,
@@ -22,6 +25,8 @@ from tests.api.helpers import (
 )
 from tests.harness.stack import Stack
 
+OTHER_TEAM_OWNER = "pm-owner@demo.example"
+SPAN_WAIT_SECONDS = 5
 # Every service of the run names itself on the spans it makes (`ace.service`).
 RUN_SERVICES = {"campaign-api", "campaign-worker", "render", "fake-marketo", "fake-s3", "fake-cms"}
 AGENT_OPERATIONS = {"invoke_agent", "chat", "execute_tool"}
@@ -167,3 +172,138 @@ def test_no_span_records_the_access_token_of_the_event_stream(
         if token in str(value) or "access_token" in str(value)
     ]
     assert not leaks
+
+
+def _traced_by_test(send: Callable[[], httpx.Response]) -> tuple[httpx.Response, int]:
+    """Send a request inside a span of the test's own, so the request's server span lands in
+    a trace the test knows unless the API puts it in a campaign's trace."""
+    with trace.get_tracer(__name__).start_as_current_span("test request") as span:
+        response = send()
+    return response, span.get_span_context().trace_id
+
+
+def _server_spans_of(stack: Stack, trace_id: int) -> list[ReadableSpan]:
+    """The API's server spans in a trace, waiting a moment for the span to finish."""
+    deadline = time.monotonic() + SPAN_WAIT_SECONDS
+    while True:
+        found = [
+            s
+            for s in stack.spans.get_finished_spans()
+            if s.context.trace_id == trace_id and s.kind is SpanKind.SERVER
+        ]
+        if found or time.monotonic() > deadline:
+            return found
+        time.sleep(0.05)
+
+
+def _assert_outside_campaign_trace(stack: Stack, campaign_id: str, trace_id: int) -> None:
+    own = _server_spans_of(stack, trace_id)
+    assert own, "the request's server span stays in the caller's trace"
+    campaign_trace = {s.context.trace_id for s in campaign_spans(stack, campaign_id)}
+    assert campaign_trace.isdisjoint({s.context.trace_id for s in own})
+
+
+@pytest.mark.parametrize("by_query", [False, True], ids=["header token", "access_token query"])
+def test_another_teams_request_is_not_in_the_campaign_trace(
+    stack: Stack, api: httpx.Client, by_query: bool
+) -> None:
+    # The create request remembers the campaign's traceparent: the other team must not get it.
+    campaign_id = create(api)["id"]
+    token = stack.dex.token(OTHER_TEAM_OWNER)
+
+    def send() -> httpx.Response:
+        if by_query:
+            return httpx.get(
+                f"{stack.api_url}/campaigns/{campaign_id}/events",
+                params={"access_token": token},
+                timeout=30,
+            )
+        return httpx.get(
+            f"{stack.api_url}/campaigns/{campaign_id}",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=30,
+        )
+
+    response, trace_id = _traced_by_test(send)
+
+    assert response.status_code == 404, response.text
+    _assert_outside_campaign_trace(stack, campaign_id, trace_id)
+
+
+@pytest.mark.parametrize("headers", [{}, {"Authorization": "Bearer not-a-token"}])
+def test_a_request_without_a_valid_token_is_not_in_the_campaign_trace(
+    stack: Stack, api: httpx.Client, headers: dict[str, str]
+) -> None:
+    campaign_id = create(api)["id"]
+
+    response, trace_id = _traced_by_test(
+        lambda: httpx.get(f"{stack.api_url}/campaigns/{campaign_id}", headers=headers, timeout=30)
+    )
+
+    assert response.status_code == 401, response.text
+    _assert_outside_campaign_trace(stack, campaign_id, trace_id)
+
+
+def test_the_campaign_teams_requests_join_its_trace(
+    stack: Stack, api: httpx.Client, sign_in: SignIn
+) -> None:
+    campaign_id = create(api)["id"]
+    until_status(api, campaign_id, AWAITING)
+    token = stack.dex.token(OWNER)
+
+    by_header, header_trace = _traced_by_test(
+        lambda: sign_in(OWNER).get(f"/campaigns/{campaign_id}/steps")
+    )
+    by_query, query_trace = _traced_by_test(
+        lambda: httpx.get(
+            f"{stack.api_url}/campaigns/{campaign_id}/preview",
+            params={"access_token": token},
+            timeout=30,
+        )
+    )
+
+    assert by_header.status_code == 200, by_header.text
+    assert by_query.status_code == 200, by_query.text
+    time.sleep(0.2)  # let the server spans finish
+    names = {s.name for s in campaign_spans(stack, campaign_id) if s.kind is SpanKind.SERVER}
+    assert any(n.startswith("GET /campaigns/{campaign_id}/steps") for n in names)
+    assert any(n.startswith("GET /campaigns/{campaign_id}/preview") for n in names)
+    assert not _server_spans_of(stack, header_trace)
+    assert not _server_spans_of(stack, query_trace)
+
+
+@pytest.mark.parametrize("signed", ["wrong secret", "no signature"])
+def test_an_unsigned_webhook_is_not_in_the_campaign_trace(
+    stack: Stack, api: httpx.Client, signed: str
+) -> None:
+    campaign_id = create(api)["id"]
+    body = json.dumps(
+        {"id": str(uuid.uuid4()), "type": "open", "campaignId": campaign_id, "variant": "A"}
+    ).encode()
+    headers = (
+        signed_headers("not-the-secret", body)
+        if signed == "wrong secret"
+        else {"Content-Type": "application/json"}
+    )
+
+    response, trace_id = _traced_by_test(
+        lambda: httpx.post(
+            f"{stack.api_url}{MARKETO_WEBHOOK_PATH}", content=body, headers=headers, timeout=30
+        )
+    )
+
+    assert response.status_code == 401, response.text
+    _assert_outside_campaign_trace(stack, campaign_id, trace_id)
+
+
+def test_a_malformed_webhook_body_gets_the_routes_answer(stack: Stack) -> None:
+    body = b'{"campaignId": '
+
+    response = httpx.post(
+        f"{stack.api_url}{MARKETO_WEBHOOK_PATH}",
+        content=body,
+        headers=signed_headers(stack.marketo_webhook_secret, body),
+        timeout=30,
+    )
+
+    assert response.status_code == 422, response.text
