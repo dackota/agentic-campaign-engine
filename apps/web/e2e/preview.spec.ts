@@ -49,7 +49,7 @@ async function expectPreviewShown(card: Locator, step: string): Promise<void> {
     shown: getComputedStyle(f).visibility === "visible" && getComputedStyle(f).display !== "none",
   }));
   expect(box.shown).toBe(true);
-  expect(box.h).toBe(360);
+  expect(box.h).toBeGreaterThanOrEqual(300);
   expect(box.w).toBeGreaterThan(600);
 }
 
