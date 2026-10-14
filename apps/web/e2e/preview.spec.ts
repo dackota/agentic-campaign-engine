@@ -12,6 +12,8 @@ test("the approval screen shows the rendered email", async ({ page }) => {
   await expect(preview.locator("body")).toContainText("Volt Typhoon");
 });
 
+test.use({ viewport: { width: 1280, height: 720 } });
+
 test("every inbox asset preview has visible content and no broken image", async ({ page, browser }) => {
   const title = `Preview check ${Date.now()}`;
   await signIn(page);
@@ -19,7 +21,7 @@ test("every inbox asset preview has visible content and no broken image", async 
   await page.getByLabel("Workflow").fill("threat-report-to-campaign");
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
-  const approverSession = await browser.newContext();
+  const approverSession = await browser.newContext({ viewport: { width: 1280, height: 720 } });
   const approver = await approverSession.newPage();
   await signIn(approver, APPROVER);
   await approver.getByRole("button", { name: "Inbox", exact: true }).click();
@@ -27,7 +29,6 @@ test("every inbox asset preview has visible content and no broken image", async 
   for (const step of ["landing_page", "social", "one_pager", "email_writer", "design"]) {
     const card = approver.getByRole("article", { name: `${title}: ${step}` });
     await expect(card).toBeVisible();
-    await card.scrollIntoViewIfNeeded();
     const frame = await card.locator("iframe").elementHandle();
     const doc = await frame?.contentFrame();
     expect(doc, `${step} has a preview frame`).toBeTruthy();
@@ -47,7 +48,15 @@ test("every inbox asset preview has visible content and no broken image", async 
       () => [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).length,
     );
     expect(broken, `${step} has a broken image`).toBe(0);
-    await expect(card.locator("iframe")).toHaveJSProperty("clientHeight", 360);
+    // The frame has its full size at the demo's viewport, without scrolling to it first.
+    const box = await card.locator("iframe").evaluate((f) => ({
+      w: f.clientWidth,
+      h: f.clientHeight,
+      shown: getComputedStyle(f).visibility === "visible" && getComputedStyle(f).display !== "none",
+    }));
+    expect(box.shown).toBe(true);
+    expect(box.h).toBe(360);
+    expect(box.w).toBeGreaterThan(600);
   }
   await approverSession.close();
 });
