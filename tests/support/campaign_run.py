@@ -31,6 +31,8 @@ from temporalio.worker import Worker
 WAIT_SECONDS = 20
 POLL_SECONDS = 0.02
 RECEIPT = "receipt-1"
+# What a stub agent step answers: the two emails an A/B writer makes, so a publish step can
+# send it. A test that needs another shape passes its own `run_agent_step`.
 MODEL = "scripted-model"
 
 Handler = Callable[..., object]
@@ -108,7 +110,7 @@ class StubActivities:
         review_rounds: int = 0,
     ) -> object:
         quiet = {
-            "output": {"step": step_id},
+            "output": [{"step": step_id}, {"step": step_id}],
             "session": f"session-{step_id}",
             "usage": {"model": MODEL, "input_tokens": 1, "output_tokens": 1},
         }
@@ -149,13 +151,13 @@ class StubActivities:
 
     @activity.defn(name="send_email")
     async def send_email(
-        self, campaign_id: str, drafts: object, step_id: str = "publish"
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = "publish"
     ) -> object:
         return await self._answer("send_email", (campaign_id, drafts, step_id), RECEIPT)
 
     @activity.defn(name="publish_content")
     async def publish_content(
-        self, campaign_id: str, drafts: object, step_id: str = "publish"
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = "publish"
     ) -> object:
         return await self._answer("publish_content", (campaign_id, drafts, step_id), None)
 
