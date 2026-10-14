@@ -20,11 +20,18 @@ interface LearningItemProps {
 /** The engine words the reason "Variant A won ..."; the app says "Version". */
 const whyText = (reason: string): string => reason.replace(/^Variant /, "Version ");
 
+/** The engine keeps a learning as its winning lines, one per line: the first is the title. */
+const linesOf = (text: string): string[] => text.split("\n").filter((line) => line.trim() !== "");
+
 function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: LearningItemProps) {
+  const [title = "", ...details] = linesOf(learning.text);
   return (
     <li className="learning-item">
       <Card>
-      <p className="learning-text" data-testid="learning-text">{learning.text}</p>
+      <p className="learning-text" data-testid="learning-text">{title}</p>
+      {details.map((line, index) => (
+        <p key={`${index}-${line}`} className="learning-detail" data-testid="learning-detail">{line}</p>
+      ))}
       <p className="learning-reason" data-testid="learning-reason">{whyText(learning.reason)}</p>
       <p>
         From campaign:{" "}

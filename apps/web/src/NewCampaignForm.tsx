@@ -2,7 +2,8 @@ import { useEffect, useState, type FormEvent } from "react";
 import { listWorkflows } from "./api";
 import { DEFAULT_WORKFLOW, dollarsOf, workflowLabel } from "./labels";
 
-const REPORT_ROWS = 14;
+/** Short enough that the budget box and Create button show without scrolling at 720 px. */
+const REPORT_ROWS = 7;
 /** The built-in one-email pipeline: no saved workflow, so the API gets an empty name. */
 const QUICK_DRAFT_LABEL = "Quick email draft";
 

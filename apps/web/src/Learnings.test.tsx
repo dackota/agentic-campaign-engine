@@ -34,6 +34,21 @@ test("each learning shows its text, why it was kept in plain words, and its sour
   expect(screen.getByRole("button", { name: "Volt Typhoon learns" })).toBeTruthy();
 });
 
+test("a learning of three stored lines shows the first as its title and the others as separate lines", async () => {
+  const multiLine = {
+    ...LEARNING,
+    text: "Act now: Volt Typhoon\nWhat the new threat means for you\nRead the full advisory",
+  };
+  stubApi({ "GET /learnings": [multiLine] });
+  render(<Learnings canDelete={false} onOpenCampaign={() => {}} onSignOut={() => {}} />);
+
+  expect((await screen.findByTestId("learning-text")).textContent).toBe("Act now: Volt Typhoon");
+  expect(screen.getAllByTestId("learning-detail").map((el) => el.textContent)).toEqual([
+    "What the new threat means for you",
+    "Read the full advisory",
+  ]);
+});
+
 test("the source campaign opens from its name", async () => {
   const onOpen = vi.fn();
   renderLearnings(false, onOpen);
