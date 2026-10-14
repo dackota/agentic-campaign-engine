@@ -61,6 +61,7 @@ const STATUS_TONES: Record<Campaign["status"], Tone> = {
 };
 
 const COST_DECIMALS = 4;
+const REPORT_ROWS = 14;
 const DEFAULT_WORKFLOW = "threat-report-to-campaign";
 /** The built-in one-email pipeline: no saved workflow, so the API gets an empty name. */
 const QUICK_DRAFT_LABEL = "Quick email draft";
@@ -531,7 +532,7 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
           <textarea
             value={report}
             onChange={(e) => setReport(e.target.value)}
-            rows={14}
+            rows={REPORT_ROWS}
             aria-describedby="report-hint"
           />
         </label>

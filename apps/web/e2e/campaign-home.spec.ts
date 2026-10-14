@@ -58,13 +58,15 @@ test("an owner starts a campaign from home and lands on its own URL; reload show
 });
 
 test("a viewer sees no New campaign button", async ({ page, browser }) => {
-  const ownerPage = await (await browser.newContext()).newPage();
+  const ownerSession = await browser.newContext();
+  const ownerPage = await ownerSession.newPage();
   await signIn(ownerPage, OWNER);
   await expect(ownerPage.getByRole("link", { name: "New campaign" })).toBeVisible();
   await signIn(page, VIEWER);
   await expect(page.getByRole("heading", { name: "Campaigns" })).toBeVisible();
   await expect(page.getByRole("link", { name: "New campaign" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: "Start your first campaign" })).toHaveCount(0);
+  await ownerSession.close();
 });
 
 test("home has no horizontal scroll at 768", async ({ page }) => {

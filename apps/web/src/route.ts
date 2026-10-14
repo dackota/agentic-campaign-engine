@@ -8,7 +8,13 @@ const CAMPAIGN_PATH = /^\/campaigns\/([^/]+)\/?$/;
 export function parseRoute(pathname: string): Route {
   if (/^\/campaigns\/new\/?$/.test(pathname)) return { page: "new" };
   const id = CAMPAIGN_PATH.exec(pathname)?.[1];
-  return id ? { page: "campaign", id: decodeURIComponent(id) } : { page: "home" };
+  if (!id) return { page: "home" };
+  try {
+    return { page: "campaign", id: decodeURIComponent(id) };
+  } catch {
+    // A mistyped or mangled link: show home rather than crash the app.
+    return { page: "home" };
+  }
 }
 
 export const campaignPath = (id: string): string => `/campaigns/${encodeURIComponent(id)}`;
