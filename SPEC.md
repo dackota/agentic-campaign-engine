@@ -42,7 +42,7 @@ which put agents into production on kagent 0.10. This repo uses kagent 1.x
 |---|---|---|
 | Build integrations (Workfront, Marketo, Docs, Slack, CMS, DAM) | Fake Marketo-shaped and Workfront-shaped services with REST, OAuth2, and webhooks. A CMS and an S3 asset store in the cluster. Real Slack and Google Docs by flag. Each one is also an MCP server | S5 |
 | Orchestration layer: multi-agent pipelines, state, error recovery, parallel runs | A Temporal workflow that runs a campaign DAG. Parallel fan-out, retries, resume after a crash, review loops, approval gates | S3, S4 |
-| Web UIs for non-technical users | React app: campaign dashboard, drag-and-drop workflow builder, approval inbox, live run view | S3, S8 |
+| Web UIs for non-technical users | React app: campaign dashboard, drag-and-drop workflow builder, approval inbox, live run view, in plain words with one consistent look | S3, S8, S15 |
 | Production tooling: HTML email, PPTX, PDF, SVG, publishing | A render service with brand templates. One design agent makes social cards in a kagent sandbox | S7 |
 | Analytics: dashboards, quality scoring, A/B tests, feedback loops | Simulated audience, webhooks, A/B stats, judge scores, and a pgvector "learnings" store the agents read | S9, S10 |
 | Custom AI agents with MCP servers and enterprise systems | kagent AgentTemplates bound to our MCP servers. One custom Python agent as a stretch | S4, S5, S13 |
@@ -197,10 +197,13 @@ end.
 | | S11 Performance and cost | Step cache, prompt caching, concurrency limits, campaign budget, load test |
 | | S12 Observability and alerting | OTel everywhere, Grafana dashboards, alert rules |
 | | S13 Custom Python agent (stretch) | Research agent as a BYO Google ADK agent, if S0 says it survives wake-up |
-| M3 Ship | S14 Ship it | README proof table, ADRs, demo script, video, go public |
+| M3 Ship | S15 Marketer-ready UI and UX | One look, plain words on every screen, guided campaign, inbox, and builder screens, previews that render, a report-style dashboard, then the demo recorded again |
+| | S14 Ship it | README proof table, ADRs, demo script, video, go public |
 
 S0 comes first. S1 and S2 can run in either order. S4 to S13 can run in any
 order once S3 works, but S8 (UI) needs S4 (engine) for its live run view.
+S15 builds on S8 and comes before the S14 video, because the video is shown to
+marketers.
 
 ## Run modes
 

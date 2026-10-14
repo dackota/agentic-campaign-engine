@@ -1,78 +1,113 @@
 # Demo script: one campaign, from report to results
 
-Length: about three and a half minutes spoken (roughly 525 words). The company is Acme Security, a
-made-up firm. Every system you see besides the app is a stand-in we built.
+Length: about four minutes spoken (roughly 620 words). The audience is marketers and marketing
+leaders, so every beat shows what a marketer does and sees, then says in one line what the
+system does underneath. The company is Acme Security, a made-up firm. Every system you see
+besides the app is a stand-in we built.
 
 Before you record: run `make seed-demo` against the stack you will film, sign in as
 `dg-owner@demo.example`, and keep `docs/demo-report.txt` open to paste from. The password for
-every demo user is in the README.
+every demo user is in the README. Record after the marketer-ready UI work (slice S15) lands, so
+the screens look the way this script describes them.
+
+## What each beat shows
+
+| Beat | Capability it proves |
+|---|---|
+| 1 | Plain-language framing for marketing leadership |
+| 2 | A web UI a non-technical marketer can use, sign-in and roles |
+| 3 | The orchestration layer: agents in parallel, live status, recovery from a failure |
+| 4 | Agents that use the marketing stack as tools; production tooling (email, page, one-pager, deck, social cards) |
+| 5 | Quality scoring before any person reads a draft |
+| 6 | The approval interface, permissions, and publishing to the marketing stack |
+| 7 | Analytics: A/B results, the feedback loop, and the dashboard |
+| 8 | Cost control, caching, and a backup model |
+| 9 | The workflow builder: marketers change the process without an engineer |
+| 10 | Many teams on one system; tests and alerts behind every change |
 
 ## Beat 1: the problem
 
-On screen: the sign-in page, then the `Campaigns` list with Acme's past campaign.
+On screen: the sign-in page, then the `Campaigns` list with Acme's past campaigns.
 
-Hello. I want to show you how a security company turns bad news into a marketing campaign in
-minutes instead of weeks. This is Acme Security. When a new threat appears, the marketing team
-has to explain it to customers fast, in an email and more. Today that takes a pile of meetings. Here, an AI helper writes the
-first draft, and people stay in charge of every decision.
+When a new threat appears, a security company has to tell its customers fast. Today one threat
+report turns into a week of meetings, hand-offs, and copy-paste between tools. I built a system
+that does the busy work in minutes and keeps people in charge of every decision. Let me show you
+one campaign from start to finish.
 
-## Beat 2: paste the threat report
+## Beat 2: start a campaign
 
-On screen: the `Threat report` box and the `Create campaign` button.
+On screen: the `Threat report` box, the `Budget (USD)` box, and the `Create campaign` button.
 
-It starts with a threat report, the kind the security researchers already write. I paste it in.
-This one is about fake delivery notices that steal staff passwords. I press create. That is the
-only thing I do to start. There is no setup, no meeting, and no hand-off to another team.
-The report goes in, and the run begins at once.
+I am a campaign owner on the Demand Gen team. I paste in a threat report from our researchers.
+I can set a spending limit if I want one. I press create. That is the only thing I do to start.
+No ticket, no setup, no waiting for another team.
 
-## Beat 3: the campaign runs
+## Beat 3: the team of helpers goes to work
 
-On screen: the `Run steps` list, then the `Run cost` box below it.
+On screen: the `Run steps` view as the steps light up, then `Retry step` on a step that failed.
 
-Now watch the run. The steps appear in order: the email draft, a judge, an approval, and
-a publish step. Each one lights up as it finishes. Under the steps, the cost box lists what
-each model step cost. The whole run costs cents, so a leader can see what each campaign costs before asking for
-the next one. A team can type a spending limit in
-the `Budget (USD)` box before it starts.
+Each box is an AI helper with one job. A strategist plans the campaign and a researcher checks
+the facts. Then the email writer, the landing page writer, the social writer, and the designer
+all work at the same time, so the whole campaign is ready in minutes. You see each step light up
+as it happens. If a step fails, the rest of the work is kept, and one click tries that step
+again.
 
-## Beat 4: a judge checks the work
+## Beat 4: real assets, from your real tools
 
-On screen: the `Judge scores` list, then the `Email draft`.
+On screen: the `Email draft` and the asset previews in the `Approval inbox`.
 
-Before a person sees anything, a judge helper scores the email against our written rules and
-says why. Here it gives the email a five out of five and explains that it is clear,
-accurate and calm. Below that is the email itself. It has a subject, a short body taken
-from the report, and a call to action. Nothing in it is invented: it repeats what the
-report said. The judge works before any person spends time reading, so the approver starts
-with a draft that already passed a first check.
+The helpers do not guess. They read the team's own systems, like past campaigns, the content
+library, and the audience lists, so they write from facts. They make the real assets: a ready
+to send email, a landing page, a one-pager, a short deck, and social cards in brand colors.
 
-## Beat 5: a person approves
+## Beat 5: a judge checks the work first
 
-On screen: sign in as the approver, open the campaign, and click `Approve`. Then show the `Inbox`.
+On screen: the `Judge scores` next to each asset.
 
-Now the human part. The status says the campaign is waiting for approval, and the person
-who wrote the request has no approve button, which is how real teams run. I sign in as the
-team's approver. The approval inbox shows the email, its judge score, and a note from the
-brand reviewer saying nothing is flagged. The approver can approve, or reject with a
-comment. I click approve. The status changes to sent, and a receipt appears, so there is
-proof of what went out.
+Before a person reads anything, a judge helper scores each asset against our written brand rules
+and explains why. A brand reviewer flags risky claims, like promising one hundred percent
+protection. So the approver starts from drafts that already passed a first check.
 
-## Beat 6: results and learning
+## Beat 6: a person approves, then it ships
 
-On screen: the `A/B result` line on the campaign, then the `Learnings` page and the `Dashboard`.
+On screen: sign in as the approver, open the `Approval inbox`, and click `Approve`.
 
-We send two versions of the email to different slices of the audience. After a while the
-system counts opens and clicks and calls a winner, with a confidence level. The page
-shows which version won. That result becomes a learning, in plain words, saved for the
-team on the learnings page. An approver can delete a learning that looks wrong. The
-dashboard lists the click rate for each campaign, so the team can see how results move
-over time.
+The person who asked for the campaign cannot approve it. That is a real control, not a
+reminder. The team's approver signs in, sees every asset with its score and flags, and approves
+or sends it back with a comment. On approval, the system publishes the page, schedules the
+email in the marketing tool, and posts a note to the team chat. There is a receipt for
+everything that went out.
 
-## Beat 7: why it matters
+## Beat 7: results, and the system learns
 
-On screen: the `Campaigns` list for one team.
+On screen: the A/B result on the campaign, then `Learnings`, then the `Team dashboard`.
 
-Two teams use the same system, Demand Gen and Product Marketing, and each sees only its own
-campaigns. To recap: one threat report in, an email out, scored by a judge, approved by a
-person, sent, measured, and remembered. If your team spends days turning threat news into customer messages, this shows a faster
-way that keeps a person in charge. Thank you.
+We sent two versions of the email. The system counts opens and clicks and names a winner with a
+confidence level. That result becomes a learning in plain words, and the helpers read it on the
+next campaign, so each campaign starts smarter than the last. The dashboard shows cost, quality,
+and click rate for every campaign, and the trend over time.
+
+## Beat 8: cost you can see and control
+
+On screen: the `Run cost` box, then `Raise budget` on a paused campaign.
+
+Every step shows what it cost. This whole campaign cost cents. Work that was already done is
+reused, not paid for twice. If a campaign hits its limit, it pauses and asks, and the owner can
+raise the budget. If one AI provider goes down, a backup takes over.
+
+## Beat 9: change the process without an engineer
+
+On screen: the `Workflow builder`, `Use template`, then drag a step and `Add approval gate`.
+
+Every team works a little differently. In the builder, a marketer starts from a template, drags
+steps into a new order, and adds an approval gate where they want one. The builder says in plain
+words if something is missing. Save it, and the next campaign runs the new way.
+
+## Beat 10: built for many teams, and built to last
+
+On screen: sign in as Product Marketing and show its own `Campaigns` list.
+
+Product Marketing uses the same system and sees only its own campaigns, its own helpers, and its
+own spending. Behind the scenes, every change is tested against a set of sample reports before
+it ships, and alerts fire if quality drops. To recap: one report in, a full campaign out, judged,
+approved by a person, published, measured, and remembered. Thank you.

@@ -23,7 +23,7 @@ The only outside need is a model key.
 
 The demo shows one Acme Security campaign from threat report to results: paste the report,
 watch the agents draft, read the judge's scores, approve as a second person, then see the
-A/B winner and the learning it leaves. The spoken script (about three and a half minutes) is
+A/B winner and the learning it leaves. The spoken script (about four minutes) is
 [docs/demo-script.md](docs/demo-script.md); the report to paste is `docs/demo-report.txt`.
 
 Seed the demo data with one command:
