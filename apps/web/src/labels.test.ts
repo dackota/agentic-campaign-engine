@@ -17,6 +17,7 @@ test("known step and workflow ids read as plain names", () => {
 });
 
 test("unknown ids are made readable", () => {
+  assert.equal(stepLabel("constructor"), "Constructor");
   assert.equal(stepLabel("first_draft"), "First draft");
   assert.equal(workflowLabel("my-workflow"), "My workflow");
 });

@@ -34,5 +34,9 @@ function humanize(id: string): string {
 }
 
 export const kindLabel = (kind: StepKind): string => KIND_LABELS[kind];
-export const stepLabel = (id: string): string => STEP_LABELS[id] ?? humanize(id);
-export const workflowLabel = (name: string): string => WORKFLOW_LABELS[name] ?? humanize(name);
+/** Own keys only: an id like "constructor" must not read an inherited member. */
+const named = (labels: Record<string, string>, id: string): string | undefined =>
+  Object.hasOwn(labels, id) ? labels[id] : undefined;
+
+export const stepLabel = (id: string): string => named(STEP_LABELS, id) ?? humanize(id);
+export const workflowLabel = (name: string): string => named(WORKFLOW_LABELS, name) ?? humanize(name);

@@ -375,7 +375,10 @@ function WorkflowPicker({ value, onChange }: { value: string; onChange: (name: s
   useEffect(() => {
     listWorkflows()
       .then((names) => setWorkflows(names.includes(DEFAULT_WORKFLOW) ? names : [DEFAULT_WORKFLOW, ...names]))
-      .catch(() => setHasListError(true));
+      .catch((e: unknown) => {
+        console.error("could not list saved workflows", e);
+        setHasListError(true);
+      });
   }, []);
 
   return (
