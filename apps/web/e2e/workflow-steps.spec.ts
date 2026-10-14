@@ -30,8 +30,8 @@ test("run view lists the DAG steps in order", async ({ page, request }) => {
 
   const steps = page.getByRole("list", { name: "Run steps" }).getByRole("listitem");
   await expect(steps).toHaveText([/^Writer/, /^Preview/, /^Approve/, /^Publish/]);
-  await expect(page.getByTestId("step-writer")).toContainText("succeeded");
-  await expect(page.getByTestId("step-publish")).toContainText("pending");
+  await expect(page.getByTestId("step-writer")).toContainText("Done");
+  await expect(page.getByTestId("step-publish")).toContainText("Waiting");
 });
 
 test("the default workflow lists its steps before they run", async ({ page }) => {

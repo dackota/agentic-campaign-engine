@@ -53,7 +53,7 @@ for (const size of WIDTHS) {
     // The run finishes; every step shows its final status without a reload.
     await expect(page.getByTestId("run-status")).toHaveText("Finished");
     for (const id of ["brief", "writer_a", "writer_b", "preview"]) {
-      await expect(page.getByTestId(`step-${id}`)).toContainText("succeeded");
+      await expect(page.getByTestId(`step-${id}`)).toContainText("Done");
     }
     await expect(page.getByTestId("step-brief")).not.toContainText("tokens");
     await page.getByRole("button", { name: "Details" }).click();

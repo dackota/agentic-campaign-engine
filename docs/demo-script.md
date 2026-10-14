@@ -54,7 +54,7 @@ again.
 
 ## Beat 4: real assets, from your real tools
 
-On screen: the `Email draft` and the asset previews in the `Approval inbox`.
+On screen: the `Draft` card and the asset previews in the `Approval inbox`.
 
 The helpers do not guess. They read the team's own systems, like past campaigns, the content
 library, and the audience lists, so they write from facts. They make the real assets: a ready

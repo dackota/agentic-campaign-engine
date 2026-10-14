@@ -213,3 +213,28 @@ th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom
 .trend-dot { stroke: var(--color-surface); stroke-width: 1; }
 .trend-click-dot { fill: var(--color-primary); }
 .trend-quality-dot { fill: var(--color-warn); }
+
+.run-graph-scroll { overflow-x: auto; max-width: 100%; }
+.run-graph { position: relative; margin: var(--space-2) 0; }
+.run-edges { position: absolute; inset: 0; }
+.run-edge { stroke: var(--color-muted); stroke-width: 2; }
+.run-steps { list-style: none; margin: 0; padding: 0; }
+.run-step { position: absolute; width: 180px; height: 100px; padding: var(--space-2); overflow: hidden; font-size: var(--font-size-sm); border: 2px solid var(--color-border); border-radius: var(--radius); background: var(--color-surface); }
+.run-step-started { border-color: var(--color-info); }
+.run-step-failed { border-color: var(--color-danger); }
+.run-step-succeeded { border-color: var(--color-ok); }
+.page-title { margin-bottom: var(--space-1); }
+.next-step { font-size: var(--font-size-lg); margin: var(--space-2) 0 var(--space-3); }
+.action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; margin-bottom: var(--space-3); }
+.card-grid { display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); align-items: start; }
+.card-grid .card { margin-bottom: 0; }
+.card-grid .card-wide { grid-column: 1 / -1; }
+.score-list { list-style: none; margin: 0; padding: 0; }
+
+/* Tablet width: the graph wraps into a flow of steps instead of scrolling. */
+@media (max-width: 800px) {
+  .run-graph { width: auto !important; height: auto !important; }
+  .run-edges { display: none; }
+  .run-steps { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+  .run-step { position: static; }
+}

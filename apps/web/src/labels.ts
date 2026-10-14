@@ -74,3 +74,38 @@ const STATUS_LABELS: Record<CampaignStatus, string> = {
 };
 
 export const statusLabel = (status: CampaignStatus): string => STATUS_LABELS[status];
+
+const NEXT_STEPS: Record<CampaignStatus, string> = {
+  drafting: "The AI is writing the draft.",
+  awaiting_approval: "Waiting for an approver.",
+  sending: "Sending the approved campaign.",
+  sent: "Sent. We are watching which version wins.",
+  failed: "A step failed. An owner can retry it.",
+  retrying: "Trying the failed step again.",
+  finished: "All done.",
+  budget_paused: "Paused at the budget. An owner can raise it to continue.",
+};
+
+/** The one sentence at the top of a campaign page: what happens next. */
+export const nextStepText = (status: CampaignStatus): string => NEXT_STEPS[status];
+
+const STEP_STATUS_LABELS: Record<string, string> = {
+  started: "Running",
+  succeeded: "Done",
+  failed: "Failed",
+  pending: "Waiting",
+};
+
+/** A step's run status as the word a marketer reads. */
+export const stepStatusLabel = (status: string): string => named(STEP_STATUS_LABELS, status) ?? humanize(status);
+
+const FAILED_STEP = /^step '([^']+)' failed(?: after (\d+) attempts?)?\b/;
+
+/** A failed run's reason in plain words: the step's plain name and the attempts, never the raw error. */
+export function failureText(reason: string | null): string {
+  const found = reason ? FAILED_STEP.exec(reason) : null;
+  if (!found) return "A step did not finish.";
+  const attempts = Number(found[2]);
+  const after = attempts ? ` after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}` : "";
+  return `The ${stepLabel(found[1])} step did not finish${after}.`;
+}

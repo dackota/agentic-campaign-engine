@@ -27,7 +27,7 @@ import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { PreviewFrame } from "./PreviewFrame";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
-import { statusLabel, stepLabel, workflowLabel } from "./labels";
+import { failureText, nextStepText, statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
 import { campaignPath, NEW_CAMPAIGN_PATH, useRoute, type Route } from "./route";
@@ -119,10 +119,10 @@ function RunCostDetails({ cost }: { cost: CampaignCost }) {
 
 /** The judge's score and reason for each asset of the run. */
 function RunScores({ scores }: { scores: AssetScore[] }) {
-  if (scores.length === 0) return null;
+  if (scores.length === 0) return <EmptyBlock>No quality check yet.</EmptyBlock>;
   return (
     <section aria-label="Judge scores">
-      <ul>
+      <ul className="score-list">
         {scores.map((s) => (
           <li key={s.step}>
             {stepLabel(s.step)}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
@@ -134,24 +134,15 @@ function RunScores({ scores }: { scores: AssetScore[] }) {
   );
 }
 
-function RunCostAndScores({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
+function DraftView({ draft, id, showDetails }: { draft: EmailDraft; id: string; showDetails: boolean }) {
   return (
     <>
-      <RunCost cost={campaign.cost} />
-      {showDetails && <RunCostDetails cost={campaign.cost} />}
-      <RunScores scores={campaign.scores} />
+      <h3 data-testid="draft-subject">{draft.subject}</h3>
+      <p className="hint">{draft.preheader}</p>
+      <EmailPreview id={id} />
+      {/* The raw text is for engineers; a marketer reads the rendered email above. */}
+      {showDetails && <pre data-testid="draft-body">{draft.body}</pre>}
     </>
-  );
-}
-
-function DraftView({ draft }: { draft: EmailDraft }) {
-  return (
-    <section aria-label="Email draft">
-      <h2 data-testid="draft-subject">{draft.subject}</h2>
-      <p>{draft.preheader}</p>
-      <pre data-testid="draft-body">{draft.body}</pre>
-      <p>{draft.call_to_action}</p>
-    </section>
   );
 }
 
@@ -610,46 +601,74 @@ function RunIds({ campaign }: { campaign: Campaign }) {
   );
 }
 
+function RunCards({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
+  return (
+    <div className="card-grid">
+      <Card label="Quality">
+        <h2>Quality</h2>
+        <RunScores scores={campaign.scores} />
+      </Card>
+      <Card label="Cost">
+        <h2>Cost</h2>
+        <RunCost cost={campaign.cost} />
+        {campaign.budget_usd !== null && (
+          <p>
+            Budget: <span data-testid="run-budget">{dollarsText(campaign.budget_usd)}</span>
+          </p>
+        )}
+        {showDetails && <RunCostDetails cost={campaign.cost} />}
+      </Card>
+      <div className="card-wide">
+        <Card label="Draft">
+          <h2>Draft</h2>
+          {campaign.draft ? (
+            <DraftView draft={campaign.draft} id={campaign.id} showDetails={showDetails} />
+          ) : (
+            <EmptyBlock>The draft appears here when the AI finishes writing it.</EmptyBlock>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
   const [showDetails, setShowDetails] = useState(false);
-  const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
-      <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>
-        Details
-      </button>
+      <h1 className="page-title">{titleOf(campaign)}</h1>
+      <p>
+        <StatusBadge tone={STATUS_TONES[campaign.status]}>
+          <span data-testid="run-status">{statusLabel(campaign.status)}</span>
+        </StatusBadge>
+      </p>
+      <p className="next-step" data-testid="next-step">
+        {nextStepText(campaign.status)}
+      </p>
+      {campaign.status === "failed" && <ErrorBlock>{failureText(campaign.failure_reason)}</ErrorBlock>}
+      {campaign.status === "failed" && showDetails && <pre data-testid="failure-raw">{campaign.failure_reason}</pre>}
+      <div className="action-row">
+        {canRetry(me, campaign) && (
+          <button type="button" className="btn btn-primary" onClick={() => onRetry(campaign.id)}>
+            Retry step
+          </button>
+        )}
+        {canRaiseBudget(me, campaign) && (
+          <RaiseBudgetForm onRaise={(dollars) => onRaiseBudget(campaign.id, dollars)} />
+        )}
+        {canApprove(me, campaign) && (
+          <button type="button" className="btn btn-primary" onClick={() => onApprove(campaign.id)}>
+            Approve
+          </button>
+        )}
+        <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>Details</button>
+      </div>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} showDetails={showDetails} />
-      <RunCostAndScores campaign={campaign} showDetails={showDetails} />
-      {campaign.budget_usd !== null && (
-        <p>
-          Budget: <span data-testid="run-budget">{dollarsText(campaign.budget_usd)}</span>
-        </p>
-      )}
-      {canRaiseBudget(me, campaign) && (
-        <RaiseBudgetForm onRaise={(dollars) => onRaiseBudget(campaign.id, dollars)} />
-      )}
-      {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
-      {canRetry(me, campaign) && (
-        <button type="button" onClick={() => onRetry(campaign.id)}>
-          Retry step
-        </button>
-      )}
-      {campaign.draft && <DraftView draft={campaign.draft} />}
-      {campaign.draft && <EmailPreview id={campaign.id} />}
-      {hasStatus && (
-        <p>
-          Status: <span data-testid="run-status">{statusLabel(campaign.status)}</span>
-        </p>
-      )}
+      <RunCards campaign={campaign} showDetails={showDetails} />
       {(campaign.status === "sent" || campaign.status === "finished") && (
         <p>
           A/B result: <span data-testid="ab-result">{abResultText(campaign.ab_result)}</span>
         </p>
-      )}
-      {canApprove(me, campaign) && (
-        <button type="button" onClick={() => onApprove(campaign.id)}>
-          Approve
-        </button>
       )}
       <RunWorkflow campaign={campaign} showDetails={showDetails} />
       {campaign.receipt && (

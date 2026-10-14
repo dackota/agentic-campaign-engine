@@ -30,13 +30,13 @@ test("a failed run shows a retry-step action that resumes it to the end", async 
   await page.getByLabel("Threat report").fill(`[agent:down-2]\n${REPORT}\n${name}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
-  await expect(page.getByTestId("step-writer")).toContainText("failed");
+  await expect(page.getByTestId("step-writer")).toContainText("Failed");
   await expect(page.getByRole("alert")).toContainText("2 attempts");
   await page.getByRole("button", { name: "Retry step" }).click();
 
   await expect(page.getByTestId("run-status")).toHaveText("Finished");
-  await expect(page.getByTestId("step-writer")).toContainText("succeeded");
-  await expect(page.getByTestId("step-preview")).toContainText("succeeded");
+  await expect(page.getByTestId("step-writer")).toContainText("Done");
+  await expect(page.getByTestId("step-preview")).toContainText("Done");
   await expect(page.getByRole("button", { name: "Retry step" })).toHaveCount(0);
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty();
 });
