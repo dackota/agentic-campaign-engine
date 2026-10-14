@@ -5,9 +5,16 @@ import { cleanAssets, groupByCampaign, type CampaignGroup } from "./inboxGroups"
 import { flagLabel, stepLabel } from "./labels";
 import { PreviewFrame } from "./PreviewFrame";
 import { Card, EmptyBlock, ErrorBlock, LoadingBlock } from "./ui";
-import { messageOf } from "./messages";
 
 const INBOX_POLL_MS = 1500;
+const INBOX_ERROR = "The inbox could not be updated. Check your connection and try again in a moment.";
+const INBOX_EMPTY = "Nothing needs your approval right now. Campaigns appear here when a marketer sends one for review.";
+
+/** The raw error goes to the console for engineers; the screen says what to try. */
+function failedWith(setError: (message: string) => void, e: unknown): void {
+  console.error(e);
+  setError(INBOX_ERROR);
+}
 
 /** The inbox link a Slack message carries (`?inbox=<campaign id>`), kept across sign-in. */
 const INBOX_LINK_KEY = "ace.inbox_link";
@@ -157,7 +164,7 @@ function useInbox(onSignOut: () => void) {
       setAssets(await listInbox());
     } catch (e) {
       if (e instanceof SignedOutError) onSignOut();
-      else setError(messageOf(e));
+      else failedWith(setError, e);
     }
   }
 
@@ -175,7 +182,7 @@ function useInbox(onSignOut: () => void) {
       await refresh();
     } catch (e) {
       if (e instanceof SignedOutError) onSignOut();
-      else setError(messageOf(e));
+      else failedWith(setError, e);
     }
   }
 
@@ -198,7 +205,7 @@ export function Inbox({ onSignOut, linkedCampaign }: InboxProps) {
       <h2>Approval inbox</h2>
       {error && <ErrorBlock>{error}</ErrorBlock>}
       {assets === null && !error && <LoadingBlock>Loading your inbox…</LoadingBlock>}
-      {assets !== null && assets.length === 0 && <EmptyBlock>Nothing is waiting for approval.</EmptyBlock>}
+      {assets !== null && assets.length === 0 && <EmptyBlock>{INBOX_EMPTY}</EmptyBlock>}
       {groups.map((g) => (
         <CampaignSection
           key={g.campaignId}

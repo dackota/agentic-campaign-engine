@@ -61,6 +61,10 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
   // Reject a flagged asset with a comment: the waiting count for that campaign is refreshed.
   await flaggedCard.getByLabel("Comment").fill("Drop the hype");
   await expect(reject).toBeEnabled();
+  const rejected = approver.waitForResponse((r) => r.url().endsWith("/reject") && r.request().method() === "POST");
   await reject.click();
-  await expect(group(flagged)).toBeVisible();
+  // The reject really reached the API: a no-op click would never answer.
+  const response = await rejected;
+  expect(response.status()).toBe(200);
+  expect((await response.json()).decision).toBe("rejected");
 });
