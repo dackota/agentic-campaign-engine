@@ -157,3 +157,5 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .decision-row { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-2); }
 .decision-row label { margin: 0; flex: 1 1 200px; }
 .decision-row input { width: 100%; }
+.preview-wrap { position: relative; }
+.preview-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; color: var(--color-muted); pointer-events: none; }
