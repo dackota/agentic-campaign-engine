@@ -80,6 +80,12 @@ def _save(engine: Engine, name: str, dag: dict[str, Any]) -> int:
     raise HTTPException(status_code=409, detail="the workflow changed while saving; try again")
 
 
+def _names(engine: Engine) -> list[str]:
+    with Session(engine) as session:
+        query = select(db.WorkflowVersion.name).distinct().order_by(db.WorkflowVersion.name)
+        return list(session.scalars(query))
+
+
 def _versions(engine: Engine, name: str) -> list[int]:
     with Session(engine) as session:
         query = (
@@ -137,6 +143,11 @@ def register_workflow_routes(app: FastAPI) -> None:
             except (ValueError, RecursionError):
                 found = [Rejection("not_json", "the workflow is not valid JSON")]
         return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in found])
+
+    @app.get("/workflows")  # every saved name: the new-campaign picker
+    async def list_workflows(request: Request, user: CurrentUser) -> list[str]:
+        authorize(user, Action.READ)
+        return await run_in_threadpool(_names, request.app.state.engine)
 
     @app.get("/workflows/{name}/versions")
     async def list_workflow_versions(

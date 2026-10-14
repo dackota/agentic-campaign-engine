@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
+import { APPROVER, OWNER, chooseQuickDraft, signIn } from "./fixtures/sign-in";
 
 test("an approver approves the owner's campaign and sees the receipt", async ({
   page,
@@ -7,6 +7,7 @@ test("an approver approves the owner's campaign and sees the receipt", async ({
 }) => {
   const report = `Volt Typhoon targets edge routers ${Date.now()}`;
   await signIn(page, OWNER);
+  await chooseQuickDraft(page);
   await page.getByLabel("Threat report").fill(report);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty();

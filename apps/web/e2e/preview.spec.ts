@@ -1,8 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/sign-in";
+import { signIn, chooseQuickDraft } from "./fixtures/sign-in";
 
 test("the approval screen shows the rendered email", async ({ page }) => {
   await signIn(page);
+  await chooseQuickDraft(page);
   await page.getByLabel("Threat report").fill("Volt Typhoon targets edge routers");
   await page.getByRole("button", { name: "Create campaign" }).click();
 
