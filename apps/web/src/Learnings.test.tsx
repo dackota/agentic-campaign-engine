@@ -49,6 +49,20 @@ test("a learning of three stored lines shows the first as its title and the othe
   ]);
 });
 
+test("stray spaces and blank lines in a stored learning never make an empty title or empty lines", async () => {
+  stubApi({
+    "GET /learnings": [
+      { ...LEARNING, id: "l2", text: "  Lead with the patch deadline  \n\n   \n  Read the advisory " },
+      { ...LEARNING, id: "l3", text: "  \n " },
+    ],
+  });
+  render(<Learnings canDelete={false} onOpenCampaign={() => {}} onSignOut={() => {}} />);
+
+  await screen.findAllByTestId("learning-reason");
+  expect(screen.getAllByTestId("learning-text").map((el) => el.textContent)).toEqual(["Lead with the patch deadline"]);
+  expect(screen.getAllByTestId("learning-detail").map((el) => el.textContent)).toEqual(["Read the advisory"]);
+});
+
 test("the source campaign opens from its name", async () => {
   const onOpen = vi.fn();
   renderLearnings(false, onOpen);

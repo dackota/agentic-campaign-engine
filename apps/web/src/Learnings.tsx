@@ -21,14 +21,15 @@ interface LearningItemProps {
 const whyText = (reason: string): string => reason.replace(/^Variant /, "Version ");
 
 /** The engine keeps a learning as its winning lines, one per line: the first is the title. */
-const linesOf = (text: string): string[] => text.split("\n").filter((line) => line.trim() !== "");
+const linesOf = (text: string): string[] =>
+  text.split("\n").map((line) => line.trim()).filter((line) => line !== "");
 
 function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: LearningItemProps) {
   const [title = "", ...details] = linesOf(learning.text);
   return (
     <li className="learning-item">
       <Card>
-      <p className="learning-text" data-testid="learning-text">{title}</p>
+      {title !== "" && <p className="learning-text" data-testid="learning-text">{title}</p>}
       {details.map((line, index) => (
         <p key={`${index}-${line}`} className="learning-detail" data-testid="learning-detail">{line}</p>
       ))}
