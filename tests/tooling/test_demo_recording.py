@@ -1,6 +1,6 @@
-"""The demo recording: apps/web/demo/record.mjs, a plain Node script on the Playwright library, captions every beat of docs/demo-script.md,
-and the README shows the GIF and links the video. The frames themselves are checked by hand
-(ffmpeg, one frame per caption): no test sees a frame."""
+"""The demo recording: apps/web/demo/record.mjs, a plain Node script on the Playwright library,
+captions every beat of docs/demo-script.md, and the README shows the GIF and links the video.
+The frames themselves are checked by hand (ffmpeg, one frame per caption): no test sees a frame."""
 
 import re
 from pathlib import Path
