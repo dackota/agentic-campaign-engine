@@ -329,6 +329,13 @@ def test_a_request_with_the_token_in_the_query_exports_no_span_that_holds_it(
     response = client.get(f"/campaigns/{campaign_id}/events", params={"access_token": OWNER})
 
     assert response.status_code == 200
+    exported = [
+        s
+        for s in spans.get_finished_spans()
+        if s.name == "GET /campaigns/{campaign_id}/events"
+        and (s.attributes or {}).get("http.method") == "GET"
+    ]
+    assert exported, "the GET /events server span was not exported"
     held = [
         (s.name, key)
         for s in spans.get_finished_spans()
