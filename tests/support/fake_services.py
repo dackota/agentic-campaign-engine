@@ -12,8 +12,10 @@ class FakeServices(httpx.AsyncBaseTransport):
 
     def __init__(self, apps: dict[str, FastAPI]) -> None:
         self._transports = {host: httpx.ASGITransport(app=app) for host, app in apps.items()}
+        self.seen: list[httpx.Request] = []
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
+        self.seen.append(request)
         transport = self._transports.get(request.url.host)
         if transport is None:
             raise httpx.ConnectError(f"no fake service at {request.url.host}", request=request)

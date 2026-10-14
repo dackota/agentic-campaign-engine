@@ -29,6 +29,8 @@ class CampaignSeed:
     draft: dict[str, Any] | None = None
     dag: dict[str, Any] = field(default_factory=default_workflow_dag)
     outputs: Mapping[str, Any] = field(default_factory=dict)
+    use_step_cache: bool = False
+    budget_micros: int | None = None
 
 
 def seed_campaign(engine: Engine, seed: CampaignSeed = CampaignSeed()) -> uuid.UUID:  # noqa: B008
@@ -44,6 +46,8 @@ def seed_campaign(engine: Engine, seed: CampaignSeed = CampaignSeed()) -> uuid.U
                 status=seed.status,
                 draft=seed.draft,
                 dag=seed.dag,
+                use_step_cache=seed.use_step_cache,
+                budget_micros=seed.budget_micros,
             )
         )
         session.flush()
