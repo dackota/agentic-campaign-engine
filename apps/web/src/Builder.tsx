@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { listVersions, saveWorkflow, validateWorkflow, type Rejection } from "./builderApi";
 import { messageOf } from "./messages";
-import { kindLabel, stepLabel } from "./labels";
-import type { StepKind, Workflow, WorkflowStep } from "./workflow.gen";
+import { kindDescription, kindLabel, stepLabel } from "./labels";
+import { problemsOf, type Problem } from "./builderMessages";
+import { Card, EmptyBlock, ErrorBlock, LoadingBlock } from "./ui";
+import { StepKindValues, type StepKind, type Workflow, type WorkflowStep } from "./workflow.gen";
 
 const TEMPLATE_NAME = "Threat report to campaign";
 const TEMPLATE: WorkflowStep[] = [
@@ -48,15 +50,34 @@ function withPolicy(step: WorkflowStep, field: "max_attempts" | "review_rounds",
 
 interface StepRowProps {
   step: WorkflowStep;
+  problems: Problem[];
   onChange: (step: WorkflowStep) => void;
   onRemove: () => void;
+  onKeyMove: (delta: number) => void;
   dragProps: React.HTMLAttributes<HTMLLIElement>;
 }
 
-function StepRow({ step, onChange, onRemove, dragProps }: StepRowProps) {
+function StepRow({ step, problems, onChange, onRemove, onKeyMove, dragProps }: StepRowProps) {
+  const name = stepLabel(step.id);
+  const kind = kindLabel(step.kind);
   return (
-    <li draggable {...dragProps}>
-      <strong>{stepLabel(step.id)}</strong> ({kindLabel(step.kind)}){" "}
+    <li className="step-row" draggable {...dragProps}>
+      <button
+        type="button"
+        className="drag-handle"
+        data-step-id={step.id}
+        aria-label={`Move ${name}`}
+        title="Drag, or press the up and down arrow keys, to move this step"
+        onKeyDown={(e) => {
+          if (e.key !== "ArrowUp" && e.key !== "ArrowDown") return;
+          e.preventDefault();
+          onKeyMove(e.key === "ArrowUp" ? -1 : 1);
+        }}
+      >
+        <span aria-hidden="true">⠿</span>
+      </button>
+      <strong>{name}</strong>
+      {kind !== name && <> ({kind})</>}{" "}
       <label>
         Retry attempts
         <input
@@ -76,6 +97,9 @@ function StepRow({ step, onChange, onRemove, dragProps }: StepRowProps) {
       <button type="button" onClick={onRemove}>
         Remove
       </button>
+      {problems.map((p) => (
+        <ErrorBlock key={p.text}>{p.text}</ErrorBlock>
+      ))}
     </li>
   );
 }
@@ -97,34 +121,50 @@ function useRejections(workflow: Workflow, fail: (e: unknown) => void) {
   return rejections;
 }
 
-const ADDABLE: { kind: StepKind; label: string }[] = [
-  { kind: "agent", label: "Add agent step" },
-  { kind: "render", label: "Add render step" },
-  { kind: "approval", label: "Add approval gate" },
-  { kind: "publish", label: "Add publish step" },
-  { kind: "wait", label: "Add wait step" },
-];
+function Palette({ onAdd }: { onAdd: (kind: StepKind) => void }) {
+  return (
+    <ul aria-label="Step palette" className="palette">
+      {StepKindValues.map((kind) => (
+        <li key={kind}>
+          <button type="button" onClick={() => onAdd(kind)}>
+            Add {kindLabel(kind)}
+          </button>
+          <p>{kindDescription(kind)}</p>
+        </li>
+      ))}
+    </ul>
+  );
+}
 
-function AddStepBar({ onAdd }: { onAdd: (kind: StepKind) => void }) {
+function ProblemList({ problems }: { problems: Problem[] }) {
   return (
     <>
-      {ADDABLE.map(({ kind, label }) => (
-        <button key={kind} type="button" onClick={() => onAdd(kind)}>
-          {label}
-        </button>
+      {problems.map((p) => (
+        <ErrorBlock key={p.text}>{p.text}</ErrorBlock>
       ))}
     </>
   );
 }
 
-function RejectionAlert({ rejections }: { rejections: Rejection[] | null }) {
-  if (!rejections || rejections.length === 0) return null;
+function Gallery({ onPick }: { onPick: (steps: WorkflowStep[]) => void }) {
   return (
-    <div role="alert">
-      {rejections.map((r) => (
-        <p key={r.message}>{r.message}</p>
-      ))}
-    </div>
+    <>
+      <p>Start from a template, or build your own.</p>
+      <Card>
+        <h2>{TEMPLATE_NAME}</h2>
+        <p>An email draft, a person's approval, then publish.</p>
+        <button type="button" className="btn-primary" onClick={() => onPick(TEMPLATE)}>
+          Use template: {TEMPLATE_NAME}
+        </button>
+      </Card>
+      <Card>
+        <h2>Blank workflow</h2>
+        <p>An empty canvas: add each step yourself.</p>
+        <button type="button" onClick={() => onPick([])}>
+          Start a blank workflow
+        </button>
+      </Card>
+    </>
   );
 }
 
@@ -172,19 +212,36 @@ function useSavedVersions(name: string, isValidName: boolean, fail: (e: unknown)
 
 interface StepListProps {
   steps: WorkflowStep[];
+  problems: Problem[];
   onSteps: (steps: WorkflowStep[]) => void;
 }
 
-function StepList({ steps, onSteps }: StepListProps): React.JSX.Element {
+function StepList({ steps, problems, onSteps }: StepListProps): React.JSX.Element {
   const [dragging, setDragging] = useState<number | null>(null);
+  const listRef = useRef<HTMLOListElement>(null);
+  const [focusId, setFocusId] = useState<string | null>(null);
+  // Keep keyboard focus on the handle of the step that just moved.
+  useEffect(() => {
+    if (focusId === null) return;
+    listRef.current?.querySelector<HTMLElement>(`[data-step-id="${CSS.escape(focusId)}"]`)?.focus();
+    setFocusId(null);
+  }, [focusId]);
+  const keyMove = (i: number, delta: number) => {
+    const to = i + delta;
+    if (to < 0 || to >= steps.length) return;
+    onSteps(moveStep(steps, i, to));
+    setFocusId(steps[i]!.id);
+  };
   return (
-    <ol aria-label="Workflow steps">
+    <ol aria-label="Workflow steps" className="step-list" ref={listRef}>
       {steps.map((step, i) => (
         <StepRow
           key={step.id}
           step={step}
+          problems={problems.filter((p) => p.stepId === step.id)}
           onChange={(next) => onSteps(steps.map((s, j) => (j === i ? next : s)))}
           onRemove={() => onSteps(steps.filter((_, j) => j !== i))}
+          onKeyMove={(delta) => keyMove(i, delta)}
           dragProps={{
             onDragStart: () => setDragging(i),
             onDragOver: (e) => e.preventDefault(),
@@ -200,12 +257,27 @@ function StepList({ steps, onSteps }: StepListProps): React.JSX.Element {
 }
 
 export function Builder(): React.JSX.Element {
-  const [steps, setSteps] = useState<WorkflowStep[]>([]);
+  // null: the template gallery, before the user has picked anything.
+  const [picked, setPicked] = useState<WorkflowStep[] | null>(null);
+  if (picked === null) {
+    return (
+      <section>
+        <h1>Workflow builder</h1>
+        <Gallery onPick={setPicked} />
+      </section>
+    );
+  }
+  return <Editor initial={picked} onBack={() => setPicked(null)} />;
+}
+
+function Editor({ initial, onBack }: { initial: WorkflowStep[]; onBack: () => void }) {
+  const [steps, setSteps] = useState<WorkflowStep[]>(initial);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const fail = (e: unknown) => setError(messageOf(e));
   const workflow = useMemo(() => toWorkflow(steps), [steps]);
   const rejections = useRejections(workflow, fail);
+  const problems = problemsOf(steps, rejections ?? []);
   const isValidName = NAME_PATTERN.test(name);
   const [versions, setVersions] = useSavedVersions(name, isValidName, fail);
 
@@ -227,17 +299,21 @@ export function Builder(): React.JSX.Element {
   return (
     <section>
       <h1>Workflow builder</h1>
-      <button type="button" onClick={() => setSteps(TEMPLATE)}>
-        Use template: {TEMPLATE_NAME}
+      <button type="button" onClick={onBack}>
+        Back to templates
       </button>
-      <StepList steps={steps} onSteps={setSteps} />
-      <AddStepBar onAdd={add} />
-      <RejectionAlert rejections={rejections} />
-      {error && <p role="alert">{error}</p>}
+      <h2>Steps</h2>
+      {steps.length === 0 && <EmptyBlock>No steps yet. Add one from the palette below.</EmptyBlock>}
+      <StepList steps={steps} problems={problems} onSteps={setSteps} />
+      <ProblemList problems={problems.filter((p) => p.stepId === null)} />
+      {rejections === null && <LoadingBlock>Checking your workflow…</LoadingBlock>}
+      <h2>Step palette</h2>
+      <Palette onAdd={add} />
+      {error && <ErrorBlock>{error}</ErrorBlock>}
       <VersionPanel
         name={name}
         versions={versions}
-        canSave={isValidName && rejections?.length === 0}
+        canSave={isValidName && rejections !== null && problems.length === 0}
         onName={setName}
         onSave={() => void save()}
       />

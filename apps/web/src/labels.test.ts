@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { kindLabel, stepLabel, workflowLabel } from "./labels.ts";
+import { kindDescription, kindLabel, stepLabel, workflowLabel } from "./labels.ts";
 import { StepKindValues } from "./workflow.gen.ts";
 
 test("every step kind in the workflow schema has a label", () => {
@@ -20,4 +20,11 @@ test("unknown ids are made readable", () => {
   assert.equal(stepLabel("constructor"), "Constructor");
   assert.equal(stepLabel("first_draft"), "First draft");
   assert.equal(workflowLabel("my-workflow"), "My workflow");
+});
+
+test("every step kind has a one-line description", () => {
+  for (const kind of StepKindValues) {
+    const text = kindDescription(kind);
+    assert.ok(text.length > 0 && !text.includes("\n"), kind);
+  }
 });
