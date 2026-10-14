@@ -9,7 +9,7 @@ import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import MappingProxyType
@@ -612,16 +612,13 @@ async def _open_engine(settings: Settings) -> Engine:
     return engine
 
 
-def create_app(
+def _lifespan(
     settings: Settings,
-    *,
-    engine: Engine | None = None,
-    verifier: TokenVerifier | None = None,
-    temporal: Client | None = None,
-) -> FastAPI:
-    """The Campaign API. A test passes `engine`, `verifier` or `temporal` to stand in for the
-    ones the lifespan builds from `settings`; an injected engine is the caller's to prepare
-    (schema, row security, seed) and to dispose."""
+    engine: Engine | None,
+    verifier: TokenVerifier | None,
+    temporal: Client | None,
+) -> Callable[[FastAPI], AbstractAsyncContextManager[None]]:
+    """The startup and shutdown of the app: builds what the caller did not inject."""
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -643,7 +640,20 @@ def create_app(
         if engine is None:
             app.state.engine.dispose()
 
-    app = FastAPI(lifespan=lifespan)
+    return lifespan
+
+
+def create_app(
+    settings: Settings,
+    *,
+    engine: Engine | None = None,
+    verifier: TokenVerifier | None = None,
+    temporal: Client | None = None,
+) -> FastAPI:
+    """The Campaign API. A test passes `engine`, `verifier` or `temporal` to stand in for the
+    ones the lifespan builds from `settings`; an injected engine is the caller's to prepare
+    (schema, row security, seed) and to dispose."""
+    app = FastAPI(lifespan=_lifespan(settings, engine, verifier, temporal))
     telemetry.instrument_app(app, SERVICE)
     install_campaign_trace(app, settings)
 
