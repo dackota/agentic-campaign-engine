@@ -1,4 +1,4 @@
-import type { CampaignStatus } from "./api.ts";
+import type { AbResult, Campaign, CampaignStatus, Usage } from "./api.ts";
 import type { StepKind } from "./workflow.gen.ts";
 
 /** The one place ids become words a marketer reads. Ids not listed are made readable by `humanize`. */
@@ -24,8 +24,11 @@ const KIND_LABELS: Record<StepKind, string> = {
   wait: "Wait",
 };
 
+/** The standard saved workflow: the one the new-campaign form starts on. */
+export const DEFAULT_WORKFLOW = "threat-report-to-campaign";
+
 const WORKFLOW_LABELS: Record<string, string> = {
-  "threat-report-to-campaign": "Threat report to campaign",
+  [DEFAULT_WORKFLOW]: "Threat report to campaign",
 };
 
 /** "my_new-step" becomes "My new step". */
@@ -108,4 +111,30 @@ export function failureText(reason: string | null): string {
   const attempts = Number(found[2]);
   const after = attempts ? ` after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}` : "";
   return `The ${stepLabel(found[1])} step did not finish${after}.`;
+}
+
+const COST_DECIMALS = 4;
+
+/** Money on a main screen: dollars and cents. */
+export const dollarsText = (usd: number): string => `$${usd.toFixed(2)}`;
+
+/** A dollar amount typed in a form, or null when the field is blank. */
+export function dollarsOf(text: string): number | null {
+  return text.trim() ? Number(text) : null;
+}
+
+/** Tokens and dollars, e.g. "3,000 tokens, $0.0162". */
+export function costText(usage: Usage): string {
+  return `${usage.total_tokens.toLocaleString("en-US")} tokens, $${usage.cost_usd.toFixed(COST_DECIMALS)}`;
+}
+
+/** The A/B call: "Version B won, 97% confident", or "No decision yet". */
+export function abResultText(result: AbResult): string {
+  if (result.status !== "winner" || result.confidence === null) return "No decision yet";
+  return `Version ${result.winner} won, ${Math.floor(result.confidence * 100)}% confident`;
+}
+
+/** The list label for a campaign: the first line of its report. */
+export function campaignTitle(campaign: Campaign): string {
+  return campaign.report.split("\n", 1)[0] ?? campaign.id;
 }

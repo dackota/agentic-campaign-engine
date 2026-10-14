@@ -1,6 +1,21 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
-import { failureText, flagLabel, kindDescription, kindLabel, nextStepText, stepLabel, stepStatusLabel, workflowLabel } from "./labels.ts";
+import { test } from "vitest";
+import type { Campaign } from "./api.ts";
+import {
+  abResultText,
+  campaignTitle,
+  costText,
+  dollarsOf,
+  dollarsText,
+  failureText,
+  flagLabel,
+  kindDescription,
+  kindLabel,
+  nextStepText,
+  stepLabel,
+  stepStatusLabel,
+  workflowLabel,
+} from "./labels.ts";
 import { StepKindValues } from "./workflow.gen.ts";
 
 test("every step kind in the workflow schema has a label", () => {
@@ -61,4 +76,27 @@ test("a failure reason reads in plain words, without step ids or raw errors", ()
   assert.equal(failureText("step 'writer' failed: contract broken"), "The Writer step did not finish.");
   assert.equal(failureText(null), "A step did not finish.");
   assert.equal(failureText("something odd {}"), "A step did not finish.");
+});
+
+test("cost reads as tokens and four-decimal dollars; main screens read dollars and cents", () => {
+  const usage = { input_tokens: 2000, output_tokens: 1000, total_tokens: 3000, cost_usd: 0.0162 };
+  assert.equal(costText(usage), "3,000 tokens, $0.0162");
+  assert.equal(costText({ ...usage, total_tokens: 4500, cost_usd: 0.0243 }), "4,500 tokens, $0.0243");
+  assert.equal(dollarsText(0.0162), "$0.02");
+  assert.equal(dollarsText(0.042), "$0.04");
+});
+
+test("a blank budget box means no limit; a typed one is a number", () => {
+  assert.equal(dollarsOf("  "), null);
+  assert.equal(dollarsOf("0.01"), 0.01);
+});
+
+test("the A/B call names the winner and rounds confidence down", () => {
+  assert.equal(abResultText({ status: "no_decision", winner: null, confidence: null }), "No decision yet");
+  assert.equal(abResultText({ status: "winner", winner: "A", confidence: 0.857 }), "Version A won, 85% confident");
+  assert.equal(abResultText({ status: "winner", winner: "B", confidence: null }), "No decision yet");
+});
+
+test("a campaign is titled by the first line of its report", () => {
+  assert.equal(campaignTitle({ id: "c1", report: "Volt Typhoon\nActors exploit VPNs" } as Campaign), "Volt Typhoon");
 });

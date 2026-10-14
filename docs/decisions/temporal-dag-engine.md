@@ -32,5 +32,5 @@ shell; the rules live in plain Python that tests can drive without Temporal.
 
 ## Proof
 
-`tests/api/test_workflow_runs.py`, `tests/api/test_step_failures.py`,
-`tests/api/test_workflow_property.py`.
+`tests/engine/test_workflow_run_order.py`, `tests/api/test_step_failures.py`,
+`tests/engine/test_workflow_property.py`.

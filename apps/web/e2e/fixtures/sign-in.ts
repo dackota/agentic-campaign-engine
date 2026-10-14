@@ -3,8 +3,6 @@ import { expect, type Page } from "@playwright/test";
 // Demo users from platform/dex/config.yaml; the password is demo-only.
 export const OWNER = "dg-owner@demo.example";
 export const APPROVER = "dg-approver@demo.example";
-export const VIEWER = "dg-viewer@demo.example";
-export const PM_OWNER = "pm-owner@demo.example";
 const DEMO_PASSWORD = "demo-password";
 
 /** Sign in through Dex's login page, the way a marketer does. */
@@ -22,16 +20,6 @@ export async function openNewCampaign(page: Page): Promise<void> {
   if (await page.getByLabel("Threat report").count()) return;
   await page.getByRole("link", { name: /New campaign|Start your first campaign/ }).first().click();
   await expect(page.getByLabel("Threat report")).toBeVisible();
-}
-
-/** Pick a saved workflow by its id on the new-campaign page. The picker reads the list when the
- * page opens, so a workflow saved since then needs the page opened afresh. Call it before filling
- * in the form, because reopening clears it. */
-export async function chooseWorkflow(page: Page, id: string): Promise<void> {
-  await page.getByRole("button", { name: "Workflow builder" }).click();
-  await page.getByRole("button", { name: "Campaigns" }).click();
-  await openNewCampaign(page);
-  await page.getByLabel("Workflow", { exact: true }).selectOption({ value: id });
 }
 
 /** Pick the built-in one-email pipeline, which shows the draft and its A/B result on the run page. */

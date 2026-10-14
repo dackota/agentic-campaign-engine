@@ -1,6 +1,19 @@
 import type { ReactElement, ReactNode } from "react";
+import type { CampaignStatus } from "./api";
 
 export type Tone = "ok" | "warn" | "bad" | "info";
+/** How a campaign's status looks on the run page and in the campaign list. */
+export const STATUS_TONES: Record<CampaignStatus, Tone> = {
+  drafting: "info",
+  awaiting_approval: "warn",
+  sending: "info",
+  sent: "ok",
+  failed: "bad",
+  retrying: "warn",
+  finished: "ok",
+  budget_paused: "warn",
+};
+
 const ICONS: Record<Tone, string> = { ok: "✓", warn: "!", bad: "✕", info: "i" };
 
 /** Status as color, icon, and word together, never color alone. */

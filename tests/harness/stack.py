@@ -27,18 +27,13 @@ import httpx
 import uvicorn
 from ace_engine.settings import Depth
 from docker.errors import NotFound
-from opentelemetry import metrics, trace
-from opentelemetry.sdk.metrics import MeterProvider
-from opentelemetry.sdk.metrics.export import InMemoryMetricReader
-from opentelemetry.sdk.trace import TracerProvider
-from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.docker_client import DockerClient
 
 from tests.harness.dex import CLIENT_ID, Dex
 from tests.harness.scripted_agent import ScriptedAgent
+from tests.support.telemetry import install_metric_reader, install_span_exporter
 
 if TYPE_CHECKING:
     from ace_engine.settings import Settings
@@ -91,31 +86,12 @@ def kagent_port_forward_command(local_port: int) -> list[str]:
     ]
 
 
-_SPAN_EXPORTER = InMemorySpanExporter()
+def postgres_container(labels: dict[str, str]) -> PostgresContainer:
+    """The pinned pgvector Postgres, not yet started, labelled so a sweep finds it."""
+    return PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(labels=labels)
 
 
-def _install_span_exporter() -> InMemorySpanExporter:
-    """The test exporter, set as the process's tracer provider the first time a stack is built
-    (OpenTelemetry allows one provider per process)."""
-    if not isinstance(trace.get_tracer_provider(), TracerProvider):
-        provider = TracerProvider()
-        provider.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
-        trace.set_tracer_provider(provider)
-    return _SPAN_EXPORTER
-
-
-_METRIC_READER = InMemoryMetricReader()
-
-
-def _install_metric_reader() -> InMemoryMetricReader:
-    """The test metric reader, set up the first time a stack is built (one meter provider per
-    process, like the tracer provider)."""
-    if not isinstance(metrics.get_meter_provider(), MeterProvider):
-        metrics.set_meter_provider(MeterProvider(metric_readers=[_METRIC_READER]))
-    return _METRIC_READER
-
-
-def _owner_labels() -> dict[str, str]:
+def owner_labels() -> dict[str, str]:
     """The labels of a new stack's containers: its run id, and the process and host that own it."""
     return {
         RUN_LABEL: secrets.token_hex(8),
@@ -177,8 +153,8 @@ class Stack:
         self._data_volume = data_volume
         self.depth = Depth.parse(depth) if depth is not None else Depth.from_env()
         # Every service runs in this process, so one in-memory exporter holds every span.
-        self.spans = _install_span_exporter()
-        self._metric_reader = _install_metric_reader()
+        self.spans = install_span_exporter()
+        self._metric_reader = install_metric_reader()
         # What Grafana's alert webhook sends as its bearer token. Fresh per stack unless a
         # browser spec has to know it up front.
         self.alert_webhook_token = pinned.alert_webhook_token or secrets.token_urlsafe(24)
@@ -190,7 +166,7 @@ class Stack:
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
         self.web_origin = pinned.web_origin
-        self._labels = _owner_labels()
+        self._labels = owner_labels()
         self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin, self._labels)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
@@ -358,9 +334,7 @@ class Stack:
             self._remove_orphans()
             if self.depth is Depth.LIVE:
                 self._open_kagent()
-            self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(
-                labels=self._labels
-            )
+            self._postgres = postgres_container(self._labels)
             if self._data_volume:
                 self._postgres.with_volume_mapping(self._data_volume, POSTGRES_DATA_DIR, "rw")
             self._postgres.start()
