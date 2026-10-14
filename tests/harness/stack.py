@@ -9,8 +9,10 @@ model calls go through agentgateway. The cluster must be up (`make up`).
 """
 
 import asyncio
+import atexit
 import contextlib
 import dataclasses
+import os
 import secrets
 import socket
 import subprocess
@@ -24,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import uvicorn
 from ace_engine.settings import Depth
+from docker.errors import NotFound
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import InMemoryMetricReader
@@ -50,6 +53,8 @@ POSTGRES_IMAGE = (
 # finds it even when a start was cut off before testcontainers had a handle to it.
 POSTGRES_DATA_DIR = "/var/lib/postgresql/data"
 RUN_LABEL = "ace.harness.run"
+PID_LABEL = "ace.harness.pid"
+HOST_LABEL = "ace.harness.host"
 START_TIMEOUT_SECONDS = 180
 STOP_TIMEOUT_SECONDS = 60
 WORKER_THREADS = 8
@@ -110,6 +115,29 @@ def _install_metric_reader() -> InMemoryMetricReader:
     return _METRIC_READER
 
 
+def _owner_labels() -> dict[str, str]:
+    """The labels of a new stack's containers: its run id, and the process and host that own it."""
+    return {
+        RUN_LABEL: secrets.token_hex(8),
+        PID_LABEL: str(os.getpid()),
+        HOST_LABEL: socket.gethostname(),
+    }
+
+
+def _is_alive(pid: str) -> bool:
+    """Whether the process id is a live process. No process id (a container from before the
+    label) counts as alive, so it is never removed."""
+    if not pid.isdigit():
+        return True
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def free_port() -> int:
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
@@ -162,7 +190,7 @@ class Stack:
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
         self.web_origin = pinned.web_origin
-        self._labels = {RUN_LABEL: secrets.token_hex(8)}
+        self._labels = _owner_labels()
         self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin, self._labels)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
@@ -323,7 +351,11 @@ class Stack:
     def start(self) -> "Stack":
         # A failed start removes what it started: testcontainers' atexit hook removes Ryuk
         # before Ryuk can, so nothing else would.
+        # A normal exit runs testcontainers' hook first and removes Ryuk, so this hook, which
+        # runs before it, is what removes the containers when a run ends without stop().
+        atexit.register(self.stop)
         try:
+            self._remove_orphans()
             if self.depth is Depth.LIVE:
                 self._open_kagent()
             self._postgres = PostgresContainer(POSTGRES_IMAGE, driver="psycopg").with_kwargs(
@@ -383,12 +415,32 @@ class Stack:
             self._loop.call_soon_threadsafe(self._stop.set)
         thread.join(timeout=STOP_TIMEOUT_SECONDS)
 
-    def _remove_containers(self) -> None:
-        self._postgres = None
-        ((key, run_id),) = self._labels.items()
+    @staticmethod
+    def _remove_orphans() -> None:
+        """Remove the containers of stacks on this host whose process is gone. A container
+        of a live process, of another host, or without the run label is left alone."""
         client = DockerClient().client
         try:
-            for container in client.containers.list(all=True, filters={"label": f"{key}={run_id}"}):
+            # api.containers lists without inspecting each container, as containers.list
+            # does: another worker may remove one first, and that is not an error.
+            for container in client.api.containers(all=True, filters={"label": RUN_LABEL}):
+                labels = container.get("Labels") or {}
+                if labels.get(HOST_LABEL) == socket.gethostname() and not _is_alive(
+                    labels.get(PID_LABEL, "")
+                ):
+                    try:
+                        client.api.remove_container(container["Id"], force=True, v=True)
+                    except NotFound:
+                        pass
+        finally:
+            client.close()
+
+    def _remove_containers(self) -> None:
+        self._postgres = None
+        client = DockerClient().client
+        try:
+            run = f"{RUN_LABEL}={self._labels[RUN_LABEL]}"
+            for container in client.containers.list(all=True, filters={"label": run}):
                 container.remove(force=True, v=True)
         finally:
             client.close()

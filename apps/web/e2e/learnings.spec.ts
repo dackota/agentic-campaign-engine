@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
+import { APPROVER, OWNER, signIn, openNewCampaign } from "./fixtures/sign-in";
 
 // playwright.config.ts sets the fake Marketo's port before the workers start, so a spec can steer its audience.
 const marketoPort = process.env.ACE_MARKETO_PORT;
@@ -25,15 +25,16 @@ async function setAudience(page: Page, timeSpeed: number): Promise<void> {
 async function sendUntilWinner(page: Page, browser: Browser, report: string): Promise<Page> {
   await setAudience(page, DAY_SPEED);
   await signIn(page, OWNER);
+  await openNewCampaign(page);
   await page.getByLabel("Threat report").fill(report);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty({ timeout: DRAFT_WAIT_MS });
 
   const approverPage = await (await browser.newContext()).newPage();
   await signIn(approverPage, APPROVER);
-  await approverPage.getByRole("button", { name: report }).click();
+  await approverPage.getByRole("link", { name: report }).click();
   await approverPage.getByRole("button", { name: "Approve" }).click();
-  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Winner: [AB]/, {
+  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Version [AB] won/, {
     timeout: SETTLE_MS,
   });
   return approverPage;
@@ -61,7 +62,7 @@ test("an approver sees each learning's source campaign and deletes a learning; a
   const learning = approverPage.getByRole("listitem").filter({ hasText: report });
   await expect(learning).toHaveCount(1);
   await expect(learning.getByTestId("learning-text")).not.toBeEmpty();
-  await expect(learning.getByTestId("learning-reason")).toHaveText(/^Variant [AB] won/);
+  await expect(learning.getByTestId("learning-reason")).toHaveText(/^Version [AB] won/);
   await learning.getByRole("button", { name: report }).click();
   await expect(approverPage.getByTestId("draft-subject")).not.toBeEmpty();
 

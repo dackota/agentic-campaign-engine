@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useState, type Dispatch, type FormEvent, type ReactNode, type SetStateAction } from "react";
 import {
   approveCampaign,
   createCampaign,
@@ -25,29 +25,33 @@ import { Builder } from "./Builder";
 import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
+import { PreviewFrame } from "./PreviewFrame";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
-import { stepLabel, workflowLabel } from "./labels";
+import { failureText, nextStepText, statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
-import { Header, ViewNav, type View } from "./Shell";
+import { campaignPath, NEW_CAMPAIGN_PATH, useRoute, type Route } from "./route";
+import { Header, PRODUCT_NAME, ViewNav, type View } from "./Shell";
+import { Card, EmptyBlock, ErrorBlock, LoadingBlock, StatusBadge, type Tone } from "./ui";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
 // The simulated audience keeps engaging after the send; watch for the A/B call this long.
 const AB_WATCH_POLLS = 120;
 
-const STATUS_LABELS: Record<Campaign["status"], string> = {
-  drafting: "Drafting",
-  awaiting_approval: "Waiting for approval",
-  sending: "Sending",
-  sent: "Sent",
-  failed: "Failed",
-  retrying: "Retrying",
-  finished: "Finished",
-  budget_paused: "Paused at budget",
+const STATUS_TONES: Record<Campaign["status"], Tone> = {
+  drafting: "info",
+  awaiting_approval: "warn",
+  sending: "info",
+  sent: "ok",
+  failed: "bad",
+  retrying: "warn",
+  finished: "ok",
+  budget_paused: "warn",
 };
 
 const COST_DECIMALS = 4;
+const REPORT_ROWS = 14;
 const DEFAULT_WORKFLOW = "threat-report-to-campaign";
 /** The built-in one-email pipeline: no saved workflow, so the API gets an empty name. */
 const QUICK_DRAFT_LABEL = "Quick email draft";
@@ -80,10 +84,10 @@ async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promi
   }
 }
 
-/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+/** The A/B call: "Version B won, 97% confident", or "No decision yet". */
 function abResultText(result: AbResult): string {
   if (result.status !== "winner" || result.confidence === null) return "No decision yet";
-  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
+  return `Version ${result.winner} won, ${Math.floor(result.confidence * 100)}% confident`;
 }
 
 /** What the run cost, in dollars and cents. */
@@ -115,10 +119,10 @@ function RunCostDetails({ cost }: { cost: CampaignCost }) {
 
 /** The judge's score and reason for each asset of the run. */
 function RunScores({ scores }: { scores: AssetScore[] }) {
-  if (scores.length === 0) return null;
+  if (scores.length === 0) return <EmptyBlock>No quality check yet.</EmptyBlock>;
   return (
     <section aria-label="Judge scores">
-      <ul>
+      <ul className="score-list">
         {scores.map((s) => (
           <li key={s.step}>
             {stepLabel(s.step)}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
@@ -130,24 +134,15 @@ function RunScores({ scores }: { scores: AssetScore[] }) {
   );
 }
 
-function RunCostAndScores({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
+function DraftView({ draft, id, showDetails }: { draft: EmailDraft; id: string; showDetails: boolean }) {
   return (
     <>
-      <RunCost cost={campaign.cost} />
-      {showDetails && <RunCostDetails cost={campaign.cost} />}
-      <RunScores scores={campaign.scores} />
+      <h3 data-testid="draft-subject">{draft.subject}</h3>
+      <p className="hint">{draft.preheader}</p>
+      <EmailPreview id={id} />
+      {/* The raw text is for engineers; a marketer reads the rendered email above. */}
+      {showDetails && <pre data-testid="draft-body">{draft.body}</pre>}
     </>
-  );
-}
-
-function DraftView({ draft }: { draft: EmailDraft }) {
-  return (
-    <section aria-label="Email draft">
-      <h2 data-testid="draft-subject">{draft.subject}</h2>
-      <p>{draft.preheader}</p>
-      <pre data-testid="draft-body">{draft.body}</pre>
-      <p>{draft.call_to_action}</p>
-    </section>
   );
 }
 
@@ -156,26 +151,100 @@ function titleOf(campaign: Campaign): string {
   return campaign.report.split("\n", 1)[0] ?? campaign.id;
 }
 
-interface CampaignListProps {
-  campaigns: Campaign[];
-  onOpen: (id: string) => void;
+/** A link to a path inside the app: a real href, so it opens in a new tab and can be shared. */
+function NavLink({ path, go, className, children }: NavLinkProps) {
+  return (
+    <a
+      href={path}
+      className={className}
+      onClick={(e) => {
+        if (e.metaKey || e.ctrlKey || e.shiftKey || e.button !== 0) return;
+        e.preventDefault();
+        go(path);
+      }}
+    >
+      {children}
+    </a>
+  );
 }
 
-function CampaignList({ campaigns, onOpen }: CampaignListProps) {
+interface NavLinkProps {
+  path: string;
+  go: (path: string) => void;
+  className?: string;
+  children: ReactNode;
+}
+
+/** Owners run campaigns, so only they see the way to start one. The API enforces the same. */
+const canCreate = (me: Me): boolean => me.roles.includes("owner");
+
+function CampaignCard({ me, campaign, go }: { me: Me; campaign: Campaign; go: (path: string) => void }) {
+  return (
+    <li className="card-item">
+      <Card>
+        <h3 className="card-title">
+          <NavLink path={campaignPath(campaign.id)} go={go}>
+            {titleOf(campaign)}
+          </NavLink>
+        </h3>
+        <p>
+          <span data-testid="card-status">
+            <StatusBadge tone={STATUS_TONES[campaign.status]}>{statusLabel(campaign.status)}</StatusBadge>
+          </span>
+        </p>
+        <dl className="card-facts">
+          <dt>Owner</dt>
+          {/* The API names the creator by an opaque id, so the card says only whether it is you. */}
+          <dd data-testid="card-owner">{campaign.created_by === me.subject ? "You" : "A teammate"}</dd>
+          <dt>Started</dt>
+          <dd data-testid="card-started">
+            <time dateTime={campaign.created_at}>{new Date(campaign.created_at).toLocaleString()}</time>
+          </dd>
+          <dt>Cost</dt>
+          <dd data-testid="card-cost">{dollarsText(campaign.cost.cost_usd)}</dd>
+        </dl>
+      </Card>
+    </li>
+  );
+}
+
+interface CampaignHomeProps {
+  me: Me;
+  campaigns: Campaign[] | null;
+  go: (path: string) => void;
+}
+
+function CampaignHome({ me, campaigns, go }: CampaignHomeProps) {
   return (
     <section>
-      <h2>Campaigns</h2>
-      <ul aria-label="Campaigns">
-        {campaigns.length === 0 && <li>No campaigns yet.</li>}
-        {campaigns.map((c) => (
-          <li key={c.id}>
-            <button type="button" onClick={() => onOpen(c.id)}>
-              {titleOf(c)}
-            </button>{" "}
-            {STATUS_LABELS[c.status]}
-          </li>
-        ))}
-      </ul>
+      <div className="page-head">
+        <h1>Campaigns</h1>
+        {canCreate(me) && (
+          <NavLink path={NEW_CAMPAIGN_PATH} go={go} className="btn btn-primary">
+            New campaign
+          </NavLink>
+        )}
+      </div>
+      {campaigns === null ? (
+        <LoadingBlock>Loading your campaigns…</LoadingBlock>
+      ) : campaigns.length === 0 ? (
+        <EmptyBlock>
+          No campaigns yet.{" "}
+          {canCreate(me) ? (
+            <NavLink path={NEW_CAMPAIGN_PATH} go={go} className="btn btn-primary">
+              Start your first campaign
+            </NavLink>
+          ) : (
+            "An owner on your team can start one."
+          )}
+        </EmptyBlock>
+      ) : (
+        <ul aria-label="Campaigns" className="card-list">
+          {campaigns.map((c) => (
+            <CampaignCard key={c.id} me={me} campaign={c} go={go} />
+          ))}
+        </ul>
+      )}
     </section>
   );
 }
@@ -207,12 +276,7 @@ interface EmailPreviewProps {
 
 function EmailPreview({ id }: EmailPreviewProps) {
   return (
-    <iframe
-      title="Email preview"
-      src={previewUrl(id)}
-      sandbox=""
-      style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
-    />
+    <PreviewFrame title="Email preview" src={previewUrl(id)} isTall />
   );
 }
 
@@ -234,12 +298,18 @@ export function App() {
     });
   }, []);
 
-  if (session.state === "loading") return <main aria-busy="true" />;
+  if (session.state === "loading") {
+    return (
+      <main aria-busy="true">
+        <LoadingBlock />
+      </main>
+    );
+  }
   if (session.state === "signed-out") {
     return (
       <main>
-        <h1>Agentic Campaign Engine</h1>
-        {error && <p role="alert">{error}</p>}
+        <h1>{PRODUCT_NAME}</h1>
+        {error && <ErrorBlock>{error}</ErrorBlock>}
         <button type="button" onClick={() => void signIn().catch(showError)}>
           Sign in
         </button>
@@ -260,13 +330,15 @@ export function App() {
 type Fail = (e: unknown) => void;
 
 /** The campaigns the user can see, loaded on sign-in; `refresh` reloads them. */
-function useCampaignList(fail: Fail): { campaigns: Campaign[]; refresh: () => Promise<void> } {
-  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
+function useCampaignList(fail: Fail): { campaigns: Campaign[] | null; refresh: () => Promise<void> } {
+  // null until the first read, so home shows a loading state, not an empty one.
+  const [campaigns, setCampaigns] = useState<Campaign[] | null>(null);
 
   async function refresh() {
     try {
       setCampaigns(await listCampaigns());
     } catch (e) {
+      setCampaigns((shown) => shown ?? []);
       fail(e);
     }
   }
@@ -293,8 +365,23 @@ async function attemptAction(
   }
 }
 
+/** Approve, follow the send, then watch for the A/B call without holding the page. */
+async function approveAndWatch(
+  id: string,
+  setCampaign: Dispatch<SetStateAction<Campaign | null>>,
+  refresh: () => Promise<void>,
+  fail: Fail,
+): Promise<void> {
+  await pollWhileSending(await approveCampaign(id), setCampaign);
+  await refresh();
+  // Not awaited: the page stays usable while the audience engages. A failed read
+  // only stops the watch; the shown result stays as last read.
+  void watchAbResult(id, (next) => setCampaign((shown) => (shown?.id === id ? next : shown))).catch(fail);
+}
+
 /** The campaign on screen and its run: open one, create one, approve it. */
 function useCampaignRun(
+  go: (path: string) => void,
   fail: Fail,
   setError: (message: string | null) => void,
   refresh: () => Promise<void>,
@@ -303,19 +390,23 @@ function useCampaignRun(
   const { events, reset, resume } = useRunEvents(campaign?.id, setCampaign, setError);
   const attempt = (task: () => Promise<void>) => attemptAction(task, setError, fail);
 
-  async function show(next: Promise<Campaign>) {
+  function show(next: Promise<Campaign>): Promise<Campaign> {
     setCampaign(null);
     reset();
-    setCampaign(await next);
+    return next.then((shown) => {
+      setCampaign(shown);
+      return shown;
+    });
   }
 
   return {
     campaign,
     events,
-    open: (id: string) => attempt(() => show(getCampaign(id))),
+    open: (id: string) => attempt(async () => void (await show(getCampaign(id)))),
     create: (report: string, workflow: string, budgetUsd: number | null) =>
       attempt(async () => {
-        await show(createCampaign(report, workflow, budgetUsd));
+        const created = await show(createCampaign(report, workflow, budgetUsd));
+        go(campaignPath(created.id));
         await refresh();
       }),
     raiseBudget: (id: string, budgetUsd: number) =>
@@ -324,16 +415,7 @@ function useCampaignRun(
         resume();
         await refresh();
       }),
-    approve: (id: string) =>
-      attempt(async () => {
-        await pollWhileSending(await approveCampaign(id), setCampaign);
-        await refresh();
-        // Not awaited: the page stays usable while the audience engages. A failed read
-        // only stops the watch; the shown result stays as last read.
-        void watchAbResult(id, (next) =>
-          setCampaign((shown) => (shown?.id === id ? next : shown)),
-        ).catch(fail);
-      }),
+    approve: (id: string) => attempt(() => approveAndWatch(id, setCampaign, refresh, fail)),
     retry: (id: string) =>
       attempt(async () => {
         setCampaign(await retryCampaign(id));
@@ -383,10 +465,34 @@ function WorkflowPicker({ value, onChange }: { value: string; onChange: (name: s
   );
 }
 
+/** The optional spend limit, with what it does in words. */
+function BudgetField({ value, onChange }: { value: string; onChange: (text: string) => void }) {
+  return (
+    <>
+      <label>
+        Budget (USD)
+        <input
+          type="number"
+          min="0"
+          step="any"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder="no limit"
+          aria-describedby="budget-hint"
+        />
+      </label>
+      <p id="budget-hint" className="hint">
+        Optional. The campaign pauses if it reaches this amount.
+      </p>
+    </>
+  );
+}
+
 function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
   const [report, setReport] = useState("");
   const [workflow, setWorkflow] = useState(DEFAULT_WORKFLOW);
   const [budget, setBudget] = useState("");
+  const hasReport = report.trim() !== "";
 
   function submit(event: FormEvent) {
     event.preventDefault();
@@ -396,26 +502,34 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
   return (
     <>
       <h1>New campaign</h1>
-      <form onSubmit={submit}>
+      <form onSubmit={submit} className="new-campaign">
         <label>
           Threat report
-          <textarea value={report} onChange={(e) => setReport(e.target.value)} rows={10} />
-        </label>
-        <WorkflowPicker value={workflow} onChange={setWorkflow} />
-        <label>
-          Budget (USD)
-          <input
-            type="number"
-            min="0"
-            step="any"
-            value={budget}
-            onChange={(e) => setBudget(e.target.value)}
-            placeholder="no limit"
+          <textarea
+            value={report}
+            onChange={(e) => setReport(e.target.value)}
+            rows={REPORT_ROWS}
+            aria-describedby="report-hint"
           />
         </label>
-        <button type="submit" className="btn btn-primary" disabled={!report.trim()}>
+        <p id="report-hint" className="hint">
+          Paste the threat report or advisory. The first line becomes the campaign title.
+        </p>
+        <WorkflowPicker value={workflow} onChange={setWorkflow} />
+        <BudgetField value={budget} onChange={setBudget} />
+        <button
+          type="submit"
+          className="btn btn-primary"
+          disabled={!hasReport}
+          aria-describedby={hasReport ? undefined : "create-reason"}
+        >
           Create campaign
         </button>
+        {!hasReport && (
+          <p id="create-reason" className="hint">
+            Add your threat report to start the campaign.
+          </p>
+        )}
       </form>
     </>
   );
@@ -487,46 +601,74 @@ function RunIds({ campaign }: { campaign: Campaign }) {
   );
 }
 
+function RunCards({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
+  return (
+    <div className="card-grid">
+      <Card label="Quality">
+        <h2>Quality</h2>
+        <RunScores scores={campaign.scores} />
+      </Card>
+      <Card label="Cost">
+        <h2>Cost</h2>
+        <RunCost cost={campaign.cost} />
+        {campaign.budget_usd !== null && (
+          <p>
+            Budget: <span data-testid="run-budget">{dollarsText(campaign.budget_usd)}</span>
+          </p>
+        )}
+        {showDetails && <RunCostDetails cost={campaign.cost} />}
+      </Card>
+      <div className="card-wide">
+        <Card label="Draft">
+          <h2>Draft</h2>
+          {campaign.draft ? (
+            <DraftView draft={campaign.draft} id={campaign.id} showDetails={showDetails} />
+          ) : (
+            <EmptyBlock>The draft appears here when the AI finishes writing it.</EmptyBlock>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
 function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
   const [showDetails, setShowDetails] = useState(false);
-  const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
-      <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>
-        Details
-      </button>
+      <h1 className="page-title">{titleOf(campaign)}</h1>
+      <p>
+        <StatusBadge tone={STATUS_TONES[campaign.status]}>
+          <span data-testid="run-status">{statusLabel(campaign.status)}</span>
+        </StatusBadge>
+      </p>
+      <p className="next-step" data-testid="next-step">
+        {nextStepText(campaign.status)}
+      </p>
+      {campaign.status === "failed" && <ErrorBlock>{failureText(campaign.failure_reason)}</ErrorBlock>}
+      {campaign.status === "failed" && showDetails && <pre data-testid="failure-raw">{campaign.failure_reason}</pre>}
+      <div className="action-row">
+        {canRetry(me, campaign) && (
+          <button type="button" className="btn btn-primary" onClick={() => onRetry(campaign.id)}>
+            Retry step
+          </button>
+        )}
+        {canRaiseBudget(me, campaign) && (
+          <RaiseBudgetForm onRaise={(dollars) => onRaiseBudget(campaign.id, dollars)} />
+        )}
+        {canApprove(me, campaign) && (
+          <button type="button" className="btn btn-primary" onClick={() => onApprove(campaign.id)}>
+            Approve
+          </button>
+        )}
+        <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>Details</button>
+      </div>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} showDetails={showDetails} />
-      <RunCostAndScores campaign={campaign} showDetails={showDetails} />
-      {campaign.budget_usd !== null && (
-        <p>
-          Budget: <span data-testid="run-budget">{dollarsText(campaign.budget_usd)}</span>
-        </p>
-      )}
-      {canRaiseBudget(me, campaign) && (
-        <RaiseBudgetForm onRaise={(dollars) => onRaiseBudget(campaign.id, dollars)} />
-      )}
-      {campaign.status === "failed" && <p role="alert">{campaign.failure_reason}</p>}
-      {canRetry(me, campaign) && (
-        <button type="button" onClick={() => onRetry(campaign.id)}>
-          Retry step
-        </button>
-      )}
-      {campaign.draft && <DraftView draft={campaign.draft} />}
-      {campaign.draft && <EmailPreview id={campaign.id} />}
-      {hasStatus && (
-        <p>
-          Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
-        </p>
-      )}
+      <RunCards campaign={campaign} showDetails={showDetails} />
       {(campaign.status === "sent" || campaign.status === "finished") && (
         <p>
           A/B result: <span data-testid="ab-result">{abResultText(campaign.ab_result)}</span>
         </p>
-      )}
-      {canApprove(me, campaign) && (
-        <button type="button" onClick={() => onApprove(campaign.id)}>
-          Approve
-        </button>
       )}
       <RunWorkflow campaign={campaign} showDetails={showDetails} />
       {campaign.receipt && (
@@ -543,18 +685,35 @@ interface WorkspaceProps {
   onSignOut: () => void;
 }
 
+type CampaignRun = ReturnType<typeof useCampaignRun>;
+
+/** A campaign's own URL opens it, on a reload or a shared link too. */
+function useOpenRouteCampaign(route: Route, run: CampaignRun): void {
+  const routeId = route.page === "campaign" ? route.id : null;
+  useEffect(() => {
+    if (routeId !== null && run.campaign?.id !== routeId) void run.open(routeId);
+    // Open when the address changes; `run` is rebuilt each render.
+  }, [routeId]);
+}
+
 function Workspace({ me, onSignOut }: WorkspaceProps) {
   const [error, setError] = useState<string | null>(null);
   const fail: Fail = (e) => (e instanceof SignedOutError ? onSignOut() : setError(messageOf(e)));
   const { campaigns, refresh } = useCampaignList(fail);
-  const run = useCampaignRun(fail, setError, refresh);
+  const { route, go } = useRoute();
+  const run = useCampaignRun(go, fail, setError, refresh);
   const [linkedCampaign] = useState(takeInboxLink);
   const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
+  const goCampaigns = (path: string) => {
+    setView("campaigns");
+    go(path);
+  };
+  useOpenRouteCampaign(route, run);
 
   return (
     <>
       <Header me={me} onSignOut={onSignOut} />
-      <ViewNav me={me} view={view} onView={setView} />
+      <ViewNav me={me} view={view} onView={(v) => (v === "campaigns" ? goCampaigns("/") : setView(v))} />
       <main>
       <AlertBanner onSignedOut={onSignOut} />
       {view === "builder" ? (
@@ -567,8 +726,7 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
         <Learnings
           canDelete={me.roles.includes("approver")}
           onOpenCampaign={(id) => {
-            setView("campaigns");
-            void run.open(id);
+            goCampaigns(campaignPath(id));
           }}
           onSignOut={onSignOut}
         />
@@ -578,6 +736,8 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           error={error}
           list={campaigns}
           run={run}
+          route={route}
+          go={goCampaigns}
         />
       )}
       </main>
@@ -585,23 +745,45 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   );
 }
 
-type CampaignRun = ReturnType<typeof useCampaignRun>;
 
 interface CampaignsProps {
   me: Me;
   error: string | null;
-  list: Campaign[];
+  list: Campaign[] | null;
   run: CampaignRun;
+  route: Route;
+  go: (path: string) => void;
 }
 
-function Campaigns({ me, error, list, run }: CampaignsProps) {
+function Campaigns({ me, error, list, run, route, go }: CampaignsProps) {
+  const errorBlock = error && <ErrorBlock>{error}</ErrorBlock>;
+  if (route.page === "home") {
+    return (
+      <>
+        {errorBlock}
+        <CampaignHome me={me} campaigns={list} go={go} />
+      </>
+    );
+  }
+  if (route.page === "new") {
+    return canCreate(me) ? (
+      <>
+        <NewCampaignForm
+          onCreate={(report, workflow, budgetUsd) => void run.create(report, workflow, budgetUsd)}
+        />
+        {errorBlock}
+      </>
+    ) : (
+      <EmptyBlock>Only an owner can start a campaign.</EmptyBlock>
+    );
+  }
   return (
     <>
-      <CampaignList campaigns={list} onOpen={(id) => void run.open(id)} />
-      <NewCampaignForm
-        onCreate={(report, workflow, budgetUsd) => void run.create(report, workflow, budgetUsd)}
-      />
-      {error && <p role="alert">{error}</p>}
+      <NavLink path="/" go={go}>
+        All campaigns
+      </NavLink>
+      {errorBlock}
+      {!run.campaign && !error && <LoadingBlock>Loading the campaign…</LoadingBlock>}
       {run.campaign && (
         <RunView
           me={me}

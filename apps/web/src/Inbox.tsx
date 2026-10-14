@@ -1,11 +1,20 @@
 import { useEffect, useState } from "react";
 import { MAX_SCORE, SignedOutError } from "./api";
 import { assetPreviewSrc, decideAsset, listInbox, type Decision, type InboxAsset } from "./inboxApi";
-import { stepLabel } from "./labels";
-import { messageOf } from "./messages";
+import { cleanAssets, groupByCampaign, type CampaignGroup } from "./inboxGroups";
+import { flagLabel, stepLabel } from "./labels";
+import { PreviewFrame } from "./PreviewFrame";
+import { Card, EmptyBlock, ErrorBlock, LoadingBlock } from "./ui";
 
 const INBOX_POLL_MS = 1500;
-const PREVIEW_HEIGHT_PX = 360;
+const INBOX_ERROR = "The inbox could not be updated. Check your connection and try again in a moment.";
+const INBOX_EMPTY = "Nothing needs your approval right now. Campaigns appear here when a marketer sends one for review.";
+
+/** The raw error goes to the console for engineers; the screen says what to try. */
+function failedWith(setError: (message: string) => void, e: unknown): void {
+  console.error(e);
+  setError(INBOX_ERROR);
+}
 
 /** The inbox link a Slack message carries (`?inbox=<campaign id>`), kept across sign-in. */
 const INBOX_LINK_KEY = "ace.inbox_link";
@@ -30,12 +39,7 @@ interface AssetCardProps {
 
 function AssetPreview({ asset }: { asset: InboxAsset }) {
   return asset.preview_url ? (
-    <iframe
-      title={`Preview of ${stepLabel(asset.step)}`}
-      src={assetPreviewSrc(asset.preview_url)}
-      sandbox=""
-      style={{ width: "100%", height: PREVIEW_HEIGHT_PX, border: "1px solid #ccc" }}
-    />
+    <PreviewFrame title={`Preview of ${stepLabel(asset.step)}`} src={assetPreviewSrc(asset.preview_url)} />
   ) : (
     <pre data-testid="asset-text">{JSON.stringify(asset.output, null, 2)}</pre>
   );
@@ -43,14 +47,14 @@ function AssetPreview({ asset }: { asset: InboxAsset }) {
 
 function ReviewerFlags({ flags }: { flags: InboxAsset["flags"] }) {
   return (
-    <section aria-label="Reviewer flags" data-testid="asset-flags">
+    <section aria-label="Reviewer flags" data-testid="asset-flags" className={flags.length ? "flag-note" : undefined}>
       {flags.length === 0 ? (
         <p>No flags from the brand reviewer.</p>
       ) : (
         <ul>
           {flags.map((f, i) => (
             <li key={i}>
-              {f.check}: {f.detail}
+              <strong>{flagLabel(f.check)}:</strong> {f.detail}
             </li>
           ))}
         </ul>
@@ -87,24 +91,60 @@ function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
       aria-label={`${asset.title}: ${stepLabel(asset.step)}`}
       aria-current={isLinked ? "true" : undefined}
       data-testid="inbox-asset"
+      className="inbox-asset"
     >
-      <h3>
+      <h4>
         {asset.title}: {stepLabel(asset.step)}
-      </h3>
+      </h4>
       <AssetPreview asset={asset} />
       <JudgeScore asset={asset} />
       <ReviewerFlags flags={asset.flags} />
-      <label>
-        Comment
-        <input value={comment} onChange={(e) => setComment(e.target.value)} />
-      </label>{" "}
-      <button type="button" disabled={isBusy} onClick={() => void decide("approve")}>
-        Approve
-      </button>{" "}
-      <button type="button" disabled={isBusy || !comment.trim()} onClick={() => void decide("reject")}>
-        Reject
-      </button>
+      <div className="decision-row">
+        <label>
+          Comment
+          <input value={comment} onChange={(e) => setComment(e.target.value)} />
+        </label>
+        <button type="button" className="btn-primary" disabled={isBusy} onClick={() => void decide("approve")}>
+          Approve
+        </button>
+        <button type="button" className="btn-danger" disabled={isBusy || !comment.trim()} onClick={() => void decide("reject")}>
+          Reject (comment needed)
+        </button>
+      </div>
     </article>
+  );
+}
+
+interface CampaignSectionProps {
+  group: CampaignGroup;
+  isLinked: boolean;
+  cleanCount: number;
+  onDecide: AssetCardProps["onDecide"];
+  onApproveAllClean: (campaignId: string) => Promise<void>;
+}
+
+function CampaignSection({ group, isLinked, cleanCount, onDecide, onApproveAllClean }: CampaignSectionProps) {
+  const waiting = group.assets.length;
+  return (
+    <Card>
+      <div role="region" aria-label={group.title} className="inbox-group">
+        <div className="inbox-group-head">
+          <h3>{group.title}</h3>
+          <span data-testid="campaign-waiting">{`${waiting} ${waiting === 1 ? "asset" : "assets"} waiting`}</span>
+          <button
+            type="button"
+            className="btn-secondary"
+            disabled={cleanCount === 0}
+            onClick={() => void onApproveAllClean(group.campaignId)}
+          >
+            {`Approve all with no flags (${cleanCount})`}
+          </button>
+        </div>
+        {group.assets.map((a) => (
+          <AssetCard key={a.step} asset={a} isLinked={isLinked} onDecide={onDecide} />
+        ))}
+      </div>
+    </Card>
   );
 }
 
@@ -114,17 +154,18 @@ interface InboxProps {
   linkedCampaign: string | null;
 }
 
-/** The approver's queue: every asset waiting for their team, decided one by one. */
-export function Inbox({ onSignOut, linkedCampaign }: InboxProps) {
+/** The queue, reloaded on a timer, and the decisions that change it. */
+function useInbox(onSignOut: () => void) {
   const [assets, setAssets] = useState<InboxAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sentBack, setSentBack] = useState<string[]>([]);
 
   async function refresh() {
     try {
       setAssets(await listInbox());
     } catch (e) {
       if (e instanceof SignedOutError) onSignOut();
-      else setError(messageOf(e));
+      else failedWith(setError, e);
     }
   }
 
@@ -135,31 +176,53 @@ export function Inbox({ onSignOut, linkedCampaign }: InboxProps) {
     // The inbox reloads itself on a timer for as long as it is on screen.
   }, []);
 
-  async function decide(asset: InboxAsset, decision: Decision, comment: string) {
+  async function act(work: () => Promise<void>) {
     setError(null);
     try {
-      await decideAsset(asset, decision, comment);
+      await work();
       await refresh();
     } catch (e) {
       if (e instanceof SignedOutError) onSignOut();
-      else setError(messageOf(e));
+      else failedWith(setError, e);
     }
   }
 
-  const ordered = [...(assets ?? [])].sort(
-    (a, b) => Number(b.campaign_id === linkedCampaign) - Number(a.campaign_id === linkedCampaign),
-  );
+  const decide = (asset: InboxAsset, decision: Decision, comment: string) =>
+    act(async () => {
+      await decideAsset(asset, decision, comment);
+      if (decision === "reject") setSentBack((was) => [...was, `${asset.title}: ${stepLabel(asset.step)}`]);
+    });
+  const approveAllClean = (campaignId: string) =>
+    act(async () => {
+      for (const a of cleanAssets(assets ?? [], campaignId)) await decideAsset(a, "approve", "");
+    });
+
+  return { assets, error, sentBack, decide, approveAllClean };
+}
+
+/** The approver's queue: every asset waiting for their team, grouped by campaign. */
+export function Inbox({ onSignOut, linkedCampaign }: InboxProps) {
+  const { assets, error, sentBack, decide, approveAllClean } = useInbox(onSignOut);
+  const groups = groupByCampaign(assets ?? [], linkedCampaign);
   return (
     <section>
       <h2>Approval inbox</h2>
-      {error && <p role="alert">{error}</p>}
-      {assets !== null && assets.length === 0 && <p>Nothing is waiting for approval.</p>}
-      {ordered.map((a) => (
-        <AssetCard
-          key={`${a.campaign_id}:${a.step}`}
-          asset={a}
-          isLinked={a.campaign_id === linkedCampaign}
+      {sentBack.length > 0 && (
+        <p className="block" role="status" data-testid="sent-back">
+          Sent back to the writer for a redo: {sentBack.join("; ")}. It returns here when it is redone.
+        </p>
+      )}
+      {error && <ErrorBlock>{error}</ErrorBlock>}
+      {assets === null && !error && <LoadingBlock>Loading your inbox…</LoadingBlock>}
+      {assets !== null && assets.length === 0 && <EmptyBlock>{INBOX_EMPTY}</EmptyBlock>}
+      {groups.map((g) => (
+        <CampaignSection
+          key={g.campaignId}
+          group={g}
+          isLinked={g.campaignId === linkedCampaign}
+          cleanCount={cleanAssets(g.assets, g.campaignId).length}
           onDecide={decide}
+          onApproveAllClean={approveAllClean}
         />
       ))}
     </section>
