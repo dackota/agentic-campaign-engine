@@ -58,3 +58,9 @@ def add_run_event(
         event = db.add_event(session, campaign_id, step, status, reason)
         session.flush()
         return event.seq
+
+
+def set_status(engine: Engine, campaign_id: uuid.UUID, status: str) -> None:
+    """Put the campaign in `status`, as the worker would."""
+    with Session(engine) as session, session.begin():
+        session.get_one(db.Campaign, campaign_id).status = status
