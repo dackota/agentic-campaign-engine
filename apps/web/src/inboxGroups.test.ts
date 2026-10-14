@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { cleanAssets, groupByCampaign } from "./inboxGroups.ts";
 import type { InboxAsset } from "./inboxApi.ts";
 

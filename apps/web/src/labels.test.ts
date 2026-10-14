@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { failureText, flagLabel, kindDescription, kindLabel, nextStepText, stepLabel, stepStatusLabel, workflowLabel } from "./labels.ts";
 import { StepKindValues } from "./workflow.gen.ts";
 
