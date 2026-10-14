@@ -92,3 +92,17 @@ test("the trend chart is an inline SVG with labeled axes and a text alternative"
   await expect(chart.locator("text", { hasText: "Quality" })).not.toHaveCount(0);
   await expect(page.getByTestId("dashboard-trend").getByRole("listitem")).not.toHaveCount(0);
 });
+
+test("a team with no campaigns sees what to do next instead of an empty chart and table", async ({ page }) => {
+  await signIn(page, OWNER);
+  await page.route("**/dashboard", (route) =>
+    route.fulfill({
+      json: { campaigns: [], totals: { runs: 0, cost_usd: 0, quality_score: null, click_rate: null } },
+    }),
+  );
+  await page.getByRole("button", { name: "Dashboard" }).click();
+
+  await expect(page.getByText("No campaigns yet. Start one from New campaign")).toBeVisible();
+  await expect(page.getByTestId("dashboard-trend-chart")).toHaveCount(0);
+  await expect(page.getByRole("table")).toHaveCount(0);
+});

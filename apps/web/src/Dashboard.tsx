@@ -1,21 +1,12 @@
 import { useEffect, useState, type ReactElement } from "react";
-import { MAX_SCORE, SignedOutError } from "./api";
+import { MAX_SCORE, SignedOutError, type CampaignStatus } from "./api";
 import { getDashboard, type Dashboard as DashboardData, type DashboardTotals, type DashboardRow } from "./dashboardApi";
+import { statusLabel } from "./labels";
 import { messageOf } from "./messages";
-import { Card, ErrorBlock, LoadingBlock, StatusBadge, type Tone } from "./ui";
+import { Card, EmptyBlock, ErrorBlock, LoadingBlock, StatusBadge, type Tone } from "./ui";
 
 const COST_DECIMALS = 2;
 const PERCENT = 100;
-const STATUS_LABELS: Record<string, string> = {
-  drafting: "Drafting",
-  awaiting_approval: "Waiting for approval",
-  sending: "Sending",
-  sent: "Sent",
-  failed: "Failed",
-  retrying: "Retrying",
-  finished: "Finished",
-  budget_paused: "Paused at budget",
-};
 const NOT_YET = "n/a";
 
 const dollars = (usd: number): string => `$${usd.toFixed(COST_DECIMALS)}`;
@@ -33,8 +24,13 @@ const PAD_B = 50;
 const PLOT_W = CHART_W - PAD_L - PAD_R;
 const PLOT_H = CHART_H - PAD_T - PAD_B;
 
-const statusTone = (status: string): Tone =>
-  status === "failed" ? "bad" : status === "sent" || status === "finished" ? "ok" : status === "budget_paused" ? "warn" : "info";
+const STATUS_TONES: Partial<Record<CampaignStatus, Tone>> = {
+  failed: "bad",
+  sent: "ok",
+  finished: "ok",
+  budget_paused: "warn",
+};
+const statusTone = (status: CampaignStatus): Tone => STATUS_TONES[status] ?? "info";
 
 interface TrendProps {
   rows: DashboardRow[];
@@ -62,6 +58,12 @@ function Trend({ rows }: TrendProps) {
         <line className="trend-axis" x1={PAD_L + PLOT_W} y1={y(0)} x2={PAD_L + PLOT_W} y2={y(1)} />
         <polyline className="trend-click" points={line((r) => r.click_rate)} />
         <polyline className="trend-quality" points={line((r) => (r.quality_score === null ? null : r.quality_score / MAX_SCORE))} />
+        {rows.map((r, i) => (
+          <g key={r.id}>
+            {r.click_rate !== null && <circle className="trend-dot trend-click-dot" cx={x(i)} cy={y(r.click_rate)} r={4} />}
+            {r.quality_score !== null && <circle className="trend-dot trend-quality-dot" cx={x(i)} cy={y(r.quality_score / MAX_SCORE)} r={4} />}
+          </g>
+        ))}
         <text className="trend-label trend-click-text" x={PAD_L - 6} y={y(1)} textAnchor="end">100%</text>
         <text className="trend-label trend-click-text" x={PAD_L - 6} y={y(0)} textAnchor="end">0%</text>
         <text className="trend-label trend-quality-text" x={PAD_L + PLOT_W + 6} y={y(1)}>{MAX_SCORE}</text>
@@ -104,6 +106,37 @@ function Totals({ totals }: { totals: DashboardTotals }): ReactElement {
   );
 }
 
+function CampaignTable({ rows }: { rows: DashboardRow[] }): ReactElement {
+  return (
+    <table>
+      <thead>
+        <tr>
+          <th>Campaign</th>
+          <th>Status</th>
+          <th>Cost</th>
+          <th>Quality</th>
+          <th>Click rate</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r) => (
+          <tr key={r.id} data-testid={`dashboard-row-${r.title}`}>
+            <td>{r.title}</td>
+            <td>
+              <StatusBadge tone={statusTone(r.status)}>
+                <span data-testid="dashboard-status">{statusLabel(r.status)}</span>
+              </StatusBadge>
+            </td>
+            <td data-testid="dashboard-cost">{dollars(r.cost_usd)}</td>
+            <td data-testid="dashboard-quality">{quality(r.quality_score)}</td>
+            <td data-testid="dashboard-click-rate">{percent(r.click_rate)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
 /** How the team's campaigns are doing. Read-only: it has no controls. */
 interface DashboardProps {
   onSignOut: () => void;
@@ -129,33 +162,14 @@ export function Dashboard({ onSignOut }: DashboardProps): ReactElement {
     <section data-testid="dashboard">
       <h1>Team dashboard</h1>
       <Totals totals={totals} />
-      <Trend rows={data.campaigns} />
-      <table>
-        <thead>
-          <tr>
-            <th>Campaign</th>
-            <th>Status</th>
-            <th>Cost</th>
-            <th>Quality</th>
-            <th>Click rate</th>
-          </tr>
-        </thead>
-        <tbody>
-          {data.campaigns.map((r) => (
-            <tr key={r.id} data-testid={`dashboard-row-${r.title}`}>
-              <td>{r.title}</td>
-              <td>
-                <StatusBadge tone={statusTone(r.status)}>
-                  <span data-testid="dashboard-status">{STATUS_LABELS[r.status] ?? r.status}</span>
-                </StatusBadge>
-              </td>
-              <td data-testid="dashboard-cost">{dollars(r.cost_usd)}</td>
-              <td data-testid="dashboard-quality">{quality(r.quality_score)}</td>
-              <td data-testid="dashboard-click-rate">{percent(r.click_rate)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {data.campaigns.length === 0 ? (
+        <EmptyBlock>No campaigns yet. Start one from New campaign, then come back to see how it did.</EmptyBlock>
+      ) : (
+        <>
+          <Trend rows={data.campaigns} />
+          <CampaignTable rows={data.campaigns} />
+        </>
+      )}
     </section>
   );
 }

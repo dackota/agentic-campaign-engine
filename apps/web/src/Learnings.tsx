@@ -23,7 +23,7 @@ const whyText = (reason: string): string => reason.replace(/^Variant /, "Version
 function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: LearningItemProps) {
   return (
     <li className="learning-item">
-     <Card>
+      <Card>
       <p className="learning-text" data-testid="learning-text">{learning.text}</p>
       <p className="learning-reason" data-testid="learning-reason">{whyText(learning.reason)}</p>
       <p>
@@ -37,7 +37,7 @@ function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: Learnin
           Delete
         </button>
       )}
-     </Card>
+      </Card>
     </li>
   );
 }

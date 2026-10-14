@@ -153,7 +153,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .trend-click, .trend-quality { fill: none; stroke-width: 2.5; }
 .trend-click { stroke: var(--color-primary); }
 .trend-quality { stroke: var(--color-warn); stroke-dasharray: 6 3; }
-.trend-label { font-size: 12px; fill: var(--color-muted); }
+.trend-label { font-size: var(--font-size-sm); fill: var(--color-muted); }
 .trend-click-text { fill: var(--color-primary); }
 .trend-quality-text { fill: var(--color-warn); }
 table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
@@ -161,3 +161,6 @@ th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom
 .learning-list { list-style: none; padding: 0; }
 .learning-text { font-weight: 600; }
 .learning-reason { color: var(--color-muted); }
+.trend-dot { stroke: var(--color-surface); stroke-width: 1; }
+.trend-click-dot { fill: var(--color-primary); }
+.trend-quality-dot { fill: var(--color-warn); }
