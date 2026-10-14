@@ -26,7 +26,7 @@ import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
-import { stepLabel, workflowLabel } from "./labels";
+import { statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
 import { Header, ViewNav, type View } from "./Shell";
@@ -35,17 +35,6 @@ import { useRunEvents } from "./useRunEvents";
 const POLL_MS = 500;
 // The simulated audience keeps engaging after the send; watch for the A/B call this long.
 const AB_WATCH_POLLS = 120;
-
-const STATUS_LABELS: Record<Campaign["status"], string> = {
-  drafting: "Drafting",
-  awaiting_approval: "Waiting for approval",
-  sending: "Sending",
-  sent: "Sent",
-  failed: "Failed",
-  retrying: "Retrying",
-  finished: "Finished",
-  budget_paused: "Paused at budget",
-};
 
 const COST_DECIMALS = 4;
 const DEFAULT_WORKFLOW = "threat-report-to-campaign";
@@ -80,10 +69,10 @@ async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promi
   }
 }
 
-/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+/** The A/B call: "Version B won, 97% confident", or "No decision yet". */
 function abResultText(result: AbResult): string {
   if (result.status !== "winner" || result.confidence === null) return "No decision yet";
-  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
+  return `Version ${result.winner} won, ${Math.floor(result.confidence * 100)}% confident`;
 }
 
 /** What the run cost, in dollars and cents. */
@@ -172,7 +161,7 @@ function CampaignList({ campaigns, onOpen }: CampaignListProps) {
             <button type="button" onClick={() => onOpen(c.id)}>
               {titleOf(c)}
             </button>{" "}
-            {STATUS_LABELS[c.status]}
+            {statusLabel(c.status)}
           </li>
         ))}
       </ul>
@@ -515,7 +504,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
       {campaign.draft && <EmailPreview id={campaign.id} />}
       {hasStatus && (
         <p>
-          Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+          Status: <span data-testid="run-status">{statusLabel(campaign.status)}</span>
         </p>
       )}
       {(campaign.status === "sent" || campaign.status === "finished") && (

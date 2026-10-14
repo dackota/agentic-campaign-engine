@@ -8,7 +8,7 @@ export interface EmailDraft {
   call_to_action: string;
 }
 
-const STATUSES = [
+export const STATUSES = [
   "drafting",
   "awaiting_approval",
   "sending",
@@ -18,7 +18,7 @@ const STATUSES = [
   "finished",
   "budget_paused",
 ] as const;
-type CampaignStatus = (typeof STATUSES)[number];
+export type CampaignStatus = (typeof STATUSES)[number];
 
 /** The A/B test's call: a winner with its confidence (0 to 1), or no decision yet. */
 export interface AbResult {

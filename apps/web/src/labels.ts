@@ -1,3 +1,4 @@
+import type { CampaignStatus } from "./api.ts";
 import type { StepKind } from "./workflow.gen.ts";
 
 /** The one place ids become words a marketer reads. Ids not listed are made readable by `humanize`. */
@@ -40,3 +41,16 @@ const named = (labels: Record<string, string>, id: string): string | undefined =
 
 export const stepLabel = (id: string): string => named(STEP_LABELS, id) ?? humanize(id);
 export const workflowLabel = (name: string): string => named(WORKFLOW_LABELS, name) ?? humanize(name);
+
+const STATUS_LABELS: Record<CampaignStatus, string> = {
+  drafting: "Drafting",
+  awaiting_approval: "Waiting for approval",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+  retrying: "Retrying",
+  finished: "Finished",
+  budget_paused: "Paused at budget",
+};
+
+export const statusLabel = (status: CampaignStatus): string => STATUS_LABELS[status];
