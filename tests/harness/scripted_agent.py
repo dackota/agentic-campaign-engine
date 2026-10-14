@@ -22,7 +22,7 @@ from typing import Any
 from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
 from ace_engine.assets import NOT_ASSETS
-from ace_engine.brand_review import BRAND_REVIEWER
+from ace_engine.brand_review import BRAND_REVIEWER, REVISION_OPENING
 from ace_engine.contracts import REPORT_MARKER
 from ace_engine.judge import MAX_SCORE, MIN_SCORE
 from fastapi import FastAPI, Request
@@ -111,7 +111,7 @@ USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
 TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
 AGENT_MARKER = re.compile(r"[ \t]*\[agent:[^\]]*\]")
 # A fix round appends the reviewer's request after the report; it is not part of the report.
-REVISION_REQUEST = "\n\nThe brand reviewer sent your draft back."
+REVISION_REQUEST = f"\n\n{REVISION_OPENING}"
 DEFAULT_INPUT_TOKENS = 1000
 DEFAULT_OUTPUT_TOKENS = 500
 
