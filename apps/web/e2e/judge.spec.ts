@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
+import { APPROVER, OWNER, signIn, openNewCampaign } from "./fixtures/sign-in";
 
 const RUN_WAIT_MS = 30_000;
 
@@ -7,6 +7,7 @@ const RUN_WAIT_MS = 30_000;
 test("the run view and the inbox show each asset's judge score and reason", async ({ page, browser }) => {
   const title = `Judge scores ${Date.now()}`;
   await signIn(page, OWNER);
+  await openNewCampaign(page);
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });

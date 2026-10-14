@@ -17,7 +17,7 @@ test("an approver approves the owner's campaign and sees the receipt", async ({
   const approverSession = await browser.newContext();
   const approverPage = await approverSession.newPage();
   await signIn(approverPage, APPROVER);
-  await approverPage.getByRole("button", { name: report }).click();
+  await approverPage.getByRole("link", { name: report }).click();
   await expect(approverPage.getByTestId("draft-subject")).not.toBeEmpty();
   await expect(approverPage.getByTestId("receipt")).toHaveCount(0);
   await approverPage.getByRole("button", { name: "Approve" }).click();

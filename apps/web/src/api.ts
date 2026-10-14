@@ -8,7 +8,7 @@ export interface EmailDraft {
   call_to_action: string;
 }
 
-const STATUSES = [
+export const STATUSES = [
   "drafting",
   "awaiting_approval",
   "sending",
@@ -18,7 +18,7 @@ const STATUSES = [
   "finished",
   "budget_paused",
 ] as const;
-type CampaignStatus = (typeof STATUSES)[number];
+export type CampaignStatus = (typeof STATUSES)[number];
 
 /** The A/B test's call: a winner with its confidence (0 to 1), or no decision yet. */
 export interface AbResult {
@@ -47,6 +47,8 @@ export interface Campaign {
   report: string;
   team: string;
   created_by: string;
+  /** When the campaign started, as an ISO time. */
+  created_at: string;
   status: CampaignStatus;
   draft: EmailDraft | null;
   failure_reason: string | null;
@@ -130,6 +132,7 @@ function isCampaign(value: unknown): value is Campaign {
     typeof c.report === "string" &&
     typeof c.team === "string" &&
     typeof c.created_by === "string" &&
+    typeof c.created_at === "string" &&
     typeof c.status === "string" &&
     (STATUSES as readonly string[]).includes(c.status) &&
     (c.draft === null || (typeof c.draft === "object" && c.draft !== null)) &&
