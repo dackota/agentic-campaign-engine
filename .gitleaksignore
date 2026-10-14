@@ -1,0 +1,4 @@
+# False positives: the same shell example in two docs sets API token variables to
+# angle-bracket placeholders. Not secrets. Format: commit:file:rule:line.
+701a82f94b7c30cb472249824cfe565573caa6ce:evals/README.md:generic-api-key:23
+701a82f94b7c30cb472249824cfe565573caa6ce:docs/learning-proof.md:generic-api-key:11

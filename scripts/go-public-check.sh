@@ -24,9 +24,11 @@ term_ok() {
 # ok when some OR alternative has every AND term (also " / ") permissive. A parenthesised
 # expression loses its precedence here, so it passes only when every term is permissive.
 classify() {
-  local text alt term; text="$(printf '%s' "$1" | tr '[:upper:]\t\n' '[:lower:]  ')"
+  local text alt term; text="$(printf '%s' "$1" | LC_ALL=C tr '[:upper:]\t\n' '[:lower:]  ' | LC_ALL=C tr -s ' ')"
+  # Any other control byte could pose as a separator, so it fails closed. Tab and newline were spaces above.
+  if [[ "$(printf '%s' "$text" | LC_ALL=C tr -d '[:cntrl:]')" != "$text" ]]; then echo flagged; return; fi
   local paren=0; [[ "$text" == *[\(\)]* ]] && paren=1
-  text="${text//[()]/ }"; text="${text//  / }"; text=" ${text} "
+  text="${text//[()]/ }"; text="$(printf '%s' "$text" | tr -s ' ')"; text=" ${text} "
   text="${text// and /$'\n'}"; text="${text// \/ /$'\n'}"
   if [[ $paren -eq 1 ]]; then text="${text// or /$'\n'}"; fi
   local alts; alts="${text// or /$'\x01'}"
@@ -72,7 +74,15 @@ brand_scan() {
   local excludes=(); local skip
   for skip in "${BRAND_SKIP[@]}"; do excludes+=(":!$skip"); done
   # -o prints file:line:matched-word only, never the line, so no literal on a hit line is echoed.
-  local hits; hits="$(git grep -n -o -i -I -E "$pattern" -- . "${excludes[@]}" ':!uv.lock' ':!pnpm-lock.yaml' | awk '!seen[$0]++')"
+  # git grep exits 0 on a hit and 1 on none. A file it cannot read gives exit 1 plus a stderr
+  # error, so any stderr or an exit above 1 means the scan is incomplete: fail, never PASS.
+  local raw code=0 err; err="$(mktemp)"
+  raw="$(git grep -n -o -i -I -E "$pattern" -- . "${excludes[@]}" ':!uv.lock' ':!pnpm-lock.yaml' 2>"$err")" || code=$?
+  if [[ $code -gt 1 || -s "$err" ]]; then
+    echo "brand scan: FAIL (git grep exit $code, could not read every tracked file)"; rm -f "$err"; FINDINGS=1; return
+  fi
+  rm -f "$err"
+  local hits; hits="$(printf '%s\n' "$raw" | awk '!seen[$0]++')"
   echo "brand hits: $(printf '%s' "$hits" | cut -d: -f1,2 | sort -u | grep -c .) lines"
   [[ -n "$hits" ]] && { printf '%s\n' "$hits" | sed 's/^/  /'; FINDINGS=1; }
 }
