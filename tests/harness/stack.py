@@ -114,6 +114,15 @@ def _install_metric_reader() -> InMemoryMetricReader:
     return _METRIC_READER
 
 
+def _owner_labels() -> dict[str, str]:
+    """The labels of a new stack's containers: its run id, and the process and host that own it."""
+    return {
+        RUN_LABEL: secrets.token_hex(8),
+        PID_LABEL: str(os.getpid()),
+        HOST_LABEL: socket.gethostname(),
+    }
+
+
 def _is_alive(pid: str) -> bool:
     """Whether the process id is a live process. No process id (a container from before the
     label) counts as alive, so it is never removed."""
@@ -180,11 +189,7 @@ class Stack:
         self.s3_bucket = "ace-assets"
         self.workfront_port = free_port()
         self.web_origin = pinned.web_origin
-        self._labels = {
-            RUN_LABEL: secrets.token_hex(8),
-            PID_LABEL: str(os.getpid()),
-            HOST_LABEL: socket.gethostname(),
-        }
+        self._labels = _owner_labels()
         self.dex = Dex(pinned.dex_port or free_port(), pinned.web_origin, self._labels)
         # Slack and Google Docs are off unless asked for; on, each points at a local stand-in.
         self.integrations = integrations
