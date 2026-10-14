@@ -2,7 +2,8 @@ import { expect, test, type Page } from "@playwright/test";
 import { APPROVER, signIn } from "./fixtures/sign-in";
 
 const TEAM = "demand-gen";
-const FOCUS_STOPS = 12;
+// The user menu summary and the five nav buttons: the shell's own tab stops (the page below varies with the data).
+const FOCUS_STOPS = 6;
 const VIEWPORT_HEIGHT_PX = 900;
 const WIDTHS_PX = [1280, 768];
 const PAGES = ["Campaigns", "Workflow builder", "Learnings", "Dashboard", "Inbox"];

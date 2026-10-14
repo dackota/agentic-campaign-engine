@@ -226,7 +226,7 @@ export function App() {
         <button type="button" onClick={() => void signIn().catch(showError)}>
           Sign in
         </button>
-    </main>
+      </main>
     );
   }
   return (
