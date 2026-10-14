@@ -102,7 +102,7 @@ class StubActivities:
         self._log("run_agent_step", step_id)
         if self._agent is not None:
             return await self._agent(step_id)
-        return {"output": {"step": step_id}, "session": f"session-{step_id}", "usage": {}}
+        return {"output": [{"step": step_id}], "session": f"session-{step_id}", "usage": {}}
 
     @activity.defn(name="save_agent_output")
     async def save_agent_output(

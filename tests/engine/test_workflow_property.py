@@ -178,7 +178,7 @@ def _agent_for(cue: str) -> AgentBehavior:
             raise ApplicationError("agent reply broke its contract", non_retryable=True)
         if attempts[step_id] <= FAIL_FIRST_ATTEMPTS[cue]:
             raise ApplicationError("agent unavailable")
-        return {"output": {"step": step_id}, "session": step_id, "usage": {}}
+        return {"output": [{"step": step_id}], "session": step_id, "usage": {}}
 
     return agent
 
