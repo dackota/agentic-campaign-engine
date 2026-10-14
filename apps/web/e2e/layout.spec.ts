@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APPROVER, OWNER, accessTokenOf, signIn } from "./fixtures/sign-in";
 
+const RUN_WAIT_MS = 30_000;
 const VIEWPORT_HEIGHT_PX = 900;
 const WIDTHS_PX = [1280, 768];
 const TABLET_WIDTH_PX = 768;
@@ -49,6 +50,9 @@ test("no page scrolls sideways at 1280 and 768, the run graph wraps, and focus r
   const campaignId = await startCampaign(owner);
   await ownerSession.close();
   await signIn(page, APPROVER);
+  // Measure a finished draft: cards fill in while the run is still drafting, and move the layout.
+  await page.goto(`/campaigns/${campaignId}`);
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });
 
   for (const width of WIDTHS_PX) {
     await page.setViewportSize({ width, height: VIEWPORT_HEIGHT_PX });
@@ -57,7 +61,7 @@ test("no page scrolls sideways at 1280 and 768, the run graph wraps, and focus r
       await fitsViewport(page, width);
     }
     await page.goto(`/campaigns/${campaignId}`);
-    await expect(page.getByTestId("run-status")).toBeVisible();
+    await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
     await fitsViewport(page, width);
   }
 
