@@ -37,7 +37,10 @@ same on every run. To seed a running API, pass
 `SEED_ARGS="--api-url <url> --tokens-file <file>"`, where the file maps each demo user's email
 to a token.
 
-Video and demo GIF: TODO
+![The demo: one campaign from threat report to results](docs/demo.gif)
+
+[Watch the full demo video](docs/demo.mp4) (about 90 seconds, captioned beat by beat). Record it again
+with `make record-demo` (needs Docker and ffmpeg).
 
 ## What it does and where it is proven
 

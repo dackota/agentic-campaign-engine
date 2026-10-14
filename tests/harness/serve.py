@@ -5,6 +5,8 @@ import os
 import signal
 import threading
 
+from tests.harness.api_client import api_client
+from tests.harness.demo_seed import seed
 from tests.harness.stack import Pinned, Stack
 
 # The browser specs run in parallel on one team, and one default-workflow campaign runs five
@@ -30,8 +32,11 @@ def main() -> None:
     signal.signal(signal.SIGTERM, signal.default_int_handler)
     with (
         contextlib.suppress(KeyboardInterrupt),
-        Stack(pinned=pinned, team_step_limit=BROWSER_TEAM_STEP_LIMIT),
+        Stack(pinned=pinned, team_step_limit=BROWSER_TEAM_STEP_LIMIT) as stack,
     ):
+        # The demo recording starts from Acme's past campaigns, as `make seed-demo` leaves them.
+        if os.environ.get("ACE_SEED_DEMO"):
+            seed(lambda email: api_client(stack.api_url, stack.dex.token(email)))
         threading.Event().wait()
 
 
