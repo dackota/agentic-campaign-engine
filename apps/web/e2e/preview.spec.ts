@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { APPROVER, signIn, chooseQuickDraft } from "./fixtures/sign-in";
+import { APPROVER, accessTokenOf, signIn, chooseQuickDraft } from "./fixtures/sign-in";
 
 test("the approval screen shows the rendered email", async ({ page }) => {
   await signIn(page);
@@ -83,7 +83,12 @@ test("every inbox preview paints visible pixels on first view", async ({ page, b
   const approverSession = await browser.newContext({ viewport: { width: 1280, height: ALL_FRAMES_HEIGHT_PX } });
   const approver = await approverSession.newPage();
   await signIn(approver, APPROVER);
-  await approver.getByRole("button", { name: "Inbox", exact: true }).click();
+  // The campaign link puts this campaign's assets first, however many others wait in the shared inbox.
+  const inbox = await approver.request.get("/api/inbox", {
+    headers: { authorization: `Bearer ${await accessTokenOf(approver)}` },
+  });
+  const mine = ((await inbox.json()) as { campaign_id: string; title: string }[]).find((a) => a.title === title);
+  await approver.goto(`/?inbox=${mine?.campaign_id}`);
 
   const steps = ["Landing page", "Social post", "One-pager", "Email", "Design"];
   for (const step of steps) {
@@ -98,5 +103,5 @@ test("every inbox preview paints visible pixels on first view", async ({ page, b
 });
 
 const MIN_PAINTED_PNG_BYTES = 4_000;
-// Tall enough that all five frames are on screen at once, so none waits below the fold to be painted.
+// Tall enough that every frame of the linked campaign is on screen at once, so none waits below the fold to be painted.
 const ALL_FRAMES_HEIGHT_PX = 3200;
