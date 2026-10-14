@@ -3,6 +3,7 @@ their calls: a test reads which activities the workflow ran, in what order, with
 arguments, and sets what they answer. No database, agent or network."""
 
 import asyncio
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -14,6 +15,7 @@ from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus
 from temporalio.exceptions import ApplicationError
+from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -200,9 +202,16 @@ async def _run(dag: dict[str, Any], stubs: StubActivities, report: str, cues: li
                     pending.remove(cue)
                     await handle.signal(cue.signal, args=list(cue.args))
                 await asyncio.sleep(POLL_SECONDS)
-            # A stopped run waits for a retry; a finished one is already closed.
+            else:
+                raise AssertionError(
+                    f"the run neither finished nor stopped in {WAIT_SECONDS} s; "
+                    f"it called {stubs.names()}"
+                )
+            # A stopped run waits for a retry; a finished one is already closed, and one that
+            # closes between the check and the terminate is fine too.
             if (await handle.describe()).status == WorkflowExecutionStatus.RUNNING:
-                await handle.terminate()
+                with contextlib.suppress(RPCError):
+                    await handle.terminate()
 
 
 def run_campaign(
