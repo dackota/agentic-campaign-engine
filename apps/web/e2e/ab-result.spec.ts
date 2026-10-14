@@ -32,7 +32,7 @@ async function sendCampaign(page: Page, browser: Browser) {
   const session = await browser.newContext();
   const approverPage = await session.newPage();
   await signIn(approverPage, APPROVER);
-  await approverPage.getByRole("button", { name: report }).click();
+  await approverPage.getByRole("link", { name: report }).click();
   await approverPage.getByRole("button", { name: "Approve" }).click();
   await expect(approverPage.getByTestId("run-status")).toHaveText("Sent");
   return { approverPage, session };
