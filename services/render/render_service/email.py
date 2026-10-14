@@ -9,10 +9,11 @@ from html import escape
 from ace_engine import telemetry
 from mjml import mjml2html
 
+from render_service.brand import BRAND_LOGO_URL
+
 MAX_EMAIL_BYTES = 100_000  # Gmail clips messages past about 102 KB
 BRAND_NAME = "Agentic Campaign Engine"
 BRAND_COLOR = "#0b5fff"
-BRAND_LOGO_URL = "https://assets.example.com/brand/logo.png"
 BRAND_LOGO_ALT = f"{BRAND_NAME} logo"
 CTA_URL = "https://example.com/act"
 PAGE_BACKGROUND = "#f4f6f8"

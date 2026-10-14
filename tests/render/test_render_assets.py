@@ -77,7 +77,7 @@ def test_landing_page_html_escapes_hostile_text(field: str, hostile: str) -> Non
     html = render_landing_page_html({**LANDING, field: hostile})
 
     assert "<script>" not in html
-    assert "<img" not in html
+    assert "<img src=x" not in html  # hostile markup is escaped; only the brand logo is an img
 
 
 @pytest.mark.parametrize(

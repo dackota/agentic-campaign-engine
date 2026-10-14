@@ -188,7 +188,7 @@ def test_the_design_asset_previews_its_cards(stack: Stack, sign_in: SignIn) -> N
     preview = approver.get(item["preview_url"])
     assert preview.status_code == 200
     assert preview.headers["content-type"].startswith("text/html")
-    assert preview.text.count("<img") == len(item["output"]["cards"])
+    assert preview.text.count("<img") == len(item["output"]["cards"]) + 1  # and the brand logo
     assert "<svg" not in preview.text
 
 

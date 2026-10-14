@@ -55,3 +55,12 @@ def test_preview_409_when_run_has_no_draft(stack: Stack, api: httpx.Client) -> N
     assert campaign["draft"] is None
 
     assert _preview(api, campaign["id"]).status_code == 409
+
+
+def test_email_logo_is_inline(api: httpx.Client) -> None:
+    campaign = settle(api, create(api)["id"])
+
+    html = _preview(api, campaign["id"]).text
+
+    assert "assets.example.com" not in html
+    assert 'src="data:image/' in html

@@ -61,11 +61,15 @@ def review_message(draft: AgentOutput, context: dict[str, Any], report: str) -> 
     return "\n\n".join(parts) + f"\n\n{REPORT_MARKER}\n{report}"
 
 
+# How a fix round opens the request that follows the writer prompt.
+REVISION_OPENING = "The brand reviewer sent your draft back."
+
+
 def fix_message(writer_prompt: str, issues: list[dict[str, Any]]) -> str:
     """What the writer is sent in its own Session: the reviewer's issues, to fix in the
     same reply format."""
     listed = "\n".join(f"- {i['check']}: {i['detail']}" for i in issues)
     return (
-        f"{writer_prompt}\n\nThe brand reviewer sent your draft back. Fix these issues and "
+        f"{writer_prompt}\n\n{REVISION_OPENING} Fix these issues and "
         f"reply with the whole corrected draft in the same format:\n{listed}"
     )
