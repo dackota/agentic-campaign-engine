@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactElement } from "react";
+import { ErrorBlock, LoadingBlock } from "./ui";
 
 type Loaded = { state: "loading" } | { state: "failed" } | { state: "ready"; html: string };
 
@@ -31,11 +32,9 @@ export function PreviewFrame({
 
   return (
     <div className="preview-wrap">
-      {!isPainted && loaded.state !== "failed" && <p className="preview-loading" role="status">Loading preview…</p>}
+      {!isPainted && loaded.state !== "failed" && <LoadingBlock>Loading preview…</LoadingBlock>}
       {loaded.state === "failed" && (
-        <p className="preview-loading" role="alert">
-          This preview could not be loaded. Reload the page to try again.
-        </p>
+        <ErrorBlock>This preview could not be loaded. Reload the page to try again.</ErrorBlock>
       )}
       <iframe
         className={isTall ? "preview-frame preview-frame-tall" : "preview-frame"}

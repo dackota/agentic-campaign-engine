@@ -158,7 +158,7 @@ pre { white-space: pre-wrap; overflow-wrap: anywhere; }
 .decision-row label { margin: 0; flex: 1 1 200px; }
 .decision-row input { width: 100%; }
 .preview-wrap { position: relative; }
-.preview-loading { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; color: var(--color-muted); pointer-events: none; }
+.preview-wrap > .block { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; border: 0; pointer-events: none; }
 
 .step-list, .palette { list-style: none; padding: 0; margin: 0 0 var(--space-3); }
 .step-row {
