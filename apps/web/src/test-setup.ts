@@ -4,6 +4,7 @@ import { afterEach, vi } from "vitest";
 // Testing Library only unmounts by itself when the test globals are on; they are off here.
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
