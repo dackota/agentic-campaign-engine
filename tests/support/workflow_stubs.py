@@ -33,9 +33,11 @@ Drive = Callable[[WorkflowEnvironment, WorkflowHandle[Any, Any], "StubActivities
 
 class StubActivities:
     """Every activity of the worker, by name. `calls` holds (activity, args) in the order
-    they ran; `agent` decides what an agent step returns or raises."""
+    they ran; `agent` decides what an agent step returns or raises, and the first `slot_refusals`
+    claims of a team slot are refused."""
 
-    def __init__(self, agent: AgentBehavior | None = None) -> None:
+    def __init__(self, agent: AgentBehavior | None = None, slot_refusals: int = 0) -> None:
+        self.slot_refusals = slot_refusals
         self.calls: list[tuple[str, tuple[object, ...]]] = []
         self.failed = asyncio.Event()
         self._agent = agent
@@ -80,7 +82,8 @@ class StubActivities:
     @activity.defn(name="claim_step_slot")
     async def claim_step_slot(self, campaign_id: str, key: str, lease_seconds: float) -> bool:
         self._log("claim_step_slot", key)
-        return True
+        refused = len(self.called("claim_step_slot")) <= self.slot_refusals
+        return not refused
 
     @activity.defn(name="release_step_slot")
     async def release_step_slot(self, key: str) -> None:

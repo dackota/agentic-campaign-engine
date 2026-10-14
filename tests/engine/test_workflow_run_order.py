@@ -109,3 +109,20 @@ def test_workflow_without_approval_or_publish_finishes_without_sending() -> None
     assert stubs.called("finish_run") == [()]
     assert stubs.called("send_email") == []
     assert stubs.called("mark_failed") == []
+
+
+def test_a_step_waits_for_a_team_slot_and_gives_it_back_when_done() -> None:
+    dag = {"steps": [step("draft", "agent")], "edges": []}
+    stubs = StubActivities(slot_refusals=2)
+
+    async def go() -> str:
+        async with time_skipping_env() as env:
+            return await run_workflow(env, dag, stubs)
+
+    outcome = asyncio.run(go())
+
+    names = [
+        name for name, _ in stubs.calls if name.endswith("_step_slot") or name == "run_agent_step"
+    ]
+    assert outcome == FINISHED
+    assert names == ["claim_step_slot"] * 3 + ["run_agent_step", "release_step_slot"]
