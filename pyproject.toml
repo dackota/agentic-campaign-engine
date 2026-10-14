@@ -38,7 +38,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["node_modules"]
+extend-exclude = ["node_modules", ".claude"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "PLR0913", "ANN401", "ASYNC", "S608", "RUF012"]
