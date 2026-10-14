@@ -15,6 +15,18 @@ async function waitingOf(count: Locator): Promise<number> {
   return Number((await count.textContent())?.match(/\d+/)?.[0]);
 }
 
+/** Reject with a comment, and check the reject really reached the API: a no-op click never answers. */
+async function rejectWithComment(page: Page, card: Locator, comment: string): Promise<void> {
+  const reject = card.getByRole("button", { name: /Reject/ });
+  await card.getByLabel("Comment").fill(comment);
+  await expect(reject).toBeEnabled();
+  const rejected = page.waitForResponse((r) => r.url().endsWith("/reject") && r.request().method() === "POST");
+  await reject.click();
+  const response = await rejected;
+  expect(response.status()).toBe(200);
+  expect((await response.json()).decision).toBe("rejected");
+}
+
 async function approverInbox(browser: Browser): Promise<Page> {
   const approver = await (await browser.newContext()).newPage();
   await signIn(approver, APPROVER);
@@ -62,15 +74,7 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
   await group(clean).getByRole("button", { name: /Approve all with no flags/ }).click();
   await expect(group(clean)).toHaveCount(0);
 
-  // Reject a flagged asset with a comment: the waiting count for that campaign is refreshed.
-  await flaggedCard.getByLabel("Comment").fill("Drop the hype");
-  await expect(reject).toBeEnabled();
-  const rejected = approver.waitForResponse((r) => r.url().endsWith("/reject") && r.request().method() === "POST");
-  await reject.click();
-  // The reject really reached the API: a no-op click would never answer.
-  const response = await rejected;
-  expect(response.status()).toBe(200);
-  expect((await response.json()).decision).toBe("rejected");
+  await rejectWithComment(approver, flaggedCard, "Drop the hype");
   // A rejected asset goes back to its writer and returns when redone, so the flagged campaign
   // keeps its flagged assets waiting; the count dropped when the clean assets were approved.
   await expect(group(flagged).getByRole("article")).toHaveCount(flaggedCount);
