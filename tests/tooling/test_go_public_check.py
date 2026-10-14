@@ -235,7 +235,7 @@ def test_whole_permissive_terms_are_ok(text: str) -> None:
     [
         "",
         " ",
-        "x" * 200000,
+        "x" * 100_000,  # under Linux MAX_ARG_STRLEN (128 KiB) for one argv string
         "(((",
         ")(",
         "OR",
