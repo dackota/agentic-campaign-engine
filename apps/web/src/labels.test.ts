@@ -1,0 +1,23 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import { kindLabel, stepLabel, workflowLabel } from "./labels.ts";
+import { StepKindValues } from "./workflow.gen.ts";
+
+test("every step kind in the workflow schema has a label", () => {
+  for (const kind of StepKindValues) {
+    assert.ok(kindLabel(kind).length > 0, kind);
+    assert.notEqual(kindLabel(kind), kind);
+  }
+});
+
+test("known step and workflow ids read as plain names", () => {
+  assert.equal(stepLabel("email_writer"), "Email");
+  assert.equal(stepLabel("one_pager"), "One-pager");
+  assert.equal(workflowLabel("threat-report-to-campaign"), "Threat report to campaign");
+});
+
+test("unknown ids are made readable", () => {
+  assert.equal(stepLabel("constructor"), "Constructor");
+  assert.equal(stepLabel("first_draft"), "First draft");
+  assert.equal(workflowLabel("my-workflow"), "My workflow");
+});

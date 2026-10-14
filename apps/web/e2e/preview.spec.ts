@@ -1,8 +1,9 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { APPROVER, signIn } from "./fixtures/sign-in";
+import { APPROVER, signIn, chooseQuickDraft } from "./fixtures/sign-in";
 
 test("the approval screen shows the rendered email", async ({ page }) => {
   await signIn(page);
+  await chooseQuickDraft(page);
   await page.getByLabel("Threat report").fill("Volt Typhoon targets edge routers");
   await page.getByRole("button", { name: "Create campaign" }).click();
 
@@ -58,7 +59,6 @@ test("every inbox asset preview has visible content and no broken image", async 
   const title = `Preview check ${Date.now()}`;
   await signIn(page);
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
-  await page.getByLabel("Workflow").fill("threat-report-to-campaign");
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
   const approverSession = await browser.newContext({ viewport: { width: 1280, height: 720 } });
@@ -66,7 +66,7 @@ test("every inbox asset preview has visible content and no broken image", async 
   await signIn(approver, APPROVER);
   await approver.getByRole("button", { name: "Inbox", exact: true }).click();
 
-  for (const step of ["landing_page", "social", "one_pager", "email_writer", "design"]) {
+  for (const step of ["Landing page", "Social post", "One-pager", "Email", "Design"]) {
     const card = approver.getByRole("article", { name: `${title}: ${step}` });
     await expect(card).toBeVisible();
     await expectPreviewShown(card, step);
