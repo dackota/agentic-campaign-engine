@@ -48,3 +48,13 @@ def add_usage(
 def campaign_status(engine: Engine, campaign_id: uuid.UUID) -> str:
     with Session(engine) as session:
         return session.get_one(db.Campaign, campaign_id).status
+
+
+def add_run_event(
+    engine: Engine, campaign_id: uuid.UUID, step: str, status: str, reason: str | None = None
+) -> int:
+    """Append one run event to the campaign's stream; returns its sequence number."""
+    with Session(engine) as session, session.begin():
+        event = db.add_event(session, campaign_id, step, status, reason)
+        session.flush()
+        return event.seq
