@@ -51,6 +51,10 @@ strict = true
 files = ["tests", "evals", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
 mypy_path = ["apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]
 
+[[tool.mypy.overrides]]
+module = ["docker", "docker.*"]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "apps/engine", "apps/api", "apps/worker", "services/fakes", "services/render", "services/mcp"]

@@ -7,6 +7,7 @@ import subprocess
 import sys
 
 import pytest
+from docker.errors import APIError, NotFound
 from testcontainers.core.docker_client import DockerClient
 from testcontainers.core.labels import LABEL_SESSION_ID, SESSION_ID
 
@@ -111,3 +112,57 @@ def test_a_new_stack_keeps_a_container_of_another_host() -> None:
 def test_a_new_stack_keeps_a_container_without_the_run_label() -> None:
     labels = {PID_LABEL: str(_dead_pid()), HOST_LABEL: socket.gethostname()}
     assert _start_new_stack_beside(_orphan(labels)) is True
+
+
+class _FakeApi:
+    """Docker's low-level API: listing returns dicts (no per-container inspect) and
+    removing a container another worker already removed raises NotFound."""
+
+    def __init__(self, error: Exception) -> None:
+        self.error = error
+        self.removed: list[str] = []
+
+    def containers(self, **_: object) -> list[dict[str, object]]:
+        labels = {RUN_LABEL: "x", PID_LABEL: str(_dead_pid()), HOST_LABEL: socket.gethostname()}
+        return [{"Id": "gone", "Labels": labels}, {"Id": "next", "Labels": labels}]
+
+    def remove_container(self, container_id: str, **_: object) -> None:
+        if container_id == "gone":
+            raise self.error
+        self.removed.append(container_id)
+
+
+class _FakeClient:
+    def __init__(self, error: Exception) -> None:
+        self.api = _FakeApi(error)
+        # docker-py's containers.list() inspects every container it lists, so a container
+        # removed meanwhile raises from the list itself.
+        self.containers = type("C", (), {"list": staticmethod(self._list)})()
+        self._error = error
+
+    def _list(self, **_: object) -> list[object]:
+        raise self._error
+
+    def close(self) -> None:
+        pass
+
+
+def _sweep_with(monkeypatch: pytest.MonkeyPatch, error: Exception) -> _FakeClient:
+    fake = _FakeClient(error)
+    monkeypatch.setattr(
+        "tests.harness.stack.DockerClient", lambda: type("D", (), {"client": fake})()
+    )
+    Stack._remove_orphans()
+    return fake
+
+
+def test_orphan_cleanup_survives_a_container_removed_by_another_worker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = _sweep_with(monkeypatch, NotFound("gone"))
+    assert fake.api.removed == ["next"]
+
+
+def test_orphan_cleanup_raises_other_docker_errors(monkeypatch: pytest.MonkeyPatch) -> None:
+    with pytest.raises(APIError):
+        _sweep_with(monkeypatch, APIError("boom"))
