@@ -75,35 +75,44 @@ test("every inbox asset preview has visible content and no broken image", async 
   await approverSession.close();
 });
 
-test("every inbox preview paints visible pixels on first view", async ({ page, browser }) => {
-  const title = `Pixel check ${Date.now()}`;
-  await signIn(page);
-  await openNewCampaign(page);
-  await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
-  await page.getByRole("button", { name: "Create campaign" }).click();
-  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
-  const approverSession = await browser.newContext({ viewport: { width: 1280, height: ALL_FRAMES_HEIGHT_PX } });
-  const approver = await approverSession.newPage();
-  await signIn(approver, APPROVER);
-  // The campaign link puts this campaign's assets first, however many others wait in the shared inbox.
-  const inbox = await approver.request.get("/api/inbox", {
-    headers: { authorization: `Bearer ${await accessTokenOf(approver)}` },
-  });
-  const mine = ((await inbox.json()) as { campaign_id: string; title: string }[]).find((a) => a.title === title);
-  await approver.goto(`/?inbox=${mine?.campaign_id}`);
+// Tall enough that every frame of the linked campaign is in view at first paint: the browser
+// throttles a sandboxed frame that is off screen and paints it only once scrolled to.
+const ALL_FRAMES_HEIGHT_PX = 3600;
+const VIEWPORTS = [
+  { name: "laptop", width: 1280, height: ALL_FRAMES_HEIGHT_PX },
+  { name: "tablet", width: 768, height: ALL_FRAMES_HEIGHT_PX },
+];
 
-  const steps = ["Landing page", "Social post", "One-pager", "Email", "Design"];
-  for (const step of steps) {
-    const frame = approver.getByRole("article", { name: `${title}: ${step}` }).locator("iframe");
-    // No scrolling to the frame and no wait beyond its load.
-    await expect(frame).toHaveAttribute("data-loaded", "true");
-    const box = await frame.boundingBox();
-    const shot = await approver.screenshot({ clip: box ?? undefined });
-    expect(shot.length, `${step} preview is blank on first view`).toBeGreaterThan(MIN_PAINTED_PNG_BYTES);
+for (const viewport of VIEWPORTS) {
+  test(`every inbox preview paints visible pixels on first view at ${viewport.name} width`, async ({ page, browser }) => {
+    const title = `Pixel check ${Date.now()}`;
+    await signIn(page);
+    await openNewCampaign(page);
+    await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
+    await page.getByRole("button", { name: "Create campaign" }).click();
+    await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
+    const approverSession = await browser.newContext({ viewport: viewport });
+    const approver = await approverSession.newPage();
+    await signIn(approver, APPROVER);
+    // The campaign link puts this campaign's assets first, however many others wait in the shared inbox.
+    const inbox = await approver.request.get("/api/inbox", {
+      headers: { authorization: `Bearer ${await accessTokenOf(approver)}` },
+    });
+    const mine = ((await inbox.json()) as { campaign_id: string; title: string }[]).find((a) => a.title === title);
+    await approver.goto(`/?inbox=${mine?.campaign_id}`);
+
+    const steps = ["Landing page", "Social post", "One-pager", "Email", "Design"];
+    for (const step of steps) {
+      const frame = approver.getByRole("article", { name: `${title}: ${step}` }).locator("iframe");
+      // No scrolling to the frame and no wait beyond its load.
+      await expect(frame).toHaveAttribute("data-loaded", "true");
+      await approver.waitForTimeout(3000);
+      const box = await frame.boundingBox();
+        const shot = await approver.screenshot({ clip: box ?? undefined });
+      expect(shot.length, `${step} preview is blank on first view`).toBeGreaterThan(MIN_PAINTED_PNG_BYTES);
+    }
+    await approverSession.close();
+    });
   }
-  await approverSession.close();
-});
 
 const MIN_PAINTED_PNG_BYTES = 4_000;
-// Tall enough that every frame of the linked campaign is on screen at once, so none waits below the fold to be painted.
-const ALL_FRAMES_HEIGHT_PX = 3200;
