@@ -1,3 +1,4 @@
+import type { CampaignStatus } from "./api.ts";
 import type { StepKind } from "./workflow.gen.ts";
 
 /** The one place ids become words a marketer reads. Ids not listed are made readable by `humanize`. */
@@ -50,3 +51,26 @@ const FLAG_LABELS: Record<string, string> = {
 
 /** The brand reviewer's check ids, as the words a marketer reads. */
 export const flagLabel = (check: string): string => named(FLAG_LABELS, check) ?? humanize(check);
+
+const KIND_DESCRIPTIONS: Record<StepKind, string> = {
+  agent: "An AI writes or prepares something, like an email or a social post.",
+  render: "Turns finished content into a ready-to-use file or page.",
+  approval: "A person says yes before anything goes further.",
+  publish: "Sends the approved content out.",
+  wait: "Pauses the workflow for a set time.",
+};
+
+export const kindDescription = (kind: StepKind): string => KIND_DESCRIPTIONS[kind];
+
+const STATUS_LABELS: Record<CampaignStatus, string> = {
+  drafting: "Drafting",
+  awaiting_approval: "Waiting for approval",
+  sending: "Sending",
+  sent: "Sent",
+  failed: "Failed",
+  retrying: "Retrying",
+  finished: "Finished",
+  budget_paused: "Paused at budget",
+};
+
+export const statusLabel = (status: CampaignStatus): string => STATUS_LABELS[status];

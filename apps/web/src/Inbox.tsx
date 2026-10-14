@@ -158,6 +158,7 @@ interface InboxProps {
 function useInbox(onSignOut: () => void) {
   const [assets, setAssets] = useState<InboxAsset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sentBack, setSentBack] = useState<string[]>([]);
 
   async function refresh() {
     try {
@@ -187,22 +188,30 @@ function useInbox(onSignOut: () => void) {
   }
 
   const decide = (asset: InboxAsset, decision: Decision, comment: string) =>
-    act(() => decideAsset(asset, decision, comment));
+    act(async () => {
+      await decideAsset(asset, decision, comment);
+      if (decision === "reject") setSentBack((was) => [...was, `${asset.title}: ${stepLabel(asset.step)}`]);
+    });
   const approveAllClean = (campaignId: string) =>
     act(async () => {
       for (const a of cleanAssets(assets ?? [], campaignId)) await decideAsset(a, "approve", "");
     });
 
-  return { assets, error, decide, approveAllClean };
+  return { assets, error, sentBack, decide, approveAllClean };
 }
 
 /** The approver's queue: every asset waiting for their team, grouped by campaign. */
 export function Inbox({ onSignOut, linkedCampaign }: InboxProps) {
-  const { assets, error, decide, approveAllClean } = useInbox(onSignOut);
+  const { assets, error, sentBack, decide, approveAllClean } = useInbox(onSignOut);
   const groups = groupByCampaign(assets ?? [], linkedCampaign);
   return (
     <section>
       <h2>Approval inbox</h2>
+      {sentBack.length > 0 && (
+        <p className="block" role="status" data-testid="sent-back">
+          Sent back to the writer for a redo: {sentBack.join("; ")}. It returns here when it is redone.
+        </p>
+      )}
       {error && <ErrorBlock>{error}</ErrorBlock>}
       {assets === null && !error && <LoadingBlock>Loading your inbox…</LoadingBlock>}
       {assets !== null && assets.length === 0 && <EmptyBlock>{INBOX_EMPTY}</EmptyBlock>}

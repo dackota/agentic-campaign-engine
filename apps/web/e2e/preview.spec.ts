@@ -1,5 +1,5 @@
 import { expect, test, type Locator } from "@playwright/test";
-import { APPROVER, accessTokenOf, signIn, chooseQuickDraft } from "./fixtures/sign-in";
+import { APPROVER, accessTokenOf, signIn, chooseQuickDraft, openNewCampaign } from "./fixtures/sign-in";
 
 test("the approval screen shows the rendered email", async ({ page }) => {
   await signIn(page);
@@ -58,6 +58,7 @@ test.use({ viewport: { width: 1280, height: 720 } });
 test("every inbox asset preview has visible content and no broken image", async ({ page, browser }) => {
   const title = `Preview check ${Date.now()}`;
   await signIn(page);
+  await openNewCampaign(page);
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
@@ -77,6 +78,7 @@ test("every inbox asset preview has visible content and no broken image", async 
 test("every inbox preview paints visible pixels on first view", async ({ page, browser }) => {
   const title = `Pixel check ${Date.now()}`;
   await signIn(page);
+  await openNewCampaign(page);
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });

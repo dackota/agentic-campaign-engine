@@ -1,11 +1,12 @@
 import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
-import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
+import { APPROVER, OWNER, openNewCampaign, signIn } from "./fixtures/sign-in";
 
 const RUN_WAIT_MS = 30_000;
 
 async function waitingCampaign(browser: Browser, title: string, marker = ""): Promise<void> {
   const page = await (await browser.newContext()).newPage();
   await signIn(page, OWNER);
+  await openNewCampaign(page);
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.\n${marker}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });
@@ -75,6 +76,7 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
   await expect(group(clean)).toHaveCount(0);
 
   await rejectWithComment(approver, flaggedCard, "Drop the hype");
+  await expect(approver.getByTestId("sent-back")).toContainText("Sent back to the writer for a redo");
   // A rejected asset goes back to its writer and returns when redone, so the flagged campaign
   // keeps its flagged assets waiting; the count dropped when the clean assets were approved.
   await expect(group(flagged).getByRole("article")).toHaveCount(flaggedCount);

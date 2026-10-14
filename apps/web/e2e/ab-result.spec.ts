@@ -32,7 +32,7 @@ async function sendCampaign(page: Page, browser: Browser) {
   const session = await browser.newContext();
   const approverPage = await session.newPage();
   await signIn(approverPage, APPROVER);
-  await approverPage.getByRole("button", { name: report }).click();
+  await approverPage.getByRole("link", { name: report }).click();
   await approverPage.getByRole("button", { name: "Approve" }).click();
   await expect(approverPage.getByTestId("run-status")).toHaveText("Sent");
   return { approverPage, session };
@@ -60,7 +60,7 @@ test("a sent campaign names the winner and its confidence once enough opens arri
   await setAudience(page, DAY_SPEED);
   const { approverPage, session } = await sendCampaign(page, browser);
 
-  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Winner: [AB] \(\d+% confident\)$/, {
+  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Version [AB] won, \d+% confident$/, {
     timeout: SETTLE_MS,
   });
   await session.close();

@@ -11,6 +11,7 @@ import uuid
 from collections.abc import AsyncIterator, Callable, Mapping
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
+from datetime import datetime
 from types import MappingProxyType
 from typing import Annotated, Any, Literal
 
@@ -143,6 +144,7 @@ class CampaignOut(BaseModel):
     report: str
     team: str
     created_by: str
+    created_at: datetime
     status: str
     draft: dict[str, Any] | None
     variant_b: dict[str, Any] | None
@@ -181,6 +183,7 @@ class CampaignOut(BaseModel):
             report=c.report,
             team=c.team,
             created_by=c.created_by,
+            created_at=c.created_at,
             status=c.status,
             draft=c.draft,
             variant_b=c.variant_b,
