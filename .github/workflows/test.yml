@@ -13,5 +13,16 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      # scripts/go-public-check.sh needs gitleaks; its tests run under make test.
+      - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -sSfL -o "$tarball" "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/$tarball"
+          echo "$GITLEAKS_SHA256  $tarball" | sha256sum -c
+          tar -xzf "$tarball" gitleaks
+          sudo install gitleaks /usr/local/bin/gitleaks
       # Both seams at fast depth: Docker (Postgres) is the only service needed.
       - run: make test
