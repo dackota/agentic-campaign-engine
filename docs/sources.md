@@ -5,13 +5,6 @@ says what the page told us. GitHub links point at the tag we read, so they do
 not drift. kagent 1.x is alpha and changes every few days, so check the live
 page before you rely on a row.
 
-## The role
-
-| Source | What it told us |
-|---|---|
-| [Job post on Workday](https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers/job/USA---Remote/Sr-Full-Stack-Engineer--Remote-_R29072-1) | The title is now "Sr. AI Growth Engineer (Remote)". It is on the marketing team. The "What You'll Do" and "What You'll Need" lists that SPEC.md maps to slices. Applications close 2026-12-02 |
-| [Same post, Workday JSON API](https://crowdstrike.wd5.myworkdayjobs.com/wday/cxs/crowdstrike/crowdstrikecareers/job/USA---Remote/Sr-Full-Stack-Engineer--Remote-_R29072-1) | The page is rendered by JavaScript. This endpoint returns the full text |
-
 ## Prior work
 
 | Source | What it told us |

@@ -184,7 +184,7 @@ def test_no_license_file_is_added() -> None:
 def test_go_public_doc_records_the_run_and_open_items() -> None:
     text = DOC.read_text()
 
-    for needle in ("secret scan", "Brand hits", "Licenses", "Open items", "job link", "LICENSE"):
+    for needle in ("secret scan", "Brand hits", "Licenses", "Open items", "LICENSE"):
         assert needle in text, needle
 
 

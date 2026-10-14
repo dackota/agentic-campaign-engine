@@ -1,5 +1,5 @@
 """The README, the architecture doc and the decisions index: every link resolves, the proof
-table covers every job bullet, and the setup steps name things that exist."""
+table covers every capability, and the setup steps name things that exist."""
 
 import re
 from pathlib import Path
@@ -33,8 +33,8 @@ def _check_links(path: Path) -> None:
         assert (path.parent / file_part).exists(), f"{path.name} links to missing {target}"
 
 
-def _job_bullets() -> list[str]:
-    spec = _section((ROOT / "SPEC.md").read_text(), "Job bullet to proof")
+def _capabilities() -> list[str]:
+    spec = _section((ROOT / "SPEC.md").read_text(), "What it does and where it is proven")
     rows = [line for line in spec.splitlines() if line.startswith("|")][2:]
     return [row.split("|")[1].strip() for row in rows]
 
@@ -47,10 +47,10 @@ def test_architecture_every_relative_link_resolves() -> None:
     _check_links(ARCH)
 
 
-def test_readme_proof_table_has_a_row_per_job_bullet_with_code_and_test_links() -> None:
-    bullets = _job_bullets()
+def test_readme_proof_table_has_a_row_per_capability_with_code_and_test_links() -> None:
+    bullets = _capabilities()
     assert len(bullets) == 10
-    table = _section(README.read_text(), "Job bullet to proof")
+    table = _section(README.read_text(), "What it does and where it is proven")
     rows = [line for line in table.splitlines() if line.startswith("|")][2:]
     assert len(rows) == len(bullets)
     for bullet, row in zip(bullets, rows, strict=True):
@@ -108,12 +108,8 @@ def test_readme_setup_steps_name_real_make_targets_and_files() -> None:
     assert "git clone" in text
 
 
-def test_no_real_brand_or_job_link() -> None:
-    spec = (ROOT / "SPEC.md").read_text()
-    job_url = re.search(r"\[job post\]\(([^)]+)\)", spec)
-    assert job_url
-    host = job_url.group(1).split("/")[2].split(".")[0].lower()
-    for path in (README, ARCH, DECISIONS / "README.md"):
+def test_no_job_post_framing() -> None:
+    for path in (README, ARCH, ROOT / "SPEC.md", ROOT / "docs/sources.md", DECISIONS / "README.md"):
         text = path.read_text().lower()
-        assert job_url.group(1).lower() not in text
-        assert host not in text, path.name
+        for phrase in ("job post", "job bullet", "myworkdayjobs", "crowdstrike", "hiring"):
+            assert phrase not in text, f"{path.name}: {phrase}"

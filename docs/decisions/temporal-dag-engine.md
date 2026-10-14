@@ -18,7 +18,7 @@ back JSON that fits a schema. kagent runs the agents; it does not run the pipeli
 
 ## Why
 
-The job asks for an orchestration layer: multi-agent pipelines, state, error recovery, and
+The engine needs an orchestration layer: multi-agent pipelines, state, error recovery, and
 parallel runs. kagent 1.x has agents but no pipeline engine. Temporal gives durable state,
 retries, signals and resume after a crash without us writing them. The workflow is a thin
 shell; the rules live in plain Python that tests can drive without Temporal.

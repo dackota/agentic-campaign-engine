@@ -25,8 +25,6 @@ Deny list: CrowdStrike, Adobe, Marketo, Workfront, Salesforce, Palo Alto, Okta, 
 
 Real company names outside an integration, with file:line:
 
-- SPEC.md:24 (CrowdStrike, the job post link)
-- docs/sources.md:12 and docs/sources.md:13 (CrowdStrike, the same job post on Workday)
 - SPEC.md:226 (Okta, Entra, as examples of a company IdP)
 - platform/dex/config.yaml:1 (Okta, Entra, same)
 - tests/api/snapshots/email_preview.html:1 (Microsoft, an XML namespace in generated email HTML)
@@ -43,7 +41,6 @@ Direct dependencies: Python from `pyproject.toml` (installed metadata), JS from 
 
 ## Open items for the user
 
-- The job link: SPEC.md:24 and docs/sources.md:12 to :13 name a real company's job post. Keep, reword, or remove.
 - The repo license: there is no LICENSE file. Pick one before going public.
 - Brand names used as integration names: the fake Marketo and Workfront servers and MCP tools, plus the Slack, Google, and Figma integrations. SPEC.md says no real brand appears in the repo, so decide whether these count or are accepted as integration names.
 - The 2 secret-scan false positives above: allowlist or reword.

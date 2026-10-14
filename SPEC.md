@@ -19,11 +19,10 @@ logo, or customer appears anywhere in this repo.
 
 ## Why it exists
 
-This is a proof of work for a senior engineer role on a marketing team that is
-building an agentic AI platform
-([job post](https://crowdstrike.wd5.myworkdayjobs.com/crowdstrikecareers/job/USA---Remote/Sr-Full-Stack-Engineer--Remote-_R29072-1)).
-Each line of "What You'll Do" in that post maps to a part of this repo that
-proves it. See [Job bullet to proof](#job-bullet-to-proof).
+Marketing teams want an agentic AI platform: agents that draft, people who
+approve, and a loop that learns from results. This repo builds one end to end.
+Each capability maps to a part of this repo that proves it. See
+[What it does and where it is proven](#what-it-does-and-where-it-is-proven).
 
 It follows [agent-golden-path](https://github.com/dackota/agent-golden-path),
 which put agents into production on kagent 0.10. This repo uses kagent 1.x
@@ -37,9 +36,9 @@ which put agents into production on kagent 0.10. This repo uses kagent 1.x
 | Engineers | This spec, the README proof table, the ADRs, and the code |
 | Anyone curious | `make up` on k3d |
 
-## Job bullet to proof
+## What it does and where it is proven
 
-| Job bullet | Where it is proven | Slice |
+| Capability | Where it is proven | Slice |
 |---|---|---|
 | Build integrations (Workfront, Marketo, Docs, Slack, CMS, DAM) | Fake Marketo-shaped and Workfront-shaped services with REST, OAuth2, and webhooks. A CMS and an S3 asset store in the cluster. Real Slack and Google Docs by flag. Each one is also an MCP server | S5 |
 | Orchestration layer: multi-agent pipelines, state, error recovery, parallel runs | A Temporal workflow that runs a campaign DAG. Parallel fan-out, retries, resume after a crash, review loops, approval gates | S3, S4 |
@@ -50,7 +49,7 @@ which put agents into production on kagent 0.10. This repo uses kagent 1.x
 | Auth, permissions, multi-tenancy | Dex login (OIDC), 3 roles, Postgres row-level security, one namespace per team, token limits per team | S6 |
 | CI/CD and reliability | Eval gate on every PR, nightly k3d run, signed images, alerts | S2, S10, S12 |
 | Performance: caching, parallelism, LLM cost | Gateway failover, step cache, prompt caching, per-team concurrency limits, a dollar budget per campaign, a load test | S1, S11 |
-| Partner with marketing leadership | The video, the plain-language README, and ADRs that explain each trade-off | S14 |
+| Explain it to marketing leadership | The video, the plain-language README, and ADRs that explain each trade-off | S14 |
 
 ## The pipeline
 
@@ -134,9 +133,9 @@ in `docs/decisions/` as each slice lands.
 | # | Topic | Decision | Why |
 |---|---|---|---|
 | 1 | Story | Security campaign engine for made-up Acme Security | Matches the team's work and the company's world |
-| 2 | Deliverable | Video + README proof table + runnable on k3d | The hiring VP will watch, not run, it |
-| 3 | Timeline | Full build first, about 2 to 3 weeks, then apply | Hit every bullet before the first screen |
-| 4 | Orchestration | Our DAG engine on Temporal. Each step calls a kagent Agent over A2A | The job asks us to build this layer. kagent has no pipeline engine |
+| 2 | Deliverable | Video + README proof table + runnable on k3d | Most readers will watch it, not run it |
+| 3 | Timeline | Full build first, about 2 to 3 weeks | Every capability works before the demo is recorded |
+| 4 | Orchestration | Our DAG engine on Temporal. Each step calls a kagent Agent over A2A | The orchestration layer is ours to build. kagent has no pipeline engine |
 | 5 | k3d risk | Spike on day 1. Fix for up to 1 day and file upstream issues. Then fall back to kind | kagent 1.x is only tested on kind |
 | 6 | Model | agentgateway with priority failover: OpenCode Go first, a pay-as-you-go Anthropic API key second | Cheap default, real failover story. A Claude login cannot sit behind a gateway |
 | 7 | Agents | Declarative AgentTemplates on the Go harness. One custom Python agent as a stretch | The Go harness is stable and has structured output. Python wake-up crashes are a known risk |
@@ -145,7 +144,7 @@ in `docs/decisions/` as each slice lands.
 | 10 | Auth | Dex + Postgres row-level security + team namespaces | Real OIDC at about 30 MB of RAM |
 | 11 | Rendering | Deterministic renderers + one sandbox design agent | Safe, testable output. Still shows kagent sandboxes |
 | 12 | Analytics | Simulated audience + A/B stats + pgvector learnings (RAG) | A real feedback loop, and RAG is a bonus point |
-| 13 | Evals | Our own eval harness with a baseline gate in CI | The job asks for eval frameworks, not eval tools |
+| 13 | Evals | Our own eval harness with a baseline gate in CI | The goal is an eval framework, not an eval tool |
 | 14 | Resources | Docker Desktop at 8 CPUs and 24 GB. `make up` core, `make up FULL=1` adds observability | The full stack will not fit in 14.6 GB |
 | 15 | Deploy | Helm + Tilt + GHCR with digest pins. No Argo | kagent wants digests. Argo was already shown in the last repo |
 | 16 | Order | Spike, walking skeleton, then widen one bullet per slice | The demo always works, so we can stop at any point |

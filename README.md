@@ -39,13 +39,13 @@ to a token.
 
 Video and demo GIF: TODO
 
-## Job bullet to proof
+## What it does and where it is proven
 
-Each row is a requirement from the job this project answers. The links go to the code, then
-to the tests that prove it. A tick in "Live check" means the proof runs against the real
+Each row is one thing the engine does. The links go to the code, then to the tests that
+prove it. A tick in "Live check" means the proof runs against the real
 cluster and is not run in CI; "owed" means that live check has not run yet.
 
-| Job bullet | Code | Tests | Live check |
+| Capability | Code | Tests | Live check |
 |---|---|---|---|
 | Build integrations (Workfront, Marketo, Docs, Slack, CMS, DAM) | [fakes](services/fakes/README.md), [MCP servers](services/mcp/README.md), [Slack and Docs](apps/worker/campaign_worker/notify.py) | [Marketo](tests/api/test_marketo_fake.py), [Workfront](tests/api/test_workfront_fake.py), [Slack and Google](tests/api/test_slack_google_fakes.py), [CMS and S3](tests/api/test_content_fakes.py), [MCP](tests/mcp/test_mcp_servers.py) | Real Slack and Google Docs are off unless their credentials are set; not run live. [ADR](docs/decisions/mcp-servers.md) |
 | Orchestration layer: multi-agent pipelines, state, error recovery, parallel runs | [workflow](apps/worker/campaign_worker/workflow.py), [DAG rules](apps/engine/ace_engine/dag.py), [agent call](apps/engine/ace_engine/invoker.py) | [runs](tests/api/test_workflow_runs.py), [step failures](tests/api/test_step_failures.py), [DAG property](tests/api/test_workflow_property.py), [default workflow](tests/api/test_default_workflow.py) | Live agents on the cluster: owed. [ADR](docs/decisions/temporal-dag-engine.md) |
@@ -56,7 +56,7 @@ cluster and is not run in CI; "owed" means that live check has not run yet.
 | Auth, permissions, multi-tenancy | [sign-in and roles](apps/api/campaign_api/auth.py), [row-level security](apps/engine/ace_engine/row_security.py), [team agents](agents/teams/gateway.yaml) | [access](tests/api/test_access.py), [team isolation](tests/api/test_team_isolation.py), [row security](tests/engine/test_row_security.py), [login](apps/web/e2e/login.spec.ts) | Two teams at once on the cluster: owed. [ADR](docs/decisions/team-isolation.md) |
 | CI/CD and reliability | [CI workflows](.github/workflows/test.yml), [eval gate](evals/gate.py), [signed images](.github/workflows/publish-images.yml), [alerts](docs/decisions/dashboards-and-alerts.md) | [gate](tests/evals/test_gate.py), [alerts](tests/api/test_alerts.py), [image build](tests/tooling/test_image_build_workflow.py), [publish workflow](tests/tooling/test_publish_images_workflow.py), [observability](tests/tooling/test_observability.py) | Signed images run after a merge to main: owed. The nightly k3d run is not built. [ADR](docs/decisions/eval-gate.md) |
 | Performance: caching, parallelism, LLM cost | [step cache](apps/engine/ace_engine/step_cache.py), [step limits](apps/engine/ace_engine/limits.py), [cost](apps/engine/ace_engine/cost.py), [budget](apps/api/campaign_api/budget.py), [load script](tests/harness/load.py) | [step cache](tests/api/test_step_cache.py), [team step limit](tests/api/test_team_step_limit.py), [cost](tests/api/test_campaign_cost.py), [gateway failover](tests/tooling/test_gateway_failover.py), [load script](tests/api/test_load_script.py) | Failover with a real Anthropic key and the 20-campaign load test: owed, see [load test](docs/load-test.md). [ADR](docs/decisions/step-cache.md) |
-| Partner with marketing leadership | This README, [architecture](docs/architecture.md), [decisions](docs/decisions/README.md) | [README](tests/tooling/test_readme.py), [doc links](tests/tooling/test_docs_links.py) | The video: owed. |
+| Explain it to marketing leadership | This README, [architecture](docs/architecture.md), [decisions](docs/decisions/README.md) | [README](tests/tooling/test_readme.py), [doc links](tests/tooling/test_docs_links.py) | The video: owed. |
 
 How the owed items get closed: one live check on the cluster after merge. The list of what
 it covers is kept with the project's working notes.
