@@ -60,7 +60,7 @@ test("a sent campaign names the winner and its confidence once enough opens arri
   await setAudience(page, DAY_SPEED);
   const { approverPage, session } = await sendCampaign(page, browser);
 
-  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Winner: [AB] \(\d+% confident\)$/, {
+  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Version [AB] won, \d+% confident$/, {
     timeout: SETTLE_MS,
   });
   await session.close();

@@ -34,7 +34,7 @@ async function sendUntilWinner(page: Page, browser: Browser, report: string): Pr
   await signIn(approverPage, APPROVER);
   await approverPage.getByRole("link", { name: report }).click();
   await approverPage.getByRole("button", { name: "Approve" }).click();
-  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Winner: [AB]/, {
+  await expect(approverPage.getByTestId("ab-result")).toHaveText(/^Version [AB] won/, {
     timeout: SETTLE_MS,
   });
   return approverPage;
@@ -62,7 +62,7 @@ test("an approver sees each learning's source campaign and deletes a learning; a
   const learning = approverPage.getByRole("listitem").filter({ hasText: report });
   await expect(learning).toHaveCount(1);
   await expect(learning.getByTestId("learning-text")).not.toBeEmpty();
-  await expect(learning.getByTestId("learning-reason")).toHaveText(/^Variant [AB] won/);
+  await expect(learning.getByTestId("learning-reason")).toHaveText(/^Version [AB] won/);
   await learning.getByRole("button", { name: report }).click();
   await expect(approverPage.getByTestId("draft-subject")).not.toBeEmpty();
 

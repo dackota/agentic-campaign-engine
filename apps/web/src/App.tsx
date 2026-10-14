@@ -26,7 +26,7 @@ import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
-import { stepLabel, workflowLabel } from "./labels";
+import { statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
 import { campaignPath, NEW_CAMPAIGN_PATH, useRoute, type Route } from "./route";
@@ -37,17 +37,6 @@ import { useRunEvents } from "./useRunEvents";
 const POLL_MS = 500;
 // The simulated audience keeps engaging after the send; watch for the A/B call this long.
 const AB_WATCH_POLLS = 120;
-
-const STATUS_LABELS: Record<Campaign["status"], string> = {
-  drafting: "Drafting",
-  awaiting_approval: "Waiting for approval",
-  sending: "Sending",
-  sent: "Sent",
-  failed: "Failed",
-  retrying: "Retrying",
-  finished: "Finished",
-  budget_paused: "Paused at budget",
-};
 
 const STATUS_TONES: Record<Campaign["status"], Tone> = {
   drafting: "info",
@@ -94,10 +83,10 @@ async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promi
   }
 }
 
-/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+/** The A/B call: "Version B won, 97% confident", or "No decision yet". */
 function abResultText(result: AbResult): string {
   if (result.status !== "winner" || result.confidence === null) return "No decision yet";
-  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
+  return `Version ${result.winner} won, ${Math.floor(result.confidence * 100)}% confident`;
 }
 
 /** What the run cost, in dollars and cents. */
@@ -208,7 +197,7 @@ function CampaignCard({ me, campaign, go }: { me: Me; campaign: Campaign; go: (p
         </h3>
         <p>
           <span data-testid="card-status">
-            <StatusBadge tone={STATUS_TONES[campaign.status]}>{STATUS_LABELS[campaign.status]}</StatusBadge>
+            <StatusBadge tone={STATUS_TONES[campaign.status]}>{statusLabel(campaign.status)}</StatusBadge>
           </span>
         </p>
         <dl className="card-facts">
@@ -653,7 +642,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
       {campaign.draft && <EmailPreview id={campaign.id} />}
       {hasStatus && (
         <p>
-          Status: <span data-testid="run-status">{STATUS_LABELS[campaign.status]}</span>
+          Status: <span data-testid="run-status">{statusLabel(campaign.status)}</span>
         </p>
       )}
       {(campaign.status === "sent" || campaign.status === "finished") && (

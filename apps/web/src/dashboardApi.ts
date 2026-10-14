@@ -1,9 +1,9 @@
-import { fetchJson } from "./api";
+import { fetchJson, STATUSES, type CampaignStatus } from "./api";
 
 export interface DashboardRow {
   id: string;
   title: string;
-  status: string;
+  status: CampaignStatus;
   created_at: string;
   cost_usd: number;
   quality_score: number | null;
@@ -31,7 +31,7 @@ function isRow(value: unknown): value is DashboardRow {
   return (
     typeof r.id === "string" &&
     typeof r.title === "string" &&
-    typeof r.status === "string" &&
+    STATUSES.includes(r.status as CampaignStatus) &&
     typeof r.created_at === "string" &&
     typeof r.cost_usd === "number" &&
     isNumberOrNull(r.quality_score) &&

@@ -158,3 +158,23 @@ a.btn-primary { color: var(--color-primary-text); }
 .new-campaign label { font-weight: 600; }
 .new-campaign textarea { font-weight: 400; }
 .hint { color: var(--color-muted); font-size: var(--font-size-sm); margin-top: 0; }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); list-style: none; padding: 0; margin: 0 0 var(--space-3); }
+.tile { display: flex; flex-direction: column; background: var(--color-surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: var(--space-3); }
+.tile-label { color: var(--color-muted); font-size: var(--font-size-sm); }
+.tile-value { font-size: var(--font-size-xl); font-weight: 700; }
+.trend-chart { width: 100%; max-width: 700px; height: auto; }
+.trend-axis { stroke: var(--color-border); stroke-width: 1; }
+.trend-click, .trend-quality { fill: none; stroke-width: 2.5; }
+.trend-click { stroke: var(--color-primary); }
+.trend-quality { stroke: var(--color-warn); stroke-dasharray: 6 3; }
+.trend-label { font-size: var(--font-size-sm); fill: var(--color-muted); }
+.trend-click-text { fill: var(--color-primary); }
+.trend-quality-text { fill: var(--color-warn); }
+table { width: 100%; border-collapse: collapse; background: var(--color-surface); }
+th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom: 1px solid var(--color-border); }
+.learning-list { list-style: none; padding: 0; }
+.learning-text { font-weight: 600; }
+.learning-reason { color: var(--color-muted); }
+.trend-dot { stroke: var(--color-surface); stroke-width: 1; }
+.trend-click-dot { fill: var(--color-primary); }
+.trend-quality-dot { fill: var(--color-warn); }
