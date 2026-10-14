@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { listVersions, saveWorkflow, validateWorkflow, type Rejection } from "./builderApi";
 import { messageOf } from "./messages";
+import { kindLabel, stepLabel } from "./labels";
 import type { StepKind, Workflow, WorkflowStep } from "./workflow.gen";
 
 const TEMPLATE_NAME = "Threat report to campaign";
@@ -55,7 +56,7 @@ interface StepRowProps {
 function StepRow({ step, onChange, onRemove, dragProps }: StepRowProps) {
   return (
     <li draggable {...dragProps}>
-      <strong>{step.id}</strong> ({step.kind}){" "}
+      <strong>{stepLabel(step.id)}</strong> ({kindLabel(step.kind)}){" "}
       <label>
         Retry attempts
         <input

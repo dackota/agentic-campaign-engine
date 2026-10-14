@@ -1,3 +1,4 @@
+import { workflowLabel } from "../src/labels.ts";
 import { expect, test } from "@playwright/test";
 import { signIn } from "./fixtures/sign-in";
 
@@ -33,7 +34,7 @@ test("builds, breaks, fixes, saves, and runs a workflow", async ({ page }) => {
   await page.getByRole("button", { name: "Add approval gate" }).click();
   await expect(page.getByRole("alert")).toContainText("needs an approval step before it");
   await steps.nth(2).dragTo(steps.nth(1));
-  await expect(steps).toHaveText([/email_draft/, /approval/, /publish/]);
+  await expect(steps).toHaveText([/Email draft/, /Approval/, /Publish/]);
   await expect(page.getByRole("alert")).toHaveCount(0);
 
   await page.getByLabel("Workflow name").fill(name);
@@ -42,8 +43,8 @@ test("builds, breaks, fixes, saves, and runs a workflow", async ({ page }) => {
 
   // Run it.
   await page.getByRole("button", { name: "Campaigns" }).click();
+  await page.getByLabel("Workflow", { exact: true }).selectOption({ value: name });
   await page.getByLabel("Threat report").fill(REPORT);
-  await page.getByLabel("Workflow", { exact: true }).fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
-  await expect(page.getByTestId("workflow-version")).toHaveText(`${name} version 1`);
+  await expect(page.getByTestId("workflow-version")).toHaveText(`${workflowLabel(name)} version 1`);
 });

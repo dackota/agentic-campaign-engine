@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, type Page } from "@playwright/test";
-import { accessTokenOf, OWNER, signIn } from "./fixtures/sign-in";
+import { accessTokenOf, chooseWorkflow, OWNER, signIn } from "./fixtures/sign-in";
 
 const VIEWER = "dg-viewer@demo.example";
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
@@ -20,8 +20,8 @@ async function finishedCampaign(page: Page, title: string): Promise<void> {
     },
   });
   expect(saved.status()).toBe(201);
+  await chooseWorkflow(page, name);
   await page.getByLabel("Threat report").fill(`${title}\n${REPORT}`);
-  await page.getByLabel("Workflow").fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Finished", { timeout: RUN_WAIT_MS });
   await expect(page.getByTestId("judge-score-landing_page")).toBeVisible();
@@ -39,7 +39,7 @@ test("the dashboard shows a finished campaign's numbers and a trend across campa
 
   const row = page.getByTestId(`dashboard-row-Dash one ${stamp}`);
   await expect(row.getByTestId("dashboard-status")).toHaveText("Finished");
-  await expect(row.getByTestId("dashboard-cost")).toHaveText(/^\$\d+\.\d{4}$/);
+  await expect(row.getByTestId("dashboard-cost")).toHaveText(/^\$\d+\.\d{2}$/);
   await expect(row.getByTestId("dashboard-quality")).toHaveText(/^[1-5](\.\d)?\/5$/);
   await expect(row.getByTestId("dashboard-click-rate")).toBeVisible();
   await expect(page.getByTestId("dashboard-runs")).not.toHaveText("0");

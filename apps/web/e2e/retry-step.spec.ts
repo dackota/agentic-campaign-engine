@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { accessTokenOf, signIn } from "./fixtures/sign-in";
+import { accessTokenOf, chooseWorkflow, signIn } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
@@ -26,8 +26,8 @@ test("a failed run shows a retry-step action that resumes it to the end", async 
   expect(saved.status()).toBe(201);
 
   // [agent:down-2] makes the scripted agent fail the first two calls: both attempts.
+  await chooseWorkflow(page, name);
   await page.getByLabel("Threat report").fill(`[agent:down-2]\n${REPORT}\n${name}`);
-  await page.getByLabel("Workflow").fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   await expect(page.getByTestId("step-writer")).toContainText("failed");

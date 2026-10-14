@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { accessTokenOf, signIn } from "./fixtures/sign-in";
+import { accessTokenOf, chooseWorkflow, signIn, chooseQuickDraft } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
@@ -24,21 +24,22 @@ test("run view lists the DAG steps in order", async ({ page, request }) => {
   });
   expect(saved.status()).toBe(201);
 
+  await chooseWorkflow(page, name);
   await page.getByLabel("Threat report").fill(REPORT);
-  await page.getByLabel("Workflow").fill(name);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   const steps = page.getByRole("list", { name: "Run steps" }).getByRole("listitem");
-  await expect(steps).toHaveText([/^writer/, /^preview/, /^approve/, /^publish/]);
+  await expect(steps).toHaveText([/^Writer/, /^Preview/, /^Approve/, /^Publish/]);
   await expect(page.getByTestId("step-writer")).toContainText("succeeded");
   await expect(page.getByTestId("step-publish")).toContainText("pending");
 });
 
 test("the default workflow lists its steps before they run", async ({ page }) => {
   await signIn(page);
+  await chooseQuickDraft(page);
   await page.getByLabel("Threat report").fill(REPORT);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   const steps = page.getByRole("list", { name: "Run steps" }).getByRole("listitem");
-  await expect(steps).toHaveText([/^Email draft/, /^judge/, /^approval/, /^publish/]);
+  await expect(steps).toHaveText([/^Email draft/, /^Quality check/, /^Approval/, /^Publish/]);
 });

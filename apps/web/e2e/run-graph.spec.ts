@@ -1,5 +1,5 @@
 import { expect, test, type Page } from "@playwright/test";
-import { accessTokenOf, signIn } from "./fixtures/sign-in";
+import { accessTokenOf, chooseWorkflow, signIn } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 const WIDTHS = [
@@ -38,8 +38,8 @@ for (const size of WIDTHS) {
     await saveParallelWorkflow(page, name);
 
     // [agent:down-1] fails the first agent call, so one step retries once.
+    await chooseWorkflow(page, name);
     await page.getByLabel("Threat report").fill(`[agent:down-1]\n${REPORT}\n${name}`);
-    await page.getByLabel("Workflow").fill(name);
     await page.getByRole("button", { name: "Create campaign" }).click();
 
     const graph = page.getByTestId("run-graph");
@@ -55,6 +55,8 @@ for (const size of WIDTHS) {
     for (const id of ["brief", "writer_a", "writer_b", "preview"]) {
       await expect(page.getByTestId(`step-${id}`)).toContainText("succeeded");
     }
+    await expect(page.getByTestId("step-brief")).not.toContainText("tokens");
+    await page.getByRole("button", { name: "Details" }).click();
     await expect(page.getByTestId("step-brief")).toContainText(/\d+ tokens/);
     await expect(page.getByTestId("step-writer_a")).toContainText("alongside writer_b");
     await expect(page.getByTestId("step-writer_b")).toContainText("alongside writer_a");

@@ -1,5 +1,5 @@
 import { expect, test, type Browser, type Page } from "@playwright/test";
-import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
+import { APPROVER, OWNER, signIn, chooseQuickDraft } from "./fixtures/sign-in";
 
 // playwright.config.ts sets the fake Marketo's port before the workers start, so a spec can steer its audience.
 const marketoPort = process.env.ACE_MARKETO_PORT;
@@ -22,6 +22,7 @@ async function setAudience(page: Page, timeSpeed: number): Promise<void> {
 async function sendCampaign(page: Page, browser: Browser) {
   const report = `Volt Typhoon targets edge routers ${Date.now()}`;
   await signIn(page, OWNER);
+  await chooseQuickDraft(page);
   await page.getByLabel("Threat report").fill(report);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty();

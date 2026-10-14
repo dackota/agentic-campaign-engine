@@ -3,7 +3,7 @@ import { MAX_SCORE, SignedOutError } from "./api";
 import { getDashboard, type Dashboard as DashboardData, type DashboardTotals, type DashboardRow } from "./dashboardApi";
 import { messageOf } from "./messages";
 
-const COST_DECIMALS = 4;
+const COST_DECIMALS = 2;
 const PERCENT = 100;
 const STATUS_LABELS: Record<string, string> = {
   drafting: "Drafting",
