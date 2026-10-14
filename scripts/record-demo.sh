@@ -20,7 +20,11 @@ mkdir -p "$OUT_DIR"
 
 # A port the OS has free now, for each service.
 free_port() { node -e "const s=require('net').createServer().listen(0,'127.0.0.1',()=>{console.log(s.address().port);s.close()})"; }
-export ACE_API_PORT=$(free_port) ACE_WEB_PORT=$(free_port) ACE_DEX_PORT=$(free_port) ACE_MARKETO_PORT=$(free_port)
+ACE_API_PORT=$(free_port)
+ACE_WEB_PORT=$(free_port)
+ACE_DEX_PORT=$(free_port)
+ACE_MARKETO_PORT=$(free_port)
+export ACE_API_PORT ACE_WEB_PORT ACE_DEX_PORT ACE_MARKETO_PORT
 export VITE_OIDC_ISSUER="http://127.0.0.1:$ACE_DEX_PORT/dex"
 export ACE_DEMO_VIDEO_DIR="$OUT_DIR"
 for p in . apps/engine apps/api apps/worker services/fakes services/render services/mcp; do
@@ -33,8 +37,8 @@ export ACE_SEED_DEMO=1
 stack_pid="" web_pid=""
 stop() {
   # SIGTERM lets the stack remove its containers.
-  [ -n "$web_pid" ] && kill "$web_pid" 2>/dev/null || true
-  [ -n "$stack_pid" ] && kill -TERM "$stack_pid" 2>/dev/null && wait "$stack_pid" 2>/dev/null || true
+  if [ -n "$web_pid" ]; then kill "$web_pid" 2>/dev/null || true; fi
+  if [ -n "$stack_pid" ] && kill -TERM "$stack_pid" 2>/dev/null; then wait "$stack_pid" 2>/dev/null || true; fi
 }
 trap stop EXIT
 
