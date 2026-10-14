@@ -1,4 +1,4 @@
-import { expect, test, type Browser, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Locator, type Page } from "@playwright/test";
 import { APPROVER, OWNER, signIn } from "./fixtures/sign-in";
 
 const RUN_WAIT_MS = 30_000;
@@ -9,6 +9,10 @@ async function waitingCampaign(browser: Browser, title: string, marker = ""): Pr
   await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.\n${marker}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
   await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });
+}
+
+async function waitingOf(count: Locator): Promise<number> {
+  return Number((await count.textContent())?.match(/\d+/)?.[0]);
 }
 
 async function approverInbox(browser: Browser): Promise<Page> {
@@ -32,7 +36,7 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
   await expect(group(flagged)).toBeVisible();
   const count = group(clean).getByTestId("campaign-waiting");
   await expect(count).toContainText(/\d+ assets? waiting/);
-  const waitingBefore = Number((await count.textContent())?.match(/\d+/)?.[0]);
+  const waitingBefore = await waitingOf(count);
 
   // Flags are a highlighted note in plain words, never a code.
   const flaggedCards = group(flagged).getByRole("article").filter({ hasText: "Banned claim" });
@@ -48,7 +52,7 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
 
   // Approve all with no flags approves only the clean assets: the flagged ones stay, the count drops.
   const flaggedWaiting = group(flagged).getByTestId("campaign-waiting");
-  const flaggedWaitingBefore = Number((await flaggedWaiting.textContent())?.match(/\d+/)?.[0]);
+  const flaggedWaitingBefore = await waitingOf(flaggedWaiting);
   await group(flagged).getByRole("button", { name: /Approve all with no flags/ }).click();
   await expect(group(flagged).getByRole("article")).toHaveCount(flaggedCount);
   expect(flaggedWaitingBefore).toBeGreaterThan(flaggedCount);
@@ -67,4 +71,7 @@ test("an approver approves all clean assets, rejects a flagged one with a commen
   const response = await rejected;
   expect(response.status()).toBe(200);
   expect((await response.json()).decision).toBe("rejected");
+  // A rejected asset goes back to its writer and returns when redone, so the flagged campaign
+  // keeps its flagged assets waiting; the count dropped when the clean assets were approved.
+  await expect(group(flagged).getByRole("article")).toHaveCount(flaggedCount);
 });

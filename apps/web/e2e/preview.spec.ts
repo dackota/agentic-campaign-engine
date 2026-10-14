@@ -73,3 +73,27 @@ test("every inbox asset preview has visible content and no broken image", async 
   }
   await approverSession.close();
 });
+
+test("every inbox preview paints visible pixels when scrolled into view", async ({ page, browser }) => {
+  const title = `Pixel check ${Date.now()}`;
+  await signIn(page);
+  await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
+  await page.getByRole("button", { name: "Create campaign" }).click();
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
+  const approverSession = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const approver = await approverSession.newPage();
+  await signIn(approver, APPROVER);
+  await approver.getByRole("button", { name: "Inbox", exact: true }).click();
+
+  for (const step of ["Landing page", "Social post", "One-pager", "Email", "Design"]) {
+    const frame = approver.getByRole("article", { name: `${title}: ${step}` }).locator("iframe");
+    await frame.scrollIntoViewIfNeeded();
+    // A blank frame is one flat color, which a PNG stores in a few hundred bytes.
+    await expect
+      .poll(async () => (await frame.screenshot()).length, { message: `${step} preview paints nothing` })
+      .toBeGreaterThan(MIN_PAINTED_PNG_BYTES);
+  }
+  await approverSession.close();
+});
+
+const MIN_PAINTED_PNG_BYTES = 4_000;
