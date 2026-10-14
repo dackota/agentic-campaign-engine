@@ -1,13 +1,12 @@
+import { stepLabel } from "./labels";
 import { graphLayout, summarizeSteps, type GraphEvent, type StepSummary } from "./runGraph";
 import type { WorkflowEdge, WorkflowStep } from "./workflow.gen";
 
 const NODE_WIDTH = 180;
-const NODE_HEIGHT = 84;
+const NODE_HEIGHT = 100;
 const GAP_X = 56;
 const GAP_Y = 16;
 const PENDING = "pending";
-
-const STEP_LABELS: Record<string, string> = { email_draft: "Email draft" };
 
 interface Position {
   x: number;
@@ -27,6 +26,7 @@ function positions(levels: string[][]): Map<string, Position> {
 interface RunGraphProps {
   dag: WorkflowStep[];
   edges: WorkflowEdge[];
+  showDetails: boolean;
   events: GraphEvent[];
 }
 
@@ -52,7 +52,14 @@ function Edges({ edges, at }: { edges: WorkflowEdge[]; at: Map<string, Position>
   });
 }
 
-function StepNode({ step, place, info }: { step: WorkflowStep; place: Position; info?: StepSummary }) {
+interface StepNodeProps {
+  step: WorkflowStep;
+  place: Position;
+  info?: StepSummary;
+  showDetails: boolean;
+}
+
+function StepNode({ step, place, info, showDetails }: StepNodeProps) {
   const status = info?.status ?? PENDING;
   return (
     <li
@@ -73,17 +80,18 @@ function StepNode({ step, place, info }: { step: WorkflowStep; place: Position; 
         background: "#fff",
       }}
     >
-      <strong>{STEP_LABELS[step.id] ?? step.id}</strong>: {status}
+      <strong>{stepLabel(step.id)}</strong>: {status}
       {info && info.retries > 0 && <div>{`${info.retries} ${info.retries === 1 ? "retry" : "retries"}`}</div>}
-      {info && info.tokens > 0 && <div>{`${info.tokens} tokens`}</div>}
-      {info && info.alongside.length > 0 && <div>{`alongside ${info.alongside.join(", ")}`}</div>}
+      {showDetails && info && info.tokens > 0 && <div>{`${info.tokens} tokens`}</div>}
+      {showDetails && info && info.alongside.length > 0 && <div>{`alongside ${info.alongside.join(", ")}`}</div>}
+      {showDetails && <div>{`id ${step.id}`}</div>}
     </li>
   );
 }
 
 /** The workflow drawn as a graph: steps that can run together share a column, each step
  * shows its live status, retries, tokens, and which steps it ran alongside. */
-export function RunGraph({ dag, edges, events }: RunGraphProps) {
+export function RunGraph({ dag, edges, events, showDetails }: RunGraphProps) {
   const levels = graphLayout(dag, edges);
   const at = positions(levels);
   const summary = summarizeSteps(events);
@@ -97,7 +105,7 @@ export function RunGraph({ dag, edges, events }: RunGraphProps) {
         </svg>
         <ul aria-label="Run steps" style={{ listStyle: "none", margin: 0, padding: 0 }}>
           {dag.map((step) => (
-            <StepNode key={step.id} step={step} place={at.get(step.id) ?? { x: 0, y: 0 }} info={summary[step.id]} />
+            <StepNode key={step.id} step={step} place={at.get(step.id) ?? { x: 0, y: 0 }} info={summary[step.id]} showDetails={showDetails} />
           ))}
         </ul>
       </div>
