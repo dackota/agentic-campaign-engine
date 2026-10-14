@@ -1,3 +1,4 @@
+import type { CSSProperties } from "react";
 import { stepLabel, stepStatusLabel } from "./labels";
 import { StatusBadge, type Tone } from "./ui";
 import { graphLayout, summarizeSteps, type GraphEvent, type StepSummary } from "./runGraph";
@@ -23,6 +24,12 @@ function positions(levels: string[][]): Map<string, Position> {
     ),
   );
   return found;
+}
+
+/** The graph is as wide as its steps need, or the box it sits in when that is narrower: the
+ * steps and their edges scale with the box, so no step hides behind a sideways scroll. */
+function graphStyle(width: number, height: number): CSSProperties {
+  return { maxWidth: width, height, "--node-w": NODE_WIDTH, "--graph-w": width } as CSSProperties;
 }
 
 interface RunGraphProps {
@@ -56,18 +63,20 @@ function Edges({ edges, at }: { edges: WorkflowEdge[]; at: Map<string, Position>
 interface StepNodeProps {
   step: WorkflowStep;
   place: Position;
+  /** The graph's natural width, so the step's left edge can be a share of the box. */
+  graphWidth: number;
   info?: StepSummary;
   showDetails: boolean;
 }
 
-function StepNode({ step, place, info, showDetails }: StepNodeProps) {
+function StepNode({ step, place, graphWidth, info, showDetails }: StepNodeProps) {
   const status = info?.status ?? PENDING;
   return (
     <li
       className={`run-step run-step-${status}`}
       data-testid={`step-${step.id}`}
       data-status={status}
-      style={{ left: place.x, top: place.y }}
+      style={{ left: `${(place.x / graphWidth) * 100}%`, top: place.y }}
     >
       <strong>{stepLabel(step.id)}</strong>
       <div>
@@ -91,13 +100,13 @@ export function RunGraph({ dag, edges, events, showDetails }: RunGraphProps) {
   const height = Math.max(...levels.map((l) => l.length), 1) * (NODE_HEIGHT + GAP_Y) - GAP_Y;
   return (
     <div className="run-graph-scroll">
-      <div data-testid="run-graph" className="run-graph" style={{ width, height }}>
-        <svg width={width} height={height} className="run-edges" aria-hidden="true">
+      <div data-testid="run-graph" className="run-graph" style={graphStyle(width, height)}>
+        <svg viewBox={`0 0 ${width} ${height}`} preserveAspectRatio="none" className="run-edges" aria-hidden="true">
           <Edges edges={edges} at={at} />
         </svg>
         <ul aria-label="Run steps" className="run-steps">
           {dag.map((step) => (
-            <StepNode key={step.id} step={step} place={at.get(step.id) ?? { x: 0, y: 0 }} info={summary[step.id]} showDetails={showDetails} />
+            <StepNode key={step.id} step={step} place={at.get(step.id) ?? { x: 0, y: 0 }} graphWidth={width} info={summary[step.id]} showDetails={showDetails} />
           ))}
         </ul>
       </div>
