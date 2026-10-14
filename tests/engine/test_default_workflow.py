@@ -142,7 +142,9 @@ def test_design_and_all_four_writers_start_before_any_of_them_finishes() -> None
         if step_id in WRITER_STEPS:
             # A sequential engine never lets the others start, so this wait would time out.
             await asyncio.wait_for(all_started.wait(), timeout=ALL_STARTED_SECONDS)
-        return {"output": {"step": step_id}, "session": step_id, "usage": {}}
+        # The email writer's drafts are a list, as the publish step takes them; the rest a dict.
+        output = [{"step": step_id}] if step_id == "email_writer" else {"step": step_id}
+        return {"output": output, "session": step_id, "usage": {}}
 
     async def approve(
         env: WorkflowEnvironment, handle: WorkflowHandle[Any, Any], stubs: StubActivities

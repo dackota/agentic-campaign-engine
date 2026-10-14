@@ -1,8 +1,11 @@
 """The shared fixtures in tests/conftest.py and tests/support/ do what their docstrings say."""
 
+import asyncio
+import inspect
 import threading
 import uuid
 
+import pytest
 from ace_engine import db
 from campaign_api import trace_middleware
 from fastapi.testclient import TestClient
@@ -10,6 +13,7 @@ from opentelemetry import metrics, trace
 from sqlalchemy import func, select, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
+from temporalio.client import Client
 from testcontainers.community.postgres import PostgresContainer
 
 from tests.support.app import StubTemporal
@@ -111,3 +115,15 @@ def test_the_telemetry_helpers_record_spans_and_metrics() -> None:
     assert data is not None
     names = [m.name for rm in data.resource_metrics for sm in rm.scope_metrics for m in sm.metrics]
     assert "fixtures_total" in names
+
+
+def test_the_temporal_stub_takes_the_arguments_of_the_real_start_workflow() -> None:
+    real = inspect.signature(Client.start_workflow).parameters
+    stub = inspect.signature(StubTemporal.start_workflow).parameters
+    temporal = StubTemporal()
+
+    assert set(stub) - {"self"} <= set(real)
+    with pytest.raises(TypeError):  # an argument the real client does not take
+        asyncio.run(temporal.start_workflow("w", args=[], id="x", task_queue="q", name="w"))  # type: ignore[call-arg]
+    with pytest.raises(TypeError):  # the API always names the task queue
+        asyncio.run(temporal.start_workflow("w", args=[], id="x"))  # type: ignore[call-arg]

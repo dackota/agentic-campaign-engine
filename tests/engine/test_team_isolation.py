@@ -7,7 +7,7 @@ import uuid
 from collections.abc import Iterator
 
 import pytest
-from ace_engine import db
+from ace_engine import db, learnings
 from ace_engine.agent_roles import ROLES, message_for
 from ace_engine.step_cache import CacheKey, StepCache, input_hash
 from fastapi.testclient import TestClient
@@ -17,11 +17,15 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session
 
 from tests.harness.scripted_agent import default_reply
-from tests.support.dag import GOOD_DRAFT, REPORT
+from tests.support.app import StubTemporal
+from tests.support.dag import APPROVER, GOOD_DRAFT, REPORT
 from tests.support.pg_app import api_over
+from tests.support.scripted_outputs import scripted_output
+from tests.support.seed import CampaignSeed, seed_campaign
 from tests.support.team_seed import OTHER_TEAM, TEAM, add_campaign
 
 TEAM_A_OWNER = {"Authorization": "Bearer dg-owner@demo.example"}
+TEAM_A_APPROVER = {"Authorization": f"Bearer {APPROVER}"}
 TEAM_B_OWNER = {"Authorization": "Bearer pm-owner@demo.example"}
 TEAM_B_APPROVER = {"Authorization": "Bearer pm-approver@demo.example"}
 TEAM_B_TOKEN = "pm-owner@demo.example"
@@ -125,8 +129,13 @@ def test_the_team_role_sees_only_its_own_rows_without_a_team_condition(
 
 
 @pytest.fixture
-def client(postgres_engine: Engine) -> Iterator[TestClient]:
-    with api_over(postgres_engine) as running:
+def temporal() -> StubTemporal:
+    return StubTemporal()
+
+
+@pytest.fixture
+def client(postgres_engine: Engine, temporal: StubTemporal) -> Iterator[TestClient]:
+    with api_over(postgres_engine, temporal) as running:
         yield running
 
 
@@ -191,3 +200,119 @@ def test_a_team_never_reads_another_teams_step_cache(postgres_engine: Engine) ->
 
     assert own is not None and own.output == {"ok": True}
     assert other is None
+
+
+# The approval inbox and the learnings: the routes build their team's view of the database, so
+# a route that held the raw engine instead would show or change the other team's rows.
+
+ASSET_STEPS = ("landing_page", "social", "one_pager", "email_writer", "design")
+ASSET_ROUTES = ("approve", "reject")
+
+
+def _seed_inbox_campaign(engine: Engine) -> uuid.UUID:
+    """A team A campaign that waits for approval with every asset written."""
+    outputs = {step: scripted_output(step) for step in ASSET_STEPS}
+    return seed_campaign(engine, CampaignSeed(outputs=outputs))
+
+
+def _decision_state(engine: Engine, campaign_id: uuid.UUID) -> dict[str, object]:
+    """The campaign's status and how many approvals and events it holds, read as the owner."""
+    with engine.connect() as conn:
+        params = {"id": campaign_id}
+        return {
+            "status": conn.execute(
+                text("SELECT status FROM campaigns WHERE id = :id"), params
+            ).scalar_one(),
+            "approvals": conn.execute(
+                text("SELECT count(*) FROM asset_approvals WHERE campaign_id = :id"), params
+            ).scalar_one(),
+            "events": conn.execute(
+                text("SELECT count(*) FROM run_events WHERE campaign_id = :id"), params
+            ).scalar_one(),
+        }
+
+
+def test_team_b_sees_none_of_team_a_assets_in_the_inbox_and_team_a_still_does(
+    client: TestClient, postgres_engine: Engine
+) -> None:
+    campaign_id = _seed_inbox_campaign(postgres_engine)
+
+    team_b = client.get("/inbox", headers=TEAM_B_APPROVER)
+    team_a = client.get("/inbox", headers=TEAM_A_APPROVER)
+
+    assert team_b.status_code == 200
+    assert team_b.json() == []
+    assert {i["step"] for i in team_a.json() if i["campaign_id"] == str(campaign_id)} == set(
+        ASSET_STEPS
+    )
+
+
+@pytest.mark.parametrize("route", ASSET_ROUTES)
+def test_team_b_cannot_decide_team_a_assets_and_nothing_changes(
+    client: TestClient, postgres_engine: Engine, temporal: StubTemporal, route: str
+) -> None:
+    campaign_id = _seed_inbox_campaign(postgres_engine)
+    before = _decision_state(postgres_engine, campaign_id)
+
+    refused = client.post(
+        f"/campaigns/{campaign_id}/assets/social/{route}",
+        json={"comment": "not yours"},
+        headers=TEAM_B_APPROVER,
+    )
+    still_there = client.get("/inbox", headers=TEAM_A_APPROVER)
+
+    assert refused.status_code == NOT_FOUND
+    assert _decision_state(postgres_engine, campaign_id) == before
+    assert temporal.signals == []
+    assert {i["step"] for i in still_there.json()} == set(ASSET_STEPS)
+
+
+@pytest.mark.parametrize("route", ASSET_ROUTES)
+def test_team_a_approver_still_decides_its_own_assets_so_the_404s_are_the_team_rule(
+    client: TestClient, postgres_engine: Engine, route: str
+) -> None:
+    campaign_id = _seed_inbox_campaign(postgres_engine)
+    before = _decision_state(postgres_engine, campaign_id)
+
+    decided = client.post(
+        f"/campaigns/{campaign_id}/assets/social/{route}",
+        json={"comment": "ok"},
+        headers=TEAM_A_APPROVER,
+    )
+
+    assert decided.status_code == 200
+    assert _decision_state(postgres_engine, campaign_id) != before
+
+
+def _seed_learning(engine: Engine) -> uuid.UUID:
+    """A learning of team A, from a campaign whose A/B test a winner was called on."""
+    campaign_id = add_campaign(
+        engine, draft=GOOD_DRAFT, variant_b={**GOOD_DRAFT, "subject": "Another subject"}
+    )
+    winner = learnings.Winner("A", 0.97, {"A": {"opens": 80}, "B": {"opens": 30}})
+    assert learnings.learn_from_winner(engine, campaign_id, winner, learnings.stand_in_embedding)
+    return campaign_id
+
+
+def _learning_rows(engine: Engine) -> list[tuple[uuid.UUID, object]]:
+    with engine.connect() as conn:
+        rows = conn.execute(text("SELECT campaign_id, deleted_at FROM learnings")).all()
+    return [(campaign_id, deleted_at) for campaign_id, deleted_at in rows]
+
+
+def test_team_b_neither_reads_nor_deletes_team_a_learnings_and_team_a_does(
+    client: TestClient, postgres_engine: Engine
+) -> None:
+    campaign_id = _seed_learning(postgres_engine)
+    [mine] = client.get("/learnings", headers=TEAM_A_OWNER).json()
+    path = f"/learnings/{mine['id']}"
+
+    listed_by_b = client.get("/learnings", headers=TEAM_B_OWNER)
+    deleted_by_b = client.delete(path, headers=TEAM_B_APPROVER)
+
+    assert mine["campaign_id"] == str(campaign_id)
+    assert (listed_by_b.status_code, listed_by_b.json()) == (200, [])
+    assert deleted_by_b.status_code == NOT_FOUND
+    assert _learning_rows(postgres_engine) == [(campaign_id, None)]
+    assert client.delete(path, headers=TEAM_A_APPROVER).status_code == 200
+    assert client.get("/learnings", headers=TEAM_A_OWNER).json() == []

@@ -7,6 +7,7 @@ no network: a sleep or a retry wait in the workflow costs no real time.
 """
 
 import asyncio
+import contextlib
 import inspect
 import uuid
 from collections.abc import AsyncIterator, Callable
@@ -26,6 +27,7 @@ from campaign_worker.activities import RedoJob
 from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
+from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -241,4 +243,5 @@ async def running_campaign(
                 yield Run(env, handle, stubs)
             finally:
                 if (await handle.describe()).status == WorkflowExecutionStatus.RUNNING:
-                    await handle.terminate()
+                    with contextlib.suppress(RPCError):  # it closed between the check and now
+                        await handle.terminate()

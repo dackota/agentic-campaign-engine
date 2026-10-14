@@ -48,8 +48,14 @@ class StubTemporal:
         self.started: list[dict[str, object]] = []
         self.signals: list[tuple[str, str, list[Any]]] = []
 
-    async def start_workflow(self, name: str, **kwargs: object) -> None:
-        self.started.append({"workflow": name, **kwargs})
+    async def start_workflow(
+        self, workflow: str, *, args: list[Any], id: str, task_queue: str
+    ) -> None:
+        """The arguments the API passes to `temporalio.client.Client.start_workflow`, under
+        its names: any other argument is a TypeError here, as it would be with the client."""
+        self.started.append(
+            {"workflow": workflow, "args": args, "id": id, "task_queue": task_queue}
+        )
 
     def get_workflow_handle(self, workflow_id: str) -> StubWorkflowHandle:
         return StubWorkflowHandle(workflow_id, self.signals)

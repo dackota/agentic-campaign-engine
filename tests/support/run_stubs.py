@@ -12,6 +12,7 @@ from datetime import timedelta
 from typing import Any
 
 from ace_engine.settings import TASK_QUEUE, WORKFLOW_NAME
+from campaign_worker.publisher import PUBLISH_STEP
 from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowHandle
@@ -91,12 +92,17 @@ class StubActivities:
 
     @activity.defn(name="run_agent_step")
     async def run_agent_step(
-        self, campaign_id: str, report: str, step_id: str, context: dict[str, Any], rounds: int
+        self,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        context: dict[str, Any],
+        review_rounds: int = 0,
     ) -> dict[str, Any]:
         self._log("run_agent_step", step_id)
         if self._agent is not None:
             return await self._agent(step_id)
-        return {"output": {"step": step_id}, "session": f"session-{step_id}", "usage": {}}
+        return {"output": [{"step": step_id}], "session": f"session-{step_id}", "usage": {}}
 
     @activity.defn(name="save_agent_output")
     async def save_agent_output(
@@ -116,12 +122,16 @@ class StubActivities:
         return []
 
     @activity.defn(name="send_email")
-    async def send_email(self, campaign_id: str, drafts: dict[str, Any], step_id: str) -> str:
+    async def send_email(
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = PUBLISH_STEP
+    ) -> str:
         self._log("send_email", step_id)
         return f"receipt-{step_id}"
 
     @activity.defn(name="publish_content")
-    async def publish_content(self, campaign_id: str, drafts: dict[str, Any], step_id: str) -> None:
+    async def publish_content(
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = PUBLISH_STEP
+    ) -> None:
         self._log("publish_content", step_id)
 
     @activity.defn(name="mark_sent")
