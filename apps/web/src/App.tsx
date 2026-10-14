@@ -25,6 +25,7 @@ import { Builder } from "./Builder";
 import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
+import { PreviewFrame } from "./PreviewFrame";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
@@ -284,12 +285,7 @@ interface EmailPreviewProps {
 
 function EmailPreview({ id }: EmailPreviewProps) {
   return (
-    <iframe
-      title="Email preview"
-      src={previewUrl(id)}
-      sandbox=""
-      style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
-    />
+    <PreviewFrame title="Email preview" src={previewUrl(id)} isTall />
   );
 }
 

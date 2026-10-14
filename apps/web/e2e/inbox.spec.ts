@@ -30,7 +30,7 @@ test("an approver previews assets, sees the reviewer's flags, approves one and r
   // Scoped to the card: other specs' runs share the inbox and have their own landing_page preview.
   const preview = card("Landing page").frameLocator('iframe[title="Preview of Landing page"]');
   await expect(preview.locator("body")).toContainText(title);
-  await expect(card("Landing page").getByTestId("asset-flags")).toContainText("banned_claim");
+  await expect(card("Landing page").getByTestId("asset-flags")).toContainText("Banned claim");
 
   // Approve one asset with a comment: it leaves the inbox.
   await card("Social post").getByLabel("Comment").fill("Reads well");
