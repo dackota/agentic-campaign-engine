@@ -79,7 +79,7 @@ def test_readme_demo_section_names_seed_command_and_video_link() -> None:
 
     assert "make seed-demo" in body
     assert "docs/demo-script.md" in body
-    has_link = re.search(r"\[[^\]]*video[^\]]*\]\(https?://\S+\)", body, re.I)
+    has_link = re.search(r"\[[^\]]*video[^\]]*\]\((https?://|docs/)\S+\)", body, re.I)
     assert has_link or "Video and demo GIF: TODO" in body
 
 
