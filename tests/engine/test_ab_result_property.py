@@ -3,7 +3,8 @@ better variant wins when the gap is large. Generated counts, fixed seed."""
 
 import random
 
-from campaign_api.ab_result import MIN_TOTAL_OPENS, decide
+from campaign_api.ab_result import MIN_TOTAL_OPENS, NO_DECISION, decide
+from campaign_api.main import AbResultOut
 
 SEED = 48
 CASES = 500
@@ -44,3 +45,21 @@ def test_better_variant_wins_when_gap_is_large() -> None:
 
 def test_no_winner_when_open_counts_are_equal() -> None:
     assert decide(opens(200, 200)).winner is None
+
+
+def test_a_campaign_shows_no_decision_yet_before_the_audience_engages() -> None:
+    assert AbResultOut.of(NO_DECISION).model_dump() == {
+        "status": "no_decision",
+        "winner": None,
+        "confidence": None,
+    }
+    assert AbResultOut.of(decide({})).status == "no_decision"
+    assert AbResultOut.of(decide(opens(0, 0))).status == "no_decision"
+
+
+def test_a_campaign_shows_the_winner_with_its_confidence() -> None:
+    shown = AbResultOut.of(decide(opens(90, 20)))
+
+    assert shown.status == "winner"
+    assert shown.winner == "A"
+    assert shown.confidence is not None and 0.95 <= shown.confidence <= 1.0

@@ -4,6 +4,7 @@ they test the tool, like the other harness tool tests. Each lost run is counted 
 reason, and the numbers are always written."""
 
 import json
+import threading
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -199,3 +200,71 @@ def test_a_good_reply_is_counted_as_finished(tmp_path: Path) -> None:
 def test_a_timeout_not_above_zero_is_refused(tmp_path: Path, timeout: str) -> None:
     with pytest.raises(SystemExit, match="--timeout must be above 0"):
         load.main(["--out", str(tmp_path / "load.json"), "--timeout", timeout], api=None)
+
+
+# How the load counts a run that did not end waiting for approval.
+RATE_LIMITED = "step 'writer' failed after 3 attempts: agent task failed: 429 Too Many Requests"
+UNAVAILABLE = "step 'writer' failed after 3 attempts: agent unavailable"
+
+
+@pytest.mark.parametrize(
+    ("reason", "replies_429"),
+    [(RATE_LIMITED, 2), (UNAVAILABLE, 0), ("", 0)],
+    ids=["a model 429 counts as a 429", "another reason is not a 429", "no reason is not a 429"],
+)
+def test_a_failed_run_is_lost_with_its_reason_and_counts_as_a_429_only_for_a_model_429(
+    tmp_path: Path, reason: str, replies_429: int
+) -> None:
+    campaign: Reply = {"status": load.FAILED, "failure_reason": reason, "cost": GOOD_COST}
+
+    with _api_answering(lambda: campaign) as api:
+        exit_code, written = _load(tmp_path, api)
+
+    assert exit_code == 1
+    assert written["lost"] == 2
+    assert written["finished"] == 0
+    assert written["replies_429"] == replies_429
+    assert written["lost_reasons"] == [reason or load.FAILED] * 2
+
+
+def test_a_run_that_misses_the_deadline_is_lost_with_its_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(load, "POLL_INTERVAL_SECONDS", 0.01)
+    drafting: Reply = {"status": "drafting", "failure_reason": None, "cost": GOOD_COST}
+
+    with _api_answering(lambda: drafting) as api:
+        exit_code, written = _load(tmp_path, api, "--timeout", "0.2")
+
+    assert exit_code == 1
+    assert written["lost"] == 2
+    assert written["replies_429"] == 0
+    assert all(
+        r.startswith("drafting did not end within 0.2s (status drafting)")
+        for r in written["lost_reasons"]
+    )
+
+
+def test_an_api_429_is_counted_and_asked_again_so_a_busy_api_slows_the_run_not_loses_it(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(load, "POLL_INTERVAL_SECONDS", 0.01)
+    waiting: Reply = {"status": load.AWAITING, "failure_reason": None, "cost": GOOD_COST}
+    busy = {"remaining": 3}
+    lock = threading.Lock()
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        if request.method == "POST":
+            return httpx.Response(201, json=CREATED)
+        with lock:
+            is_busy = busy["remaining"] > 0
+            busy["remaining"] -= 1
+        return httpx.Response(429) if is_busy else httpx.Response(200, json=waiting)
+
+    api = httpx.Client(base_url="http://api.test", transport=httpx.MockTransport(handle))
+    with api:
+        exit_code, written = _load(tmp_path, api)
+
+    assert exit_code == 0
+    assert written["finished"] == 2
+    assert written["replies_429"] == 3
