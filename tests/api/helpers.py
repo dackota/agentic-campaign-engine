@@ -297,3 +297,23 @@ def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
     assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
     return campaign_id
+
+
+# A workflow of one agent step: the step cache tests run it.
+DRAFT_ONLY = {"steps": [step("draft", "agent")], "edges": []}
+
+
+def run_cached(api: httpx.Client, workflow: str, report: str, **extra: object) -> dict[str, Any]:
+    response = api.post(
+        "/campaigns", json={"report": report, "workflow": workflow, "use_step_cache": True, **extra}
+    )
+    assert response.status_code == 201, response.text
+    campaign = until_status(api, response.json()["id"], FINISHED, FAILED)
+    assert campaign["status"] == FINISHED, campaign
+    return campaign
+
+
+def draft_cost(campaign: dict[str, Any]) -> dict[str, Any]:
+    [found] = [s for s in campaign["cost"]["steps"] if s["step"] == "draft"]
+    assert isinstance(found, dict)
+    return found

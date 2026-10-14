@@ -2,7 +2,6 @@
 
 import os
 from collections.abc import Mapping
-from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -15,11 +14,11 @@ from ace_mcp.upstream import HTTP_TIMEOUT_SECONDS, HttpReader
 NAME = "ace-mcp-cms"
 
 
-def _list_pages(reader: Reader, args: dict[str, Any]) -> object:
+def _list_pages(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get("/api/pages")
 
 
-def _get_page(reader: Reader, args: dict[str, Any]) -> object:
+def _get_page(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"/api/pages/{segment(args, 'slug')}")
 
 

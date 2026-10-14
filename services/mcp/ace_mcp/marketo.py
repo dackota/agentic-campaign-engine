@@ -2,7 +2,6 @@
 
 import os
 from collections.abc import Mapping
-from typing import Any
 
 import httpx
 from fastapi import FastAPI
@@ -16,11 +15,11 @@ NAME = "ace-mcp-marketo"
 API = "/rest/asset/v1"
 
 
-def _list_programs(reader: Reader, args: dict[str, Any]) -> object:
+def _list_programs(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/programs.json", externalId=str(args.get("external_id", "")))
 
 
-def _get_program(reader: Reader, args: dict[str, Any]) -> object:
+def _get_program(reader: Reader, args: Mapping[str, object]) -> object:
     return reader.get(f"{API}/program/{segment(args, 'program_id')}.json")
 
 

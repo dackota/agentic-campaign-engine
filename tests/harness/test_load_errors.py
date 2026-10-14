@@ -56,7 +56,17 @@ def test_an_unreachable_api_loses_every_run_and_still_writes_the_numbers(
 
 GOOD_CAMPAIGN: dict[str, Any] = {"status": load.AWAITING, "failure_reason": None, "cost": GOOD_COST}
 HUGE_INT = "9" * 400
-MISSING = object()  # the key is left out of the reply
+
+
+class _Missing:
+    """The key is left out of the reply. Its repr is fixed so every xdist worker collects
+    the same test ids (a bare object() repr holds its memory address)."""
+
+    def __repr__(self) -> str:
+        return "MISSING"
+
+
+MISSING = _Missing()
 NOT_FINITE = [float("nan"), float("inf"), float("-inf")]
 WRONG_TYPES: list[object] = ["", "x", 0, 7, 1.5, False, True, [], ["x"], {}]
 

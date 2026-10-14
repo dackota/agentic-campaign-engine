@@ -42,4 +42,5 @@ run, with `cache_hit: true` on the step in the campaign's `cost.steps`.
 - New columns: `campaigns.use_step_cache`, `step_usage.cache_hit`, and the table
   `step_cache`. `Base.metadata.create_all` adds the table to a live database but not the
   columns (#84); they are additive `ADD COLUMN IF NOT EXISTS ... DEFAULT false`.
+  Each start now adds them ([additive-schema-at-start.md](additive-schema-at-start.md)).
 - The cache is in the same Postgres as the ledger; there is no second store to run.

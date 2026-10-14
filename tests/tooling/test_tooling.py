@@ -91,8 +91,10 @@ def test_ci_runs_make_test_on_pull_request() -> None:
     assert "make test" in text
 
 
-def test_make_test_runs_both_seams() -> None:
+def test_make_test_runs_both_seams_with_pytest_on_four_workers() -> None:
     makefile = (ROOT / "Makefile").read_text()
     test_target = makefile.split("\ntest:", 1)[1].split("\n\n", 1)[0]
-    assert "uv run pytest" in test_target
+    assert "uv run pytest -n 4 --dist loadfile" in test_target
     assert "e2e" in test_target
+    dev = tomllib.loads((ROOT / "pyproject.toml").read_text())["dependency-groups"]["dev"]
+    assert any(d.startswith("pytest-xdist") for d in dev)

@@ -9,10 +9,14 @@ step, across the API, the worker, the render service, the fakes, and the agents.
 `traceparent` with the campaign (table `campaign_traces`) and starts the workflow inside it,
 so the Temporal tracing interceptor carries the trace into the workflow and every activity.
 
-- A later request for the campaign (approve, retry, a read, a Marketo or Workfront webhook)
-  joins the same trace. A middleware outside the OpenTelemetry one finds the campaign (the id in
-  the path, or `campaignId` in a webhook body), reads the stored `traceparent`, and puts it on
-  the request, so the request's server span is a child of the root.
+- A later request for the campaign (approve, retry, a read) joins the same trace only when
+  the request's team can see the campaign: its token verifies and row-level security shows
+  that team the campaign. A Marketo or Workfront webhook joins it only when its signature
+  verifies. Any other request starts a trace of its own. A middleware outside the
+  OpenTelemetry one finds the campaign (the id in the path, or `campaignId` in a webhook
+  body), reads the stored `traceparent` as the request's team (or as the system, for a
+  verified webhook), and puts it on the request, so the request's server span is a child of
+  the root.
 - The worker's activities call the agent, the fakes, and the render function inside that
   context; httpx instrumentation sends `traceparent` on each call, and the fakes' FastAPI
   instrumentation joins it.

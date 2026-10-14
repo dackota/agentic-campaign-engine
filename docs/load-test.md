@@ -21,7 +21,7 @@ of storming it.
 
 ## Fast depth
 
-Checked by `tests/api/test_load_script.py` on every test run (20 campaigns, scripted agent):
+Checked by `tests/api/test_load_script.py` on every test run (5 campaigns, scripted agent):
 
 ```
 make load LOAD_ARGS="--campaigns 20 --out load-fast.json"

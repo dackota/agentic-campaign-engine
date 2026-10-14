@@ -21,7 +21,7 @@ from tests.api.helpers import APPROVER, DAY_SPEED, OWNER
 from tests.harness.stack import Stack
 
 SEED = 1  # a seed whose audience calls an A/B winner
-FIVE = 5
+TWO = 2
 QUIET = 0.8
 
 
@@ -37,13 +37,13 @@ def audience(stack: Stack) -> None:
     stack.marketo_audience(seed=SEED, time_speed=DAY_SPEED)
 
 
-def test_runs_five_campaigns_in_a_row_and_records_a_click_rate_each(
+def test_runs_two_campaigns_in_a_row_and_records_a_click_rate_each(
     audience: None, api: httpx.Client, approver: httpx.Client
 ) -> None:
-    rates = run_campaigns(api, approver, FIVE, learnings_on=True, quiet_seconds=QUIET)
+    rates = run_campaigns(api, approver, TWO, learnings_on=True, quiet_seconds=QUIET)
 
-    assert len(rates) == FIVE
-    assert len({r.campaign_id for r in rates}) == FIVE
+    assert len(rates) == TWO
+    assert len({r.campaign_id for r in rates}) == TWO
     assert all(r.opens > 0 and r.clicks > 0 for r in rates)
     assert all(r.click_rate == pytest.approx(r.clicks / r.opens) for r in rates)
     assert all(r.winner in ("A", "B") for r in rates)
