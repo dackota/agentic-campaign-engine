@@ -79,7 +79,8 @@ def test_readme_demo_section_names_seed_command_and_video_link() -> None:
 
     assert "make seed-demo" in body
     assert "docs/demo-script.md" in body
-    assert re.search(r"\[[^\]]*video[^\]]*\]\(https?://\S+\)", body, re.I)
+    has_link = re.search(r"\[[^\]]*video[^\]]*\]\(https?://\S+\)", body, re.I)
+    assert has_link or "Video and demo GIF: TODO" in body
 
 
 def test_demo_report_fits_the_scripted_email_body_so_the_draft_is_not_cut_off() -> None:

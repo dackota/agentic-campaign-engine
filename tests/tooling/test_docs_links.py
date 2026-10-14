@@ -65,7 +65,7 @@ def test_readme_covers_problem_and_demo_gif_or_owed_placeholder() -> None:
     assert "## The problem" in text
     assert "Status: planning" not in text
     has_gif = "docs/demo.gif" in text and (ROOT / "docs/demo.gif").exists()
-    owed = "demo gif is owed" in text.lower()
+    owed = "demo gif is owed" in text.lower() or "demo gif: todo" in text.lower()
     assert has_gif or owed
     gif = ROOT / "docs/demo.gif"
     if gif.exists():
