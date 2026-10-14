@@ -200,6 +200,15 @@ export async function getMe(): Promise<Me> {
   return body;
 }
 
+/** The names of the saved workflows, for the new-campaign picker. */
+export async function listWorkflows(): Promise<string[]> {
+  const body = await fetchJson("/workflows");
+  if (!Array.isArray(body) || !body.every((n) => typeof n === "string")) {
+    throw new Error("the API returned an unexpected workflow list");
+  }
+  return body;
+}
+
 /** Start a campaign; `workflow` names a saved workflow, empty runs the default one.
  * `budgetUsd` caps what the run spends on models; null is no limit. */
 export function createCampaign(

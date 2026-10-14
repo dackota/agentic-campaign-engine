@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { MAX_SCORE, SignedOutError } from "./api";
 import { assetPreviewSrc, decideAsset, listInbox, type Decision, type InboxAsset } from "./inboxApi";
+import { stepLabel } from "./labels";
 import { messageOf } from "./messages";
 
 const INBOX_POLL_MS = 1500;
@@ -30,7 +31,7 @@ interface AssetCardProps {
 function AssetPreview({ asset }: { asset: InboxAsset }) {
   return asset.preview_url ? (
     <iframe
-      title={`Preview of ${asset.step}`}
+      title={`Preview of ${stepLabel(asset.step)}`}
       src={assetPreviewSrc(asset.preview_url)}
       sandbox=""
       style={{ width: "100%", height: PREVIEW_HEIGHT_PX, border: "1px solid #ccc" }}
@@ -83,12 +84,12 @@ function AssetCard({ asset, isLinked, onDecide }: AssetCardProps) {
 
   return (
     <article
-      aria-label={`${asset.title}: ${asset.step}`}
+      aria-label={`${asset.title}: ${stepLabel(asset.step)}`}
       aria-current={isLinked ? "true" : undefined}
       data-testid="inbox-asset"
     >
       <h3>
-        {asset.title} <small>({asset.step})</small>
+        {asset.title}: {stepLabel(asset.step)}
       </h3>
       <AssetPreview asset={asset} />
       <JudgeScore asset={asset} />

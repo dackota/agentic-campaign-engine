@@ -23,6 +23,8 @@ from reportlab.lib.pagesizes import LETTER
 from reportlab.lib.styles import ParagraphStyle
 from reportlab.platypus import Flowable, ListFlowable, Paragraph, SimpleDocTemplate, Spacer
 
+from render_service.brand import BRAND_LOGO_URL
+
 BRAND_NAME = "Agentic Campaign Engine"
 BRAND_COLOR = "#0b5fff"
 BRAND_RGB = tuple(int(BRAND_COLOR[i : i + 2], 16) for i in (1, 3, 5))
@@ -48,6 +50,8 @@ SVG_HEIGHT = 630
 SVG_TITLE_MAX_CHARS = 60
 SVG_TITLE_SIZE = 56
 SVG_BRAND_SIZE = 28
+SVG_LOGO_WIDTH = 240
+SVG_LOGO_HEIGHT = 60
 SVG_MARGIN = 80
 SVG_TITLE_Y = 330
 SVG_BRAND_Y = 560
@@ -71,7 +75,7 @@ h2 {{ margin: 0 0 8px; font-size: 14px; text-transform: uppercase; color: {color
 </style>
 </head>
 <body>
-<header>{brand}</header>
+<header><img src="{logo}" alt="{brand} logo" height="24"> {brand}</header>
 <main>
 {posts}
 </main>
@@ -90,6 +94,7 @@ img {{ display: block; max-width: 100%; margin-bottom: 16px; background: #fff; }
 </style>
 </head>
 <body>
+<img class="logo" src="{logo}" alt="{brand} logo" height="24">
 {cards}
 </body>
 </html>
@@ -110,7 +115,7 @@ a.cta {{ display: inline-block; padding: 12px 24px; background: {color}; color: 
 </style>
 </head>
 <body>
-<header>{brand}</header>
+<header><img src="{logo}" alt="{brand} logo" height="24"> {brand}</header>
 <main>
 <h1>{headline}</h1>
 <h2>{subheadline}</h2>
@@ -125,6 +130,7 @@ _SVG_TEMPLATE = """<svg xmlns="http://www.w3.org/2000/svg" width="{w}" height="{
 viewBox="0 0 {w} {h}" role="img" aria-label="{title}">
   <title>{title}</title>
   <rect width="{w}" height="{h}" fill="{color}"/>
+  <image href="{logo}" x="{margin}" y="{margin}" height="{logo_h}" width="{logo_w}"/>
   <text x="{margin}" y="{title_y}" font-family="{font}" font-size="{title_size}" \
 font-weight="bold" fill="#ffffff">{title}</text>
   <text x="{margin}" y="{brand_y}" font-family="{font}" font-size="{brand_size}" \
@@ -243,6 +249,7 @@ def render_landing_page_html(landing_page: Mapping[str, Any]) -> str:
         paragraphs="\n".join(f"<p>{_with_breaks(p)}</p>" for p in parts),
         cta=escape(_clean(landing_page["call_to_action"])),
         brand=escape(BRAND_NAME),
+        logo=BRAND_LOGO_URL,
         color=BRAND_COLOR,
         text=TEXT_COLOR,
         font=FONT_STACK,
@@ -261,6 +268,7 @@ def render_social_html(social: Mapping[str, Any]) -> str:
     return _SOCIAL_TEMPLATE.format(
         posts=posts,
         brand=escape(BRAND_NAME),
+        logo=BRAND_LOGO_URL,
         color=BRAND_COLOR,
         text=TEXT_COLOR,
         font=FONT_STACK,
@@ -276,7 +284,9 @@ def render_cards_html(design: Mapping[str, Any]) -> str:
         f'{base64.b64encode(card["svg"].encode()).decode()}">'
         for card in design["cards"]
     )
-    return _CARDS_TEMPLATE.format(cards=cards, brand=escape(BRAND_NAME), font=FONT_STACK)
+    return _CARDS_TEMPLATE.format(
+        cards=cards, brand=escape(BRAND_NAME), font=FONT_STACK, logo=BRAND_LOGO_URL
+    )
 
 
 def render_graphic_svg(one_pager: Mapping[str, Any]) -> str:
@@ -289,6 +299,9 @@ def render_graphic_svg(one_pager: Mapping[str, Any]) -> str:
         h=SVG_HEIGHT,
         title=escape(title),
         brand=escape(BRAND_NAME),
+        logo=BRAND_LOGO_URL,
+        logo_w=SVG_LOGO_WIDTH,
+        logo_h=SVG_LOGO_HEIGHT,
         color=BRAND_COLOR,
         font=FONT_STACK,
         margin=SVG_MARGIN,

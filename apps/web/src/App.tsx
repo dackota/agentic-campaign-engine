@@ -5,6 +5,7 @@ import {
   getCampaign,
   getMe,
   listCampaigns,
+  listWorkflows,
   previewUrl,
   raiseBudget,
   retryCampaign,
@@ -25,8 +26,10 @@ import { Dashboard } from "./Dashboard";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
+import { stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
+import { Header, ViewNav, type View } from "./Shell";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
@@ -45,6 +48,12 @@ const STATUS_LABELS: Record<Campaign["status"], string> = {
 };
 
 const COST_DECIMALS = 4;
+const DEFAULT_WORKFLOW = "threat-report-to-campaign";
+/** The built-in one-email pipeline: no saved workflow, so the API gets an empty name. */
+const QUICK_DRAFT_LABEL = "Quick email draft";
+
+/** Money on a main screen: dollars and cents. */
+const dollarsText = (usd: number): string => `$${usd.toFixed(2)}`;
 
 /** Tokens and dollars, e.g. "3,000 tokens, $0.0162". */
 function costText(usage: Usage): string {
@@ -77,20 +86,28 @@ function abResultText(result: AbResult): string {
   return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
 }
 
-/** Tokens and cost of each model step that ran, then the run's total. */
+/** What the run cost, in dollars and cents. */
 function RunCost({ cost }: { cost: CampaignCost }) {
   return (
-    <section aria-label="Run cost">
+    <p>
+      Cost: <span data-testid="run-cost">{dollarsText(cost.cost_usd)}</span>
+    </p>
+  );
+}
+
+/** Tokens and exact cost of each model step that ran, then the run's total. For engineers. */
+function RunCostDetails({ cost }: { cost: CampaignCost }) {
+  return (
+    <section aria-label="Run cost details">
       <ul>
         {cost.steps.map((s) => (
           <li key={s.step}>
-            {s.step}:{" "}
-            <span data-testid={`step-cost-${s.step}`}>{costText(s)}</span>
+            {s.step}: <span data-testid={`step-cost-${s.step}`}>{costText(s)}</span>
           </li>
         ))}
       </ul>
       <p>
-        Cost: <span data-testid="run-cost">{costText(cost)}</span>
+        Total: <span data-testid="run-tokens">{costText(cost)}</span>
       </p>
     </section>
   );
@@ -104,7 +121,7 @@ function RunScores({ scores }: { scores: AssetScore[] }) {
       <ul>
         {scores.map((s) => (
           <li key={s.step}>
-            {s.step}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
+            {stepLabel(s.step)}: <strong data-testid={`judge-score-${s.step}`}>{`${s.score}/${MAX_SCORE}`}</strong>{" "}
             <span data-testid={`judge-reason-${s.step}`}>{s.reason}</span>
           </li>
         ))}
@@ -113,10 +130,11 @@ function RunScores({ scores }: { scores: AssetScore[] }) {
   );
 }
 
-function RunCostAndScores({ campaign }: { campaign: Campaign }) {
+function RunCostAndScores({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
   return (
     <>
       <RunCost cost={campaign.cost} />
+      {showDetails && <RunCostDetails cost={campaign.cost} />}
       <RunScores scores={campaign.scores} />
     </>
   );
@@ -325,22 +343,6 @@ function useCampaignRun(
   };
 }
 
-interface SignedInBarProps {
-  email: string;
-  onSignOut: () => void;
-}
-
-function SignedInBar({ email, onSignOut }: SignedInBarProps) {
-  return (
-    <p>
-      Signed in as <span data-testid="signed-in-as">{email}</span>{" "}
-      <button type="button" onClick={onSignOut}>
-        Sign out
-      </button>
-    </p>
-  );
-}
-
 interface NewCampaignFormProps {
   onCreate: (report: string, workflow: string, budgetUsd: number | null) => void;
 }
@@ -350,9 +352,40 @@ function dollarsOf(text: string): number | null {
   return text.trim() ? Number(text) : null;
 }
 
+/** The saved workflows by name; the standard one is chosen to start with. */
+function WorkflowPicker({ value, onChange }: { value: string; onChange: (name: string) => void }) {
+  const [workflows, setWorkflows] = useState([DEFAULT_WORKFLOW]);
+  const [hasListError, setHasListError] = useState(false);
+
+  useEffect(() => {
+    listWorkflows()
+      .then((names) => setWorkflows(names.includes(DEFAULT_WORKFLOW) ? names : [DEFAULT_WORKFLOW, ...names]))
+      .catch((e: unknown) => {
+        console.error("could not list saved workflows", e);
+        setHasListError(true);
+      });
+  }, []);
+
+  return (
+    <>
+      {/* The select sits beside its label, not inside: the label's text must stay "Workflow". */}
+      <label htmlFor="workflow-picker">Workflow</label>
+      <select id="workflow-picker" value={value} onChange={(e) => onChange(e.target.value)}>
+        {workflows.map((name) => (
+          <option key={name} value={name}>
+            {workflowLabel(name)}
+          </option>
+        ))}
+        <option value="">{QUICK_DRAFT_LABEL}</option>
+      </select>
+      {hasListError && <p>Could not load your saved workflows, so only the standard one is offered.</p>}
+    </>
+  );
+}
+
 function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
   const [report, setReport] = useState("");
-  const [workflow, setWorkflow] = useState("");
+  const [workflow, setWorkflow] = useState(DEFAULT_WORKFLOW);
   const [budget, setBudget] = useState("");
 
   function submit(event: FormEvent) {
@@ -368,14 +401,7 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
           Threat report
           <textarea value={report} onChange={(e) => setReport(e.target.value)} rows={10} />
         </label>
-        <label>
-          Workflow
-          <input
-            value={workflow}
-            onChange={(e) => setWorkflow(e.target.value)}
-            placeholder="default"
-          />
-        </label>
+        <WorkflowPicker value={workflow} onChange={setWorkflow} />
         <label>
           Budget (USD)
           <input
@@ -387,7 +413,7 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
             placeholder="no limit"
           />
         </label>
-        <button type="submit" disabled={!report.trim()}>
+        <button type="submit" className="btn btn-primary" disabled={!report.trim()}>
           Create campaign
         </button>
       </form>
@@ -436,15 +462,44 @@ interface RunViewProps {
   onRaiseBudget: (id: string, budgetUsd: number) => void;
 }
 
+/** The workflow the run pinned, by name; its raw id and the run id sit behind Details. */
+function RunWorkflow({ campaign, showDetails }: { campaign: Campaign; showDetails: boolean }) {
+  return (
+    <>
+      {campaign.workflow_version !== null && (
+        <p>
+          Workflow:{" "}
+          <span data-testid="workflow-version">{`${workflowLabel(campaign.workflow ?? DEFAULT_WORKFLOW)} version ${campaign.workflow_version}`}</span>
+        </p>
+      )}
+      {showDetails && <RunIds campaign={campaign} />}
+    </>
+  );
+}
+
+/** The raw ids an engineer needs to find the run in logs and the database. */
+function RunIds({ campaign }: { campaign: Campaign }) {
+  return (
+    <p>
+      Workflow id: <code data-testid="workflow-id">{campaign.workflow ?? DEFAULT_WORKFLOW}</code>, run id:{" "}
+      <code>{campaign.id}</code>
+    </p>
+  );
+}
+
 function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: RunViewProps) {
+  const [showDetails, setShowDetails] = useState(false);
   const hasStatus = campaign.status !== "drafting" && campaign.status !== "failed";
   return (
     <>
-      <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} />
-      <RunCostAndScores campaign={campaign} />
+      <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>
+        Details
+      </button>
+      <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} showDetails={showDetails} />
+      <RunCostAndScores campaign={campaign} showDetails={showDetails} />
       {campaign.budget_usd !== null && (
         <p>
-          Budget: <span data-testid="run-budget">${campaign.budget_usd.toFixed(COST_DECIMALS)}</span>
+          Budget: <span data-testid="run-budget">{dollarsText(campaign.budget_usd)}</span>
         </p>
       )}
       {canRaiseBudget(me, campaign) && (
@@ -473,46 +528,13 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
           Approve
         </button>
       )}
-      {campaign.workflow_version !== null && (
-        <p>
-          Workflow: <span data-testid="workflow-version">{`${campaign.workflow} version ${campaign.workflow_version}`}</span>
-        </p>
-      )}
+      <RunWorkflow campaign={campaign} showDetails={showDetails} />
       {campaign.receipt && (
         <p>
           Receipt: <code data-testid="receipt">{campaign.receipt}</code>
         </p>
       )}
     </>
-  );
-}
-
-type View = "campaigns" | "builder" | "inbox" | "learnings" | "dashboard";
-
-function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
-  return (
-    <nav>
-      <button type="button" onClick={() => onView("campaigns")}>
-        Campaigns
-      </button>{" "}
-      <button type="button" onClick={() => onView("builder")}>
-        Workflow builder
-      </button>{" "}
-      <button type="button" onClick={() => onView("learnings")}>
-        Learnings
-      </button>{" "}
-      <button type="button" onClick={() => onView("dashboard")}>
-        Dashboard
-      </button>
-      {me.roles.includes("approver") && (
-        <>
-          {" "}
-          <button type="button" onClick={() => onView("inbox")}>
-            Inbox
-          </button>
-        </>
-      )}
-    </nav>
   );
 }
 
@@ -530,10 +552,11 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
 
   return (
-    <main>
-      <SignedInBar email={me.email} onSignOut={onSignOut} />
+    <>
+      <Header me={me} onSignOut={onSignOut} />
+      <ViewNav me={me} view={view} onView={setView} />
+      <main>
       <AlertBanner onSignedOut={onSignOut} />
-      <ViewNav me={me} onView={setView} />
       {view === "builder" ? (
         <Builder />
       ) : view === "dashboard" ? (
@@ -557,7 +580,8 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           run={run}
         />
       )}
-    </main>
+      </main>
+    </>
   );
 }
 

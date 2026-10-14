@@ -22,7 +22,7 @@ from typing import Any
 from ace_engine import telemetry
 from ace_engine.agent_roles import ROLES
 from ace_engine.assets import NOT_ASSETS
-from ace_engine.brand_review import BRAND_REVIEWER
+from ace_engine.brand_review import BRAND_REVIEWER, REVISION_OPENING
 from ace_engine.contracts import REPORT_MARKER
 from ace_engine.judge import MAX_SCORE, MIN_SCORE
 from fastapi import FastAPI, Request
@@ -109,6 +109,9 @@ USAGE_MARKER = re.compile(r"\[agent:usage-(\d{1,7})-(\d{1,7})\]")
 # "[agent:usage-total-N]" reports only a total, as some harnesses do (Google ADK's
 # totalTokenCount with no split).
 TOTAL_USAGE_MARKER = re.compile(r"\[agent:usage-total-(\d{1,7})\]")
+AGENT_MARKER = re.compile(r"[ \t]*\[agent:[^\]]*\]")
+# A fix round appends the reviewer's request after the report; it is not part of the report.
+REVISION_REQUEST = f"\n\n{REVISION_OPENING}"
 DEFAULT_INPUT_TOKENS = 1000
 DEFAULT_OUTPUT_TOKENS = 500
 
@@ -334,7 +337,7 @@ def scripted_usage(message_text: str) -> dict[str, Any]:
 
 def _report_of(message_text: str) -> str:
     """The report after the marker, line for line as the worker sent it."""
-    report = message_text.split(REPORT_MARKER, 1)[-1]
+    report = message_text.split(REPORT_MARKER, 1)[-1].split(REVISION_REQUEST, 1)[0]
     return report.removeprefix("\n")
 
 
@@ -346,7 +349,8 @@ def default_reply(message_text: str) -> dict[str, Any]:
             return {"verdict": "fix", "issues": [FLAG_ISSUE]}
         return {"verdict": "pass", "issues": []}
     role = next((r for r in ROLES.values() if r.prompt in message_text), None)
-    report = _report_of(message_text)
+    raw_report = _report_of(message_text)
+    report = _copy(raw_report)
     match role.step_id if role else "email_writer":
         case "strategist":
             return {
@@ -355,7 +359,7 @@ def default_reply(message_text: str) -> dict[str, Any]:
                 "key_messages": [_first_line(report)],
             }
         case "research":
-            return {"facts": _facts(report)}
+            return {"facts": _facts(raw_report)}
         case "landing_page":
             headline = _first_line(report)
             return {
@@ -404,6 +408,11 @@ def _judgement(message_text: str) -> dict[str, Any]:
     }
 
 
+def _copy(report: str) -> str:
+    """The report as copy a draft may quote: without the test markers a script plants in it."""
+    return "\n".join(line for line in AGENT_MARKER.sub("", report).splitlines() if line.strip())
+
+
 def _first_line(report: str) -> str:
     return next((line for line in report.splitlines() if line.strip()), "threat")
 
@@ -419,7 +428,7 @@ def _facts(report: str) -> list[dict[str, Any]]:
 
 def default_draft(message_text: str) -> dict[str, str]:
     instructions = message_text.split(REPORT_MARKER, 1)[0]
-    report = _report_of(message_text).strip()
+    report = _copy(_report_of(message_text)).strip()
     headline = report.splitlines()[0] if report else "threat"
     lead = "Before it hits you" if VARIANT_B_PHRASE in instructions else "Act now"
     return {

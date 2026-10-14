@@ -75,3 +75,14 @@ def test_out_of_range_policy_is_rejected_in_plain_words(api: httpx.Client) -> No
 
     assert response.json()["rejections"][0]["rule"] == "invalid_shape"
     assert "max_attempts" in response.json()["rejections"][0]["message"]
+
+
+def test_saved_workflow_names_are_listed(api: httpx.Client) -> None:
+    name = workflow_name()
+    save_workflow(api, name, DRAFT_APPROVE_PUBLISH)
+
+    listed = api.get("/workflows")
+
+    assert listed.status_code == 200, listed.text
+    assert name in listed.json()
+    assert "threat-report-to-campaign" in listed.json()
