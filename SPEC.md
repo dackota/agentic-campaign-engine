@@ -14,8 +14,9 @@ back into the agents, so the next campaign starts smarter.
 It runs end to end on a laptop with k3d. The only outside thing it needs is a
 model key.
 
-The company in the demo is **Acme Security**. It is made up. No real brand,
-logo, or customer appears anywhere in this repo.
+The company in the demo is **Acme Security**. It is made up. No real logo or
+customer appears anywhere in this repo. Vendor names (Marketo, Workfront, Slack,
+Google, Figma) appear only as the names of the integrations the demo fakes.
 
 ## Why it exists
 
