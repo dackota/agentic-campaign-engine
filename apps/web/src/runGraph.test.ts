@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { test } from "node:test";
+import { test } from "vitest";
 import { graphLayout, summarizeSteps } from "./runGraph.ts";
 
 const steps = ["brief", "a", "b", "join"].map((id) => ({ id, kind: "agent" as const }));

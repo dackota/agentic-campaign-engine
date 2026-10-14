@@ -1,7 +1,9 @@
 import { expect, test } from "@playwright/test";
-import { OWNER, signIn, openNewCampaign } from "./fixtures/sign-in";
+import { OWNER, signIn } from "./fixtures/sign-in";
 
-test("signing in through Dex shows the campaign list", async ({ page }) => {
+// Only a real browser and the real Dex prove the redirect round trip. What each screen shows
+// for its data is proven by the component tests beside the screens.
+test("a marketer signs in through Dex, sees the campaign list, and signs out", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
   await expect(page.getByRole("list", { name: "Campaigns" })).toHaveCount(0);
@@ -13,17 +15,8 @@ test("signing in through Dex shows the campaign list", async ({ page }) => {
   await expect(
     page.getByRole("list", { name: "Campaigns" }).or(page.getByText("No campaigns yet")),
   ).toBeVisible();
-});
 
-test("a campaign the owner creates shows in the list", async ({ page }) => {
-  const report = `Volt Typhoon targets edge routers ${Date.now()}`;
-  await signIn(page, OWNER);
-
-  await openNewCampaign(page);
-  await page.getByLabel("Threat report").fill(report);
-  await page.getByRole("button", { name: "Create campaign" }).click();
-  await expect(page).toHaveURL(/\/campaigns\/[0-9a-f-]{36}$/);
-  await page.getByRole("button", { name: "Campaigns" }).click();
-
-  await expect(page.getByRole("list", { name: "Campaigns" })).toContainText(report);
+  await page.getByTestId("signed-in-as").click();
+  await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
