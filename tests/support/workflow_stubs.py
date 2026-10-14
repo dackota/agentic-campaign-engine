@@ -7,6 +7,7 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+from ace_engine.cost import BUDGET_SPENT
 from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME
 from campaign_worker.activities import RedoJob
 from campaign_worker.workflow import CampaignWorkflow
@@ -22,6 +23,21 @@ WAIT_SECONDS = 20
 ENDING = ("finish_run", "mark_failed")
 
 
+@dataclass(frozen=True)
+class Cue:
+    """A signal the run is sent once its `nth` call of the activity `after` has been made."""
+
+    after: str
+    nth: int
+    signal: str
+    args: tuple[object, ...] = ()
+
+
+def approve_every_approval(openings: int = 5) -> list[Cue]:
+    """Approve each of the first `openings` times an approval opens."""
+    return [Cue("open_approval", n, APPROVE_SIGNAL) for n in range(1, openings + 1)]
+
+
 @dataclass
 class StubActivities:
     """Every activity the workflow calls. An agent step answers `agent_outputs[step]` (a
@@ -31,6 +47,10 @@ class StubActivities:
     agent_outputs: dict[str, Any] = field(default_factory=dict)
     score_reasons: list[str] = field(default_factory=list)
     receipt: str = "receipt-1"
+    # What a rejected asset's redo answers, by step; the first `redo_stops_at_budget` redos
+    # stop before the model call because the budget is spent.
+    redo_outputs: dict[str, Any] = field(default_factory=dict)
+    redo_stops_at_budget: int = 0
     # Activities that fail every time they are called, as a down service would.
     failing: frozenset[str] = frozenset()
     calls: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
@@ -73,7 +93,9 @@ class StubActivities:
     @activity.defn(name="redo_asset")
     async def redo_asset(self, job: RedoJob) -> dict[str, Any]:
         self._record("redo_asset", job)
-        return {"output": self.agent_outputs.get(job.step_id, {"redone": job.step_id})}
+        if len(self.called("redo_asset")) <= self.redo_stops_at_budget:
+            raise ApplicationError("budget spent", type=BUDGET_SPENT, non_retryable=True)
+        return {"output": self.redo_outputs.get(job.step_id, {"redone": job.step_id})}
 
     @activity.defn(name="save_cards")
     async def save_cards(self, campaign_id: str, output: object) -> None:
@@ -158,7 +180,7 @@ class StubActivities:
         ]
 
 
-async def _run(dag: dict[str, Any], stubs: StubActivities, report: str, approves: bool) -> None:
+async def _run(dag: dict[str, Any], stubs: StubActivities, report: str, cues: list[Cue]) -> None:
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client, task_queue=TASK_QUEUE, workflows=[CampaignWorkflow], activities=stubs.all()
@@ -169,13 +191,14 @@ async def _run(dag: dict[str, Any], stubs: StubActivities, report: str, approves
                 id=f"campaign-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
-            approved = 0
+            pending = list(cues)
             for _ in range(int(WAIT_SECONDS / POLL_SECONDS)):
                 if stubs.is_over():
                     break
-                if approves and len(stubs.called("open_approval")) > approved:
-                    approved += 1
-                    await handle.signal(APPROVE_SIGNAL)
+                due = [c for c in pending if len(stubs.called(c.after)) >= c.nth]
+                for cue in due:
+                    pending.remove(cue)
+                    await handle.signal(cue.signal, args=list(cue.args))
                 await asyncio.sleep(POLL_SECONDS)
             # A stopped run waits for a retry; a finished one is already closed.
             if (await handle.describe()).status == WorkflowExecutionStatus.RUNNING:
@@ -183,10 +206,14 @@ async def _run(dag: dict[str, Any], stubs: StubActivities, report: str, approves
 
 
 def run_campaign(
-    dag: dict[str, Any], stubs: StubActivities, *, report: str = "report", approves: bool = True
+    dag: dict[str, Any],
+    stubs: StubActivities,
+    *,
+    report: str = "report",
+    cues: list[Cue] | None = None,
 ) -> StubActivities:
-    """Run `dag` on the workflow until it finishes or stops on a failure. An approval step
-    is approved as soon as it opens, unless `approves` is False. Returns `stubs`, which hold
-    what the workflow called."""
-    asyncio.run(_run(dag, stubs, report, approves))
+    """Run `dag` on the workflow until it finishes or stops on a failure, sending each cue's
+    signal when its moment comes. With no cues an approval is approved as soon as it opens.
+    Returns `stubs`, which hold what the workflow called."""
+    asyncio.run(_run(dag, stubs, report, approve_every_approval() if cues is None else cues))
     return stubs
