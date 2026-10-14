@@ -267,10 +267,10 @@ export function Builder(): React.JSX.Element {
       </section>
     );
   }
-  return <Editor initial={picked} onBack={() => setPicked(null)} />;
+  return <Editor initial={picked} />;
 }
 
-function Editor({ initial, onBack }: { initial: WorkflowStep[]; onBack: () => void }) {
+function Editor({ initial }: { initial: WorkflowStep[] }) {
   const [steps, setSteps] = useState<WorkflowStep[]>(initial);
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -299,9 +299,6 @@ function Editor({ initial, onBack }: { initial: WorkflowStep[]; onBack: () => vo
   return (
     <section>
       <h1>Workflow builder</h1>
-      <button type="button" onClick={onBack}>
-        Back to templates
-      </button>
       <h2>Steps</h2>
       {steps.length === 0 && <EmptyBlock>No steps yet. Add one from the palette below.</EmptyBlock>}
       <StepList steps={steps} problems={problems} onSteps={setSteps} />
