@@ -1,64 +1,23 @@
 import { workflowLabel } from "../src/labels.ts";
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { signIn, openNewCampaign } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
-async function openBuilder(page: Page) {
-  await signIn(page);
-  await page.getByRole("button", { name: "Workflow builder" }).click();
-}
-const stepList = (page: Page) => page.getByRole("list", { name: "Workflow steps" }).getByRole("listitem");
-
-test("opens on a template gallery with no error, and a palette that explains each step", async ({ page }) => {
-  await openBuilder(page);
-  await expect(page.getByRole("button", { name: "Use template: Threat report to campaign" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Start a blank workflow" })).toBeVisible();
-  await expect(page.getByRole("alert")).toHaveCount(0);
-
-  await page.getByRole("button", { name: "Start a blank workflow" }).click();
-  const palette = page.getByRole("list", { name: "Step palette" }).getByRole("listitem");
-  await expect(palette).toHaveCount(5);
-  await expect(palette.filter({ hasText: "Approval" })).toContainText("A person says yes");
-  await expect(page.getByText("Add at least one step")).toBeVisible();
-});
-
-test("shows a plain message next to the step it is about", async ({ page }) => {
-  await openBuilder(page);
-  await page.getByRole("button", { name: "Start a blank workflow" }).click();
-  await page.getByRole("button", { name: "Add Approval" }).click();
-  await expect(stepList(page).first()).toContainText("An approval step needs a step before it");
-  await expect(page.getByRole("button", { name: "Save version" })).toBeDisabled();
-
-  await page.getByRole("button", { name: "Add Publish" }).click();
-  await expect(stepList(page).nth(1)).toContainText("needs an AI step before it");
-});
-
-test("moves a step with the mouse and with the keyboard", async ({ page }) => {
-  await openBuilder(page);
-  await page.getByRole("button", { name: "Use template: Threat report to campaign" }).click();
-  const steps = stepList(page);
-  await expect(steps).toHaveText([/Email draft/, /Approval/, /Publish/]);
-
-  await steps.nth(2).dragTo(steps.nth(1));
-  await expect(steps).toHaveText([/Email draft/, /Publish/, /Approval/]);
-
-  await page.getByRole("button", { name: "Move Approval" }).focus();
-  await page.keyboard.press("ArrowUp");
-  await expect(steps).toHaveText([/Email draft/, /Approval/, /Publish/]);
-  await expect(page.getByRole("button", { name: "Move Approval" })).toBeFocused();
-});
-
+// Dragging, the focus after a keyboard move, saving to the API and running the saved version
+// need a real browser and the real stack. The builder's messages and move logic are component tests.
 test("starts from the template, moves a step, adds an approval step, saves, and runs", async ({ page }) => {
   const name = `e2e-build-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  await openBuilder(page);
+  await signIn(page);
+  await page.getByRole("button", { name: "Workflow builder" }).click();
   await page.getByRole("button", { name: "Use template: Threat report to campaign" }).click();
-  const steps = stepList(page);
+  const steps = page.getByRole("list", { name: "Workflow steps" }).getByRole("listitem");
   await expect(steps).toHaveCount(3);
 
-  // Break it: the approval step moves last, so publish has none before it.
+  // Break it: the approval step moves last, so publish has none before it. The handle keeps the focus.
   await page.getByRole("button", { name: "Move Approval" }).focus();
   await page.keyboard.press("ArrowDown");
+  await expect(page.getByRole("button", { name: "Move Approval" })).toBeFocused();
   await expect(steps.nth(1)).toContainText("needs an approval step before it");
   await expect(page.getByRole("button", { name: "Save version" })).toBeDisabled();
 

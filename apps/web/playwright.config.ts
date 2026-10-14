@@ -1,5 +1,4 @@
 import { execFileSync } from "node:child_process";
-import { randomBytes } from "node:crypto";
 import { delimiter, resolve } from "node:path";
 import { defineConfig } from "@playwright/test";
 
@@ -21,17 +20,12 @@ const pythonPath = [".", "apps/engine", "apps/api", "apps/worker", "services/fak
   .map((p) => resolve(root, p))
   .join(delimiter);
 const marketoPort = process.env.ACE_MARKETO_PORT;
-// The alert-banner spec posts to the alert webhook with this token, so it is made fresh here
-// (inherited by the test workers) and passed to the stack.
-process.env.ACE_ALERT_WEBHOOK_TOKEN ??= randomBytes(24).toString("hex");
-const alertToken = process.env.ACE_ALERT_WEBHOOK_TOKEN;
 const env = {
   ...process.env,
   ACE_API_PORT: apiPort,
   ACE_WEB_PORT: webPort,
   ACE_DEX_PORT: dexPort,
   ACE_MARKETO_PORT: marketoPort,
-  ACE_ALERT_WEBHOOK_TOKEN: alertToken,
   // The harness starts Dex on this port; the web app signs in against it.
   VITE_OIDC_ISSUER: `http://127.0.0.1:${dexPort}/dex`,
   PYTHONPATH: pythonPath,
