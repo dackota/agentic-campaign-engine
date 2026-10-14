@@ -12,6 +12,7 @@ from campaign_worker.activities import RedoJob
 from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
@@ -30,6 +31,8 @@ class StubActivities:
     agent_outputs: dict[str, Any] = field(default_factory=dict)
     score_reasons: list[str] = field(default_factory=list)
     receipt: str = "receipt-1"
+    # Activities that fail every time they are called, as a down service would.
+    failing: frozenset[str] = frozenset()
     calls: list[tuple[str, tuple[object, ...]]] = field(default_factory=list)
 
     def names(self) -> list[str]:
@@ -43,6 +46,8 @@ class StubActivities:
 
     def _record(self, name: str, *args: object) -> None:
         self.calls.append((name, args))
+        if name in self.failing:
+            raise ApplicationError(f"{name} is down")
 
     @activity.defn(name="run_agent_step")
     async def run_agent_step(

@@ -27,6 +27,7 @@ class CampaignSeed:
     status: str = AWAITING
     report: str = REPORT
     draft: dict[str, Any] | None = None
+    variant_b: dict[str, Any] | None = None
     dag: dict[str, Any] = field(default_factory=default_workflow_dag)
     outputs: Mapping[str, Any] = field(default_factory=dict)
     use_step_cache: bool = False
@@ -45,6 +46,7 @@ def seed_campaign(engine: Engine, seed: CampaignSeed = CampaignSeed()) -> uuid.U
                 created_by=StubVerifier().verify(seed.created_by).subject,
                 status=seed.status,
                 draft=seed.draft,
+                variant_b=seed.variant_b,
                 dag=seed.dag,
                 use_step_cache=seed.use_step_cache,
                 budget_micros=seed.budget_micros,
