@@ -98,3 +98,14 @@ const STEP_STATUS_LABELS: Record<string, string> = {
 
 /** A step's run status as the word a marketer reads. */
 export const stepStatusLabel = (status: string): string => named(STEP_STATUS_LABELS, status) ?? humanize(status);
+
+const FAILED_STEP = /^step '([^']+)' failed(?: after (\d+) attempts?)?\b/;
+
+/** A failed run's reason in plain words: the step's plain name and the attempts, never the raw error. */
+export function failureText(reason: string | null): string {
+  const found = reason ? FAILED_STEP.exec(reason) : null;
+  if (!found) return "A step did not finish.";
+  const attempts = Number(found[2]);
+  const after = attempts ? ` after ${attempts} ${attempts === 1 ? "attempt" : "attempts"}` : "";
+  return `The ${stepLabel(found[1])} step did not finish${after}.`;
+}

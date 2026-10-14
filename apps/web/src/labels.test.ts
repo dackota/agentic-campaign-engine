@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flagLabel, kindDescription, kindLabel, nextStepText, stepLabel, stepStatusLabel, workflowLabel } from "./labels.ts";
+import { failureText, flagLabel, kindDescription, kindLabel, nextStepText, stepLabel, stepStatusLabel, workflowLabel } from "./labels.ts";
 import { StepKindValues } from "./workflow.gen.ts";
 
 test("every step kind in the workflow schema has a label", () => {
@@ -52,4 +52,13 @@ test("step statuses read as plain words", () => {
   assert.equal(stepStatusLabel("succeeded"), "Done");
   assert.equal(stepStatusLabel("failed"), "Failed");
   assert.equal(stepStatusLabel("pending"), "Waiting");
+});
+
+test("a failure reason reads in plain words, without step ids or raw errors", () => {
+  const raw = "step 'writer' failed after 2 attempts: agent returned an error: {'code': -32000}";
+  assert.equal(failureText(raw), "The Writer step did not finish after 2 attempts.");
+  assert.equal(failureText("step 'email_writer' failed after 1 attempts: x"), "The Email step did not finish after 1 attempt.");
+  assert.equal(failureText("step 'writer' failed: contract broken"), "The Writer step did not finish.");
+  assert.equal(failureText(null), "A step did not finish.");
+  assert.equal(failureText("something odd {}"), "A step did not finish.");
 });

@@ -67,7 +67,7 @@ function StepNode({ step, place, info, showDetails }: StepNodeProps) {
       className={`run-step run-step-${status}`}
       data-testid={`step-${step.id}`}
       data-status={status}
-      style={{ left: place.x, top: place.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
+      style={{ left: place.x, top: place.y }}
     >
       <strong>{stepLabel(step.id)}</strong>
       <div>

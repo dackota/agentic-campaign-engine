@@ -44,6 +44,14 @@ test("quality, cost and draft show as cards with the rendered email", async ({ p
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
   expect(overflow).toBeLessThanOrEqual(0);
+  // The run graph wraps: no inner scroll, and every step sits inside the viewport.
+  const graph = await page.locator(".run-graph-scroll").evaluate((el) => el.scrollWidth - el.clientWidth);
+  expect(graph).toBeLessThanOrEqual(0);
+  for (const step of await page.getByRole("list", { name: "Run steps" }).getByRole("listitem").all()) {
+    await expect(step).toBeVisible();
+    const box = await step.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(768);
+  }
 });
 
 test("a failed step shows its reason in plain words, the owner can retry, a viewer cannot", async ({
@@ -70,7 +78,11 @@ test("a failed step shows its reason in plain words, the owner can retry, a view
   await expect(page.getByTestId("run-status")).toHaveText("Failed");
   await expect(page.getByTestId("step-writer")).toContainText("Failed");
   await expect(page.getByTestId("next-step")).toContainText("retry");
-  await expect(page.getByRole("alert")).toContainText("2 attempts");
+  const reason = page.getByRole("alert");
+  await expect(reason).toHaveText("The Writer step did not finish after 2 attempts.");
+  await expect(reason).not.toContainText("-32000");
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByTestId("failure-raw")).toContainText("agent unavailable");
 
   const session = await browser.newContext();
   const viewerPage = await session.newPage();

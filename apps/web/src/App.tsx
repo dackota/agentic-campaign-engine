@@ -27,7 +27,7 @@ import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { PreviewFrame } from "./PreviewFrame";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
-import { nextStepText, statusLabel, stepLabel, workflowLabel } from "./labels";
+import { failureText, nextStepText, statusLabel, stepLabel, workflowLabel } from "./labels";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
 import { campaignPath, NEW_CAMPAIGN_PATH, useRoute, type Route } from "./route";
@@ -645,7 +645,8 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
       <p className="next-step" data-testid="next-step">
         {nextStepText(campaign.status)}
       </p>
-      {campaign.status === "failed" && <ErrorBlock>{campaign.failure_reason}</ErrorBlock>}
+      {campaign.status === "failed" && <ErrorBlock>{failureText(campaign.failure_reason)}</ErrorBlock>}
+      {campaign.status === "failed" && showDetails && <pre data-testid="failure-raw">{campaign.failure_reason}</pre>}
       <div className="action-row">
         {canRetry(me, campaign) && (
           <button type="button" className="btn btn-primary" onClick={() => onRetry(campaign.id)}>
@@ -660,9 +661,7 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
             Approve
           </button>
         )}
-        <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>
-          Details
-        </button>
+        <button type="button" aria-expanded={showDetails} onClick={() => setShowDetails(!showDetails)}>Details</button>
       </div>
       <RunGraph dag={campaign.steps} edges={campaign.edges} events={events} showDetails={showDetails} />
       <RunCards campaign={campaign} showDetails={showDetails} />

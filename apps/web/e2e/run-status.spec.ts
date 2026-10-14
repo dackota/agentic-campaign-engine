@@ -23,6 +23,8 @@ test("bad agent output shows failed and the reason", async ({ page }) => {
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   await expect(page.getByTestId("step-email_draft")).toContainText("Failed");
-  await expect(page.getByRole("alert")).toContainText("contract");
+  await expect(page.getByRole("alert")).toHaveText(/^The .+ step did not finish\.$/);
+  await page.getByRole("button", { name: "Details" }).click();
+  await expect(page.getByTestId("failure-raw")).toContainText("contract");
   await expect(page.getByTestId("draft-subject")).toHaveCount(0);
 });
