@@ -1,6 +1,6 @@
 import { workflowLabel } from "../src/labels.ts";
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/sign-in";
+import { signIn, openNewCampaign } from "./fixtures/sign-in";
 
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
@@ -43,6 +43,7 @@ test("builds, breaks, fixes, saves, and runs a workflow", async ({ page }) => {
 
   // Run it.
   await page.getByRole("button", { name: "Campaigns" }).click();
+  await openNewCampaign(page);
   await page.getByLabel("Workflow", { exact: true }).selectOption({ value: name });
   await page.getByLabel("Threat report").fill(REPORT);
   await page.getByRole("button", { name: "Create campaign" }).click();
