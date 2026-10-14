@@ -150,7 +150,7 @@ in `docs/decisions/` as each slice lands.
 | 16 | Order | Spike, walking skeleton, then widen one bullet per slice | The demo always works, so we can stop at any point |
 | 17 | Repo | `dackota/agentic-campaign-engine`, private until S14 | |
 | 18 | Plan home | This file + one GitHub issue per slice | Progress is visible. Agents can pick up issues |
-| 19 | Test seams | Two seams: the Campaign API (fast depth with scripted agents, live depth on k3d) and the browser. Row-level security is the only team filter | Few seams keep tests stable while modules change. API tests then prove the database rule too |
+| 19 | Test pyramid | Prove each thing at the lowest test type that can show it: about 70% unit, 20% component and API, 10% browser. The Campaign API (fast depth with scripted agents, live depth on k3d) and the browser stay the only slow seams. Row-level security is the only team filter | Fast low tests catch most bugs. The few slow tests prove only what nothing lower can: real login, live status, painted previews, layout |
 
 Defaults chosen without a question:
 

@@ -83,8 +83,9 @@ target. If `make up` stops at `env-check`, it names the missing tool or `.env` n
 
 ## Tests
 
-Two seams, no others: the Campaign API (HTTP, the run event stream, webhooks) and the
-browser (Playwright). `make test` runs both at fast depth with a scripted agent and needs
+Each thing is proved at the lowest test type that can show it: about 70% unit, 20%
+component and Campaign API (HTTP, the run event stream, webhooks), 10% browser
+(Playwright). `make test` runs them all at fast depth with a scripted agent and needs
 only Docker. `make evals` runs the golden set against the baseline. Row-level security is
 the only team filter, so the API tests prove the database rule too.
 

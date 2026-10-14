@@ -35,15 +35,24 @@ with `Closes #<n>` in the body, merges.
 
 ## Tests
 
-Every test drives one of the two seams in #18:
+Prove each thing at the **lowest test type** that can show it. Aim for about
+70% unit, 20% component and API, 10% browser.
 
-- the **Campaign API** (HTTP, the run event stream, webhooks), at fast depth
-  with the scripted agent, or at live depth on the cluster
-- the **browser**, with Playwright
+- **Unit**: pure logic, called directly. Python (`tests/engine/`) and web
+  (`apps/web/src/*.test.ts`, vitest).
+- **Component**: one React screen with fake data, in `apps/web/src/*.test.tsx`
+  (vitest, jsdom, testing-library). Or one backend module with real Postgres.
+- **Campaign API** (HTTP, the run event stream, webhooks), at fast depth with
+  the scripted agent, or at live depth on the cluster. Use it only for what
+  needs the wiring: auth, team isolation, durable runs, webhooks.
+- **Browser**, with Playwright (`apps/web/e2e/`). Use it only for what a real
+  browser and real stack can show: login, live status, painted previews, drag,
+  layout.
 
-Write the test first, at a seam. Row-level security is the only team filter,
-so API tests prove the database rule too. Tests under `tests/tooling/` (repo
-files and scripts) and `tests/spike/` (the cluster spikes) have no seam.
+Before you write a browser or API test, ask whether a unit or component test
+can prove it. Write the test first. Row-level security is the only team
+filter, so API tests prove the database rule too. Tests under `tests/tooling/`
+(repo files and scripts) and `tests/spike/` (the cluster spikes) have no seam.
 
 ## Before you touch
 
