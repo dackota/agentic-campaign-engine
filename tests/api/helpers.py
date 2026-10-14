@@ -1,7 +1,5 @@
 """Helpers the Campaign API tests share: make a campaign, wait for it to reach a status."""
 
-import hashlib
-import hmac
 import json
 import os
 import time
@@ -12,22 +10,51 @@ from xml.etree import ElementTree
 import httpx
 
 from tests.harness.stack import Stack
+from tests.support.dag import (
+    APPROVER,
+    AWAITING,
+    DRAFT_APPROVE_PUBLISH,
+    DRAFT_ONLY,
+    FAILED,
+    FINISHED,
+    GOOD_DRAFT,
+    OWNER,
+    REPORT,
+    RETRYING,
+    SENT,
+    SIGNATURE_HEADER,
+    TIMESTAMP_HEADER,
+    WORKFRONT_SIGNATURE_HEADER,
+    WORKFRONT_TIMESTAMP_HEADER,
+    edge,
+    signed_headers,
+    step,
+    workfront_signed_headers,
+)
 
-REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances."
-GOOD_DRAFT = {
-    "subject": "Patch your VPN today",
-    "preheader": "Attackers are scanning for it",
-    "body": "Hello, apply the fix now.",
-    "call_to_action": "Patch now",
-}
-AWAITING = "awaiting_approval"
-FAILED = "failed"
-SENT = "sent"
-FINISHED = "finished"
-RETRYING = "retrying"
-# Demo users from platform/dex/config.yaml.
-OWNER = "dg-owner@demo.example"
-APPROVER = "dg-approver@demo.example"
+# The constants and builders moved to tests/support/dag.py; every name stays importable here.
+__all__ = [
+    "APPROVER",
+    "AWAITING",
+    "DRAFT_APPROVE_PUBLISH",
+    "DRAFT_ONLY",
+    "FAILED",
+    "FINISHED",
+    "GOOD_DRAFT",
+    "OWNER",
+    "REPORT",
+    "RETRYING",
+    "SENT",
+    "SIGNATURE_HEADER",
+    "TIMESTAMP_HEADER",
+    "WORKFRONT_SIGNATURE_HEADER",
+    "WORKFRONT_TIMESTAMP_HEADER",
+    "edge",
+    "signed_headers",
+    "step",
+    "workfront_signed_headers",
+]
+
 LIVE_POLL_SECONDS = 300  # a real model takes seconds per reply, and the default workflow asks six
 POLL_SECONDS = LIVE_POLL_SECONDS if os.environ.get("ACE_DEPTH") == "live" else 30
 POLL_INTERVAL_SECONDS = 0.2
@@ -84,21 +111,6 @@ def create_on(api: httpx.Client, workflow: str, report: str = REPORT) -> dict[st
     return created
 
 
-def step(step_id: str, kind: str, **extra: object) -> dict[str, Any]:
-    return {"id": step_id, "kind": kind, **extra}
-
-
-def edge(source: str, target: str) -> dict[str, str]:
-    return {"from": source, "to": target}
-
-
-# The smallest workflow that drafts, waits for a human, then publishes.
-DRAFT_APPROVE_PUBLISH = {
-    "steps": [step("draft", "agent"), step("approve", "approval"), step("publish", "publish")],
-    "edges": [edge("draft", "approve"), edge("approve", "publish")],
-}
-
-
 def read_events(
     api: httpx.Client,
     campaign_id: str,
@@ -129,10 +141,7 @@ def read_events(
 MARKETO_TOKEN_PATH = "/identity/oauth/token"
 MARKETO_PROGRAMS_PATH = "/rest/asset/v1/programs.json"
 MARKETO_HTTP_TIMEOUT_SECONDS = 10
-# Activity webhooks: the HMAC-SHA256 of "<timestamp>." + body, hex, in this header.
 MARKETO_WEBHOOK_PATH = "/webhooks/marketo"
-SIGNATURE_HEADER = "X-Marketo-Signature"
-TIMESTAMP_HEADER = "X-Marketo-Timestamp"
 
 
 def marketo_token(marketo_url: str, client_id: str, client_secret: str) -> httpx.Response:
@@ -167,17 +176,6 @@ def marketo_programs(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
 def marketo_sends(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
     """Every send the fake Marketo made for this campaign, across its programs."""
     return [send for p in marketo_programs(stack, campaign_id) for send in p["sends"]]
-
-
-def signed_headers(secret: str, body: bytes, timestamp: int | None = None) -> dict[str, str]:
-    """Headers that sign `body` the way the fake Marketo signs its activity webhooks."""
-    stamp = str(int(time.time()) if timestamp is None else timestamp)
-    digest = hmac.new(secret.encode(), stamp.encode() + b"." + body, hashlib.sha256)
-    return {
-        TIMESTAMP_HEADER: stamp,
-        SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
-        "Content-Type": "application/json",
-    }
 
 
 def events_until(api: httpx.Client, campaign_id: str, final_status: str) -> list[dict[str, Any]]:
@@ -235,8 +233,6 @@ def receipts(api: httpx.Client, campaign_id: str) -> list[dict[str, Any]]:
 WORKFRONT_TOKEN_PATH = "/oauth2/token"
 WORKFRONT_API = "/attask/api/v15.0"
 WORKFRONT_WEBHOOK_PATH = "/webhooks/workfront"
-WORKFRONT_SIGNATURE_HEADER = "X-Workfront-Signature"
-WORKFRONT_TIMESTAMP_HEADER = "X-Workfront-Timestamp"
 WORKFRONT_TARGET = "workfront"
 
 
@@ -274,19 +270,6 @@ def workfront_tasks(stack: Stack, campaign_id: str) -> list[dict[str, Any]]:
     return tasks
 
 
-def workfront_signed_headers(
-    secret: str, body: bytes, timestamp: int | None = None
-) -> dict[str, str]:
-    """Headers that sign `body` the way the fake Workfront signs its status webhooks."""
-    stamp = str(int(time.time()) if timestamp is None else timestamp)
-    digest = hmac.new(secret.encode(), stamp.encode() + b"." + body, hashlib.sha256)
-    return {
-        WORKFRONT_TIMESTAMP_HEADER: stamp,
-        WORKFRONT_SIGNATURE_HEADER: f"sha256={digest.hexdigest()}",
-        "Content-Type": "application/json",
-    }
-
-
 DAY_SPEED = 100_000.0  # simulated audience seconds per real second: days in seconds
 
 
@@ -297,10 +280,6 @@ def send_campaign(api: httpx.Client, approver: httpx.Client) -> str:
     assert approver.post(f"/campaigns/{campaign_id}/approve").status_code == 202
     until_status(api, campaign_id, SENT)
     return campaign_id
-
-
-# A workflow of one agent step: the step cache tests run it.
-DRAFT_ONLY = {"steps": [step("draft", "agent")], "edges": []}
 
 
 def run_cached(api: httpx.Client, workflow: str, report: str, **extra: object) -> dict[str, Any]:

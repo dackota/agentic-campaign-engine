@@ -605,25 +605,43 @@ def _add_campaign_routes(app: FastAPI) -> None:
         return await _found(_team_engine(request, user), campaign_id)
 
 
-def create_app(settings: Settings) -> FastAPI:
+async def _open_engine(settings: Settings) -> Engine:
+    engine = db.make_engine(settings.database_url)
+    await run_in_threadpool(row_security.install, engine)
+    await run_in_threadpool(seed_default_workflow, engine)
+    return engine
+
+
+def create_app(
+    settings: Settings,
+    *,
+    engine: Engine | None = None,
+    verifier: TokenVerifier | None = None,
+    temporal: Client | None = None,
+) -> FastAPI:
+    """The Campaign API. A test passes `engine`, `verifier` or `temporal` to stand in for the
+    ones the lifespan builds from `settings`; an injected engine is the caller's to prepare
+    (schema, row security, seed) and to dispose."""
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        app.state.engine = db.make_engine(settings.database_url)
-        await run_in_threadpool(row_security.install, app.state.engine)
-        await run_in_threadpool(seed_default_workflow, app.state.engine)
+        app.state.engine = engine or await _open_engine(settings)
         embed_client = httpx.Client(timeout=learnings.EMBED_TIMEOUT_SECONDS)
         app.state.embed = learnings.embedder_for(
             settings.depth, settings.embedding_url, settings.embedding_model, embed_client
         )
-        app.state.verifier = TokenVerifier(settings.oidc_issuer, settings.oidc_client_id)
-        app.state.temporal = await Client.connect(
+        app.state.verifier = verifier or TokenVerifier(
+            settings.oidc_issuer, settings.oidc_client_id
+        )
+        app.state.temporal = temporal or await Client.connect(
             settings.temporal_address,
             namespace=settings.temporal_namespace,
             interceptors=telemetry.temporal_interceptors(),
         )
         yield
         await run_in_threadpool(embed_client.close)
-        app.state.engine.dispose()
+        if engine is None:
+            app.state.engine.dispose()
 
     app = FastAPI(lifespan=lifespan)
     telemetry.instrument_app(app, SERVICE)

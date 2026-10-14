@@ -75,6 +75,11 @@ class WebhookSigner:
         return True
 
 
+def reset() -> None:
+    """Forget every kept traceparent: a test starts from an empty cache."""
+    _cached.clear()
+
+
 def remember(campaign_id: uuid.UUID, reader: Reader | None, traceparent: str) -> None:
     """Keep the traceparent `reader` read. A login in no team reads nothing, so it keeps
     nothing."""

@@ -104,21 +104,30 @@ def firing(engine: Engine) -> list[AlertOut]:
         return [AlertOut(name=r.name, summary=r.summary, fired_at=r.fired_at) for r in rows]
 
 
-async def post_to_slack(settings: Settings, text: str) -> None:
+async def post_to_slack(
+    settings: Settings, text: str, client: httpx.AsyncClient | None = None
+) -> None:
     """Best effort: a Slack outage must not fail the webhook, so it is logged (never the
-    token) and dropped."""
+    token) and dropped. A test passes its own `client`; otherwise one is opened here."""
     if not settings.slack_enabled:
         return
     try:
-        async with httpx.AsyncClient(timeout=settings.notify_timeout_seconds) as client:
-            response = await client.post(
-                f"{settings.slack_url}/chat.postMessage",
-                headers={"Authorization": f"Bearer {settings.slack_token}"},
-                json={"channel": settings.slack_channel, "text": text},
-            )
-            response.raise_for_status()
+        if client is not None:
+            await _post_notice(client, settings, text)
+            return
+        async with httpx.AsyncClient(timeout=settings.notify_timeout_seconds) as own:
+            await _post_notice(own, settings, text)
     except httpx.HTTPError as exc:
         log.warning("slack alert notice failed: %s", type(exc).__name__)
+
+
+async def _post_notice(client: httpx.AsyncClient, settings: Settings, text: str) -> None:
+    response = await client.post(
+        f"{settings.slack_url}/chat.postMessage",
+        headers={"Authorization": f"Bearer {settings.slack_token}"},
+        json={"channel": settings.slack_channel, "text": text},
+    )
+    response.raise_for_status()
 
 
 def _check_token(request: Request, token: str) -> None:
