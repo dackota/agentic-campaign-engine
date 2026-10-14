@@ -27,6 +27,7 @@ import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
 import { messageOf } from "./messages";
 import { RunGraph } from "./RunGraphView";
+import { Header, ViewNav, type View } from "./Shell";
 import { useRunEvents } from "./useRunEvents";
 
 const POLL_MS = 500;
@@ -325,22 +326,6 @@ function useCampaignRun(
   };
 }
 
-interface SignedInBarProps {
-  email: string;
-  onSignOut: () => void;
-}
-
-function SignedInBar({ email, onSignOut }: SignedInBarProps) {
-  return (
-    <p>
-      Signed in as <span data-testid="signed-in-as">{email}</span>{" "}
-      <button type="button" onClick={onSignOut}>
-        Sign out
-      </button>
-    </p>
-  );
-}
-
 interface NewCampaignFormProps {
   onCreate: (report: string, workflow: string, budgetUsd: number | null) => void;
 }
@@ -387,7 +372,7 @@ function NewCampaignForm({ onCreate }: NewCampaignFormProps) {
             placeholder="no limit"
           />
         </label>
-        <button type="submit" disabled={!report.trim()}>
+        <button type="submit" className="btn btn-primary" disabled={!report.trim()}>
           Create campaign
         </button>
       </form>
@@ -487,35 +472,6 @@ function RunView({ me, campaign, events, onApprove, onRetry, onRaiseBudget }: Ru
   );
 }
 
-type View = "campaigns" | "builder" | "inbox" | "learnings" | "dashboard";
-
-function ViewNav({ me, onView }: { me: Me; onView: (view: View) => void }) {
-  return (
-    <nav>
-      <button type="button" onClick={() => onView("campaigns")}>
-        Campaigns
-      </button>{" "}
-      <button type="button" onClick={() => onView("builder")}>
-        Workflow builder
-      </button>{" "}
-      <button type="button" onClick={() => onView("learnings")}>
-        Learnings
-      </button>{" "}
-      <button type="button" onClick={() => onView("dashboard")}>
-        Dashboard
-      </button>
-      {me.roles.includes("approver") && (
-        <>
-          {" "}
-          <button type="button" onClick={() => onView("inbox")}>
-            Inbox
-          </button>
-        </>
-      )}
-    </nav>
-  );
-}
-
 interface WorkspaceProps {
   me: Me;
   onSignOut: () => void;
@@ -530,10 +486,11 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
   const [view, setView] = useState<View>(linkedCampaign ? "inbox" : "campaigns");
 
   return (
-    <main>
-      <SignedInBar email={me.email} onSignOut={onSignOut} />
+    <>
+      <Header me={me} onSignOut={onSignOut} />
+      <ViewNav me={me} view={view} onView={setView} />
+      <main>
       <AlertBanner onSignedOut={onSignOut} />
-      <ViewNav me={me} onView={setView} />
       {view === "builder" ? (
         <Builder />
       ) : view === "dashboard" ? (
@@ -557,7 +514,8 @@ function Workspace({ me, onSignOut }: WorkspaceProps) {
           run={run}
         />
       )}
-    </main>
+      </main>
+    </>
   );
 }
 
