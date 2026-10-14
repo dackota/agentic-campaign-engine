@@ -23,6 +23,7 @@ import {
 import { AlertBanner } from "./AlertBanner";
 import { Builder } from "./Builder";
 import { Dashboard } from "./Dashboard";
+import { PreviewFrame } from "./PreviewFrame";
 import { Inbox, rememberInboxLink, takeInboxLink } from "./Inbox";
 import { Learnings } from "./Learnings";
 import { accessToken, finishSignIn, signIn, signOut } from "./auth";
@@ -207,12 +208,7 @@ interface EmailPreviewProps {
 
 function EmailPreview({ id }: EmailPreviewProps) {
   return (
-    <iframe
-      title="Email preview"
-      src={previewUrl(id)}
-      sandbox=""
-      style={{ width: "100%", height: 640, border: "1px solid #ccc" }}
-    />
+    <PreviewFrame title="Email preview" src={previewUrl(id)} isTall />
   );
 }
 

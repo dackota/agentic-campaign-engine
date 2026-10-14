@@ -40,3 +40,13 @@ const named = (labels: Record<string, string>, id: string): string | undefined =
 
 export const stepLabel = (id: string): string => named(STEP_LABELS, id) ?? humanize(id);
 export const workflowLabel = (name: string): string => named(WORKFLOW_LABELS, name) ?? humanize(name);
+
+const FLAG_LABELS: Record<string, string> = {
+  uncited_fact: "Uncited fact",
+  banned_claim: "Banned claim",
+  off_brand_word: "Off-brand word",
+  length: "Wrong length",
+};
+
+/** The brand reviewer's check ids, as the words a marketer reads. */
+export const flagLabel = (check: string): string => named(FLAG_LABELS, check) ?? humanize(check);

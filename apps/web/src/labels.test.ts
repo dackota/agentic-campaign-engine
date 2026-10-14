@@ -21,3 +21,11 @@ test("unknown ids are made readable", () => {
   assert.equal(stepLabel("first_draft"), "First draft");
   assert.equal(workflowLabel("my-workflow"), "My workflow");
 });
+
+test("flag checks read as plain words", async () => {
+  const { flagLabel } = await import("./labels.ts");
+  for (const check of ["uncited_fact", "banned_claim", "off_brand_word", "length"]) {
+    assert.ok(!flagLabel(check).includes("_"), check);
+    assert.notEqual(flagLabel(check), check);
+  }
+});
