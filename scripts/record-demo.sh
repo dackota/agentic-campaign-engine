@@ -64,7 +64,7 @@ webm=$(find "$OUT_DIR" -name '*.webm' | head -n 1)
 ffmpeg -y -loglevel error -i "$webm" -c:v libx264 -crf 28 -preset slow -pix_fmt yuv420p \
   -movflags +faststart -an "$ROOT/docs/demo.mp4"
 
-palette=$(mktemp -t demo-palette).png
+palette="$OUT_DIR/palette.png"
 filters="setpts=PTS/$GIF_SPEED,fps=$GIF_FPS,scale=$GIF_WIDTH:-1:flags=lanczos"
 ffmpeg -y -loglevel error -i "$webm" -vf "$filters,palettegen=max_colors=96" "$palette"
 ffmpeg -y -loglevel error -i "$webm" -i "$palette" \

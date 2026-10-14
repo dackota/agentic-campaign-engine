@@ -214,8 +214,8 @@ async function approve(page) {
     await approveButton.click();
   }
   await shows(page.getByTestId("run-status"), "Sent");
-  await centre(page.getByTestId("receipt"));
-  await beat(page, 6, "Sent. The receipt is the proof of what went out.");
+  await centre(page.getByTestId("run-status"));
+  await beat(page, 6, "Sent. The page, the email and the team note went out, and a receipt is kept.");
   await hold(page);
 }
 
@@ -290,6 +290,15 @@ async function main() {
   const page = await context.newPage();
   page.setDefaultTimeout(RUN_WAIT_MS);
   await page.addInitScript(drawCaption, CAPTION_PREFIX);
+  // The receipt reference is an opaque generated id, so it stays out of every frame.
+  await page.addInitScript(() => {
+    const hide = () => {
+      const style = document.createElement("style");
+      style.textContent = '[data-testid="receipt"] { visibility: hidden; }';
+      document.head.append(style);
+    };
+    document.addEventListener("DOMContentLoaded", hide, { once: true });
+  });
   try {
     await setAudience(page, DAY_SPEED);
     await problem(page);
@@ -304,7 +313,7 @@ async function main() {
     await builder(page);
     await manyTeams(page);
   } finally {
-    await setAudience(page, DEFAULT_SPEED).catch(() => {});
+    await setAudience(page, DEFAULT_SPEED).catch((error) => console.error("could not reset the audience speed:", error));
     await context.close(); // writes the video
     await browser.close();
   }
