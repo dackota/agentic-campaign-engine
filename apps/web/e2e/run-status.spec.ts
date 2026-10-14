@@ -11,8 +11,8 @@ test("step status changes on the page without a reload", async ({ page }) => {
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   const step = page.getByTestId("step-email_draft");
-  await expect(step).toContainText("started");
-  await expect(step).toContainText("succeeded");
+  await expect(step).toContainText("Running");
+  await expect(step).toContainText("Done");
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty();
 });
 
@@ -22,7 +22,7 @@ test("bad agent output shows failed and the reason", async ({ page }) => {
   await page.getByLabel("Threat report").fill(`[agent:bad-json]\n${REPORT}`);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
-  await expect(page.getByTestId("step-email_draft")).toContainText("failed");
+  await expect(page.getByTestId("step-email_draft")).toContainText("Failed");
   await expect(page.getByRole("alert")).toContainText("contract");
   await expect(page.getByTestId("draft-subject")).toHaveCount(0);
 });

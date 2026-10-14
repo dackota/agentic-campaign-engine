@@ -12,8 +12,12 @@ export function StatusBadge({ tone, children }: { tone: Tone; children: ReactNod
   );
 }
 
-export function Card({ children }: { children: ReactNode }): ReactElement {
-  return <section className="card">{children}</section>;
+export function Card({ children, label }: { children: ReactNode; label?: string }): ReactElement {
+  return (
+    <section className="card" aria-label={label}>
+      {children}
+    </section>
+  );
 }
 
 export function EmptyBlock({ children }: { children: ReactNode }): ReactElement {

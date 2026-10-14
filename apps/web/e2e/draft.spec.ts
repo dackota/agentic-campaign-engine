@@ -10,5 +10,6 @@ test("pasting a threat report shows the email draft", async ({ page }) => {
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   await expect(page.getByTestId("draft-subject")).not.toBeEmpty();
+  await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByTestId("draft-body")).toContainText("Volt Typhoon");
 });

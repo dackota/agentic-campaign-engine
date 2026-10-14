@@ -46,12 +46,12 @@ test("a run paused at its budget resumes when the owner raises it", async ({
   await page.getByRole("button", { name: "Create campaign" }).click();
 
   await expect(page.getByTestId("run-status")).toHaveText("Paused at budget");
-  await expect(page.getByTestId("step-second")).toContainText("pending");
+  await expect(page.getByTestId("step-second")).toContainText("Waiting");
   await page.getByLabel("New budget (USD)").fill("1");
   await page.getByRole("button", { name: "Raise budget" }).click();
 
   await expect(page.getByTestId("run-status")).toHaveText("Finished");
-  await expect(page.getByTestId("step-second")).toContainText("succeeded");
+  await expect(page.getByTestId("step-second")).toContainText("Done");
   await expect(page.getByTestId("run-cost")).toHaveText("$0.04");
   await page.getByRole("button", { name: "Details" }).click();
   await expect(page.getByTestId("run-tokens")).toHaveText("6,000 tokens, $0.0420");

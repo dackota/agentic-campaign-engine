@@ -1,4 +1,5 @@
-import { stepLabel } from "./labels";
+import { stepLabel, stepStatusLabel } from "./labels";
+import { StatusBadge, type Tone } from "./ui";
 import { graphLayout, summarizeSteps, type GraphEvent, type StepSummary } from "./runGraph";
 import type { WorkflowEdge, WorkflowStep } from "./workflow.gen";
 
@@ -7,6 +8,7 @@ const NODE_HEIGHT = 100;
 const GAP_X = 56;
 const GAP_Y = 16;
 const PENDING = "pending";
+const STATUS_TONES: Record<string, Tone> = { started: "info", succeeded: "ok", failed: "bad", pending: "warn" };
 
 interface Position {
   x: number;
@@ -45,8 +47,7 @@ function Edges({ edges, at }: { edges: WorkflowEdge[]; at: Map<string, Position>
         y1={y1}
         x2={x2}
         y2={y2}
-        stroke="#888"
-        strokeWidth={2}
+        className="run-edge"
       />
     );
   });
@@ -63,24 +64,15 @@ function StepNode({ step, place, info, showDetails }: StepNodeProps) {
   const status = info?.status ?? PENDING;
   return (
     <li
+      className={`run-step run-step-${status}`}
       data-testid={`step-${step.id}`}
       data-status={status}
-      style={{
-        position: "absolute",
-        left: place.x,
-        top: place.y,
-        width: NODE_WIDTH,
-        height: NODE_HEIGHT,
-        boxSizing: "border-box",
-        padding: 6,
-        overflow: "hidden",
-        fontSize: 13,
-        border: `2px solid ${status === "started" ? "#2563eb" : status === "failed" ? "#dc2626" : "#999"}`,
-        borderRadius: 6,
-        background: "#fff",
-      }}
+      style={{ left: place.x, top: place.y, width: NODE_WIDTH, height: NODE_HEIGHT }}
     >
-      <strong>{stepLabel(step.id)}</strong>: {status}
+      <strong>{stepLabel(step.id)}</strong>
+      <div>
+        <StatusBadge tone={STATUS_TONES[status] ?? "info"}>{stepStatusLabel(status)}</StatusBadge>
+      </div>
       {info && info.retries > 0 && <div>{`${info.retries} ${info.retries === 1 ? "retry" : "retries"}`}</div>}
       {showDetails && info && info.tokens > 0 && <div>{`${info.tokens} tokens`}</div>}
       {showDetails && info && info.alongside.length > 0 && <div>{`alongside ${info.alongside.join(", ")}`}</div>}
@@ -98,12 +90,12 @@ export function RunGraph({ dag, edges, events, showDetails }: RunGraphProps) {
   const width = levels.length * (NODE_WIDTH + GAP_X) - GAP_X;
   const height = Math.max(...levels.map((l) => l.length), 1) * (NODE_HEIGHT + GAP_Y) - GAP_Y;
   return (
-    <div style={{ overflowX: "auto", maxWidth: "100%" }}>
-      <div data-testid="run-graph" style={{ position: "relative", width, height, margin: "8px 0" }}>
-        <svg width={width} height={height} style={{ position: "absolute", inset: 0 }} aria-hidden="true">
+    <div className="run-graph-scroll">
+      <div data-testid="run-graph" className="run-graph" style={{ width, height }}>
+        <svg width={width} height={height} className="run-edges" aria-hidden="true">
           <Edges edges={edges} at={at} />
         </svg>
-        <ul aria-label="Run steps" style={{ listStyle: "none", margin: 0, padding: 0 }}>
+        <ul aria-label="Run steps" className="run-steps">
           {dag.map((step) => (
             <StepNode key={step.id} step={step} place={at.get(step.id) ?? { x: 0, y: 0 }} info={summary[step.id]} showDetails={showDetails} />
           ))}

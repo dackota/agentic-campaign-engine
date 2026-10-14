@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { flagLabel, kindDescription, kindLabel, stepLabel, workflowLabel } from "./labels.ts";
+import { flagLabel, kindDescription, kindLabel, nextStepText, stepLabel, stepStatusLabel, workflowLabel } from "./labels.ts";
 import { StepKindValues } from "./workflow.gen.ts";
 
 test("every step kind in the workflow schema has a label", () => {
@@ -34,4 +34,22 @@ test("every step kind has a one-line description", () => {
     const text = kindDescription(kind);
     assert.ok(text.length > 0 && !text.includes("\n"), kind);
   }
+});
+
+const STATUSES = ["drafting", "awaiting_approval", "sending", "sent", "failed", "retrying", "finished", "budget_paused"] as const;
+
+test("every campaign status has a next-step sentence", () => {
+  for (const status of STATUSES) {
+    const text = nextStepText(status);
+    assert.ok(text.length > 0 && text.endsWith(".") && !text.includes("\n"), status);
+    assert.ok(!text.includes("_"), status);
+  }
+  assert.equal(nextStepText("awaiting_approval"), "Waiting for an approver.");
+});
+
+test("step statuses read as plain words", () => {
+  assert.equal(stepStatusLabel("started"), "Running");
+  assert.equal(stepStatusLabel("succeeded"), "Done");
+  assert.equal(stepStatusLabel("failed"), "Failed");
+  assert.equal(stepStatusLabel("pending"), "Waiting");
 });
