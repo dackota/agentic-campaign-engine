@@ -1,6 +1,7 @@
 """The developer command line is the seam: make, pre-commit config, CI workflow."""
 
 import json
+import re
 import subprocess
 import tomllib
 from pathlib import Path
@@ -89,6 +90,15 @@ def test_ci_runs_make_test_on_pull_request() -> None:
     text = (ROOT / ".github/workflows/test.yml").read_text()
     assert "pull_request" in text
     assert "make test" in text
+
+
+def test_ci_installs_a_pinned_checksummed_gitleaks_before_make_test() -> None:
+    text = (ROOT / ".github/workflows/test.yml").read_text()
+    install = text.index("gitleaks_")
+    assert install < text.index("- run: make test")
+    assert re.search(r"GITLEAKS_VERSION: \d+\.\d+\.\d+", text)
+    assert re.search(r"GITLEAKS_SHA256: [0-9a-f]{64}", text)
+    assert "sha256sum -c" in text
 
 
 def test_make_test_runs_both_seams_with_pytest_on_four_workers() -> None:
