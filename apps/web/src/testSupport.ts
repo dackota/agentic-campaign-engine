@@ -59,3 +59,37 @@ export function stubApi(routes: Record<string, Route>): ApiCall[] {
   });
   return calls;
 }
+
+/** Stand in for EventSource: every stream the screen opens is listed, oldest first. */
+export class FakeStream {
+  static CLOSED = 2;
+  static opened: FakeStream[] = [];
+  readyState = 1;
+  onerror: (() => void) | null = null;
+  private listeners: ((message: { data: string }) => void)[] = [];
+  constructor(readonly url: string) {
+    FakeStream.opened.push(this);
+  }
+  get isOpen(): boolean {
+    return this.readyState !== FakeStream.CLOSED;
+  }
+  addEventListener(_type: string, listener: (message: { data: string }) => void) {
+    this.listeners.push(listener);
+  }
+  close() {
+    this.readyState = FakeStream.CLOSED;
+  }
+  /** Play an event as the server would; a closed stream hears nothing. */
+  send(event: { seq: number; step: string; status: string }) {
+    if (!this.isOpen) return;
+    const data = JSON.stringify({ reason: null, tokens: null, ...event });
+    for (const listener of this.listeners) listener({ data });
+  }
+}
+
+/** Replace EventSource with FakeStream; returns the streams opened so far, oldest first. */
+export function stubEventSource(): FakeStream[] {
+  FakeStream.opened = [];
+  vi.stubGlobal("EventSource", FakeStream);
+  return FakeStream.opened;
+}
