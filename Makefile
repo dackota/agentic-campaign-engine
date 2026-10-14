@@ -1,6 +1,6 @@
 .DEFAULT_GOAL := help
 PY_PATH := PYTHONPATH=.:apps/engine:apps/api:apps/worker:services/fakes:services/render:services/mcp
-.PHONY: seed-demo evals load smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
+.PHONY: seed-demo record-demo evals load smoke help lint fmt test types up down status dev gateway-check gateway-failover-check env-check up-cluster up-platform up-observability up-app status-cluster status-platform
 
 help: ## List the targets
 	@grep -E '^[a-z_-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "%-8s %s\n", $$1, $$2}'
@@ -35,6 +35,9 @@ load: ## Run campaigns at once through the Campaign API and write cost, p50/p95 
 # SEED_ARGS takes the seed's flags, e.g. --api-url http://... --tokens-file tokens.json.
 seed-demo: ## Load the demo data (Acme Security, two teams) through the Campaign API; with no --api-url it seeds a fast stack and prints the summary
 	$(PY_PATH) uv run python -m tests.harness.demo_seed $(SEED_ARGS)
+
+record-demo: ## Record the captioned demo on the fast stack (needs Docker and ffmpeg) into docs/demo.mp4 and docs/demo.gif
+	scripts/record-demo.sh
 
 types: ## Regenerate the web app's workflow types from the workflow JSON Schema
 	uv run python scripts/gen_workflow_types.py
