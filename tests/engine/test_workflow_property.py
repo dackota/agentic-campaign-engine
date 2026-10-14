@@ -8,11 +8,11 @@ adversarial fixed cases; the stub agent fails on cue or breaks its contract for 
 import asyncio
 import contextlib
 import random
-import time
 from collections import Counter
 from typing import Any
 
 from ace_engine import dag as graph
+from ace_engine.db import STEP_SUCCEEDED
 from ace_engine.settings import APPROVE_SIGNAL
 from ace_engine.workflow_spec import MAX_SHAPE_ERRORS, validate
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
@@ -26,6 +26,7 @@ from tests.support.run_stubs import (
     FINISHED,
     POLL_SECONDS,
     AgentBehavior,
+    Drive,
     StubActivities,
     run_workflow,
     time_skipping_env,
@@ -36,7 +37,6 @@ GENERATED_CASES = 14
 MIN_ACCEPTED = 8
 MAX_STEPS = 6
 RETRY_INTERVAL_SECONDS = 0.01
-QUIET_SECONDS = 0.2
 EDGE_CHANCE = 0.35
 KINDS = ["agent", "render", "approval", "publish", "wait"]
 # The ways the stub agent misbehaves, by the cue a case carries.
@@ -183,24 +183,41 @@ def _agent_for(cue: str) -> AgentBehavior:
     return agent
 
 
-async def _approve_whenever_asked(
-    env: WorkflowEnvironment, handle: WorkflowHandle[Any, Any], stubs: StubActivities
-) -> None:
-    """Stand in for the approver: one approval for every one the run opens, once the run has
-    been quiet for a moment. An approval that lands in the same instant as a failing sibling
-    step stalls the test server's workflow task, so the approver waits for the failure."""
-    answered, seen, quiet_since = 0, 0, time.monotonic()
-    while not stubs.failed.is_set():
-        if (await handle.describe()).status != WorkflowExecutionStatus.RUNNING:
-            return
-        if len(stubs.calls) != seen:
-            seen, quiet_since = len(stubs.calls), time.monotonic()
-        asked = len(stubs.called("open_approval"))
-        if asked > answered and time.monotonic() - quiet_since >= QUIET_SECONDS:
-            with contextlib.suppress(RPCError):  # the run ended since the check above
-                await handle.signal(APPROVE_SIGNAL)
-            answered += 1
-        await asyncio.sleep(POLL_SECONDS)
+def _agents_still_to_finish(dag: dict[str, Any], stubs: StubActivities) -> bool:
+    """Whether an agent step that runs beside the open approval has yet to save its output,
+    so it may still fail. An agent behind an approval that is not yet settled has not started."""
+    saved = {args[0] for args in stubs.called("save_agent_output")}
+    settled = {args[0] for args in stubs.called("mark_step") if args[1] == STEP_SUCCEEDED}
+    unsettled = {s["id"] for s in dag["steps"] if s["kind"] == graph.APPROVAL} - settled
+    return any(
+        s["kind"] == graph.AGENT
+        and s["id"] not in saved
+        and not graph.ancestors(dag, s["id"]) & unsettled
+        for s in dag["steps"]
+    )
+
+
+def _approve_whenever_asked(dag: dict[str, Any]) -> Drive:
+    """Stand in for the approver: one approval for every one the run opens, but only once no
+    agent step beside it can still fail. A failure cancels the steps running beside it, and an
+    approval that lands in the same instant as that cancel stalls the test server's workflow
+    task. A run that fails needs no approval, so the approver waits for the failure instead."""
+
+    async def drive(
+        env: WorkflowEnvironment, handle: WorkflowHandle[Any, Any], stubs: StubActivities
+    ) -> None:
+        answered = 0
+        while not stubs.failed.is_set():
+            if (await handle.describe()).status != WorkflowExecutionStatus.RUNNING:
+                return
+            asked = len(stubs.called("open_approval"))
+            if asked > answered and not _agents_still_to_finish(dag, stubs):
+                with contextlib.suppress(RPCError):  # the run ended since the check above
+                    await handle.signal(APPROVE_SIGNAL)
+                answered += 1
+            await asyncio.sleep(POLL_SECONDS)
+
+    return drive
 
 
 def test_accepted_workflows_end_or_stop_with_a_reason_and_publish_each_step_at_most_once() -> None:
@@ -212,7 +229,7 @@ def test_accepted_workflows_end_or_stop_with_a_reason_and_publish_each_step_at_m
         async with time_skipping_env() as env:
             for dag, cue in cases:
                 stubs = StubActivities(_agent_for(cue))
-                outcome = await run_workflow(env, dag, stubs, _approve_whenever_asked)
+                outcome = await run_workflow(env, dag, stubs, _approve_whenever_asked(dag))
                 results.append((dag, cue, outcome, stubs))
         return results
 
