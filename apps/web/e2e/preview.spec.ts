@@ -1,5 +1,5 @@
 import { expect, test } from "@playwright/test";
-import { signIn } from "./fixtures/sign-in";
+import { APPROVER, signIn } from "./fixtures/sign-in";
 
 test("the approval screen shows the rendered email", async ({ page }) => {
   await signIn(page);
@@ -10,4 +10,44 @@ test("the approval screen shows the rendered email", async ({ page }) => {
   const preview = page.frameLocator('iframe[title="Email preview"]');
   await expect(preview.locator("img").first()).toHaveAttribute("alt", /.+/);
   await expect(preview.locator("body")).toContainText("Volt Typhoon");
+});
+
+test("every inbox asset preview has visible content and no broken image", async ({ page, browser }) => {
+  const title = `Preview check ${Date.now()}`;
+  await signIn(page);
+  await page.getByLabel("Threat report").fill(`${title}\nActors exploit unpatched VPN appliances.`);
+  await page.getByLabel("Workflow").fill("threat-report-to-campaign");
+  await page.getByRole("button", { name: "Create campaign" }).click();
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: 30_000 });
+  const approverSession = await browser.newContext();
+  const approver = await approverSession.newPage();
+  await signIn(approver, APPROVER);
+  await approver.getByRole("button", { name: "Inbox", exact: true }).click();
+
+  for (const step of ["landing_page", "social", "one_pager", "email_writer", "design"]) {
+    const card = approver.getByRole("article", { name: `${title}: ${step}` });
+    await expect(card).toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    const frame = await card.locator("iframe").elementHandle();
+    const doc = await frame?.contentFrame();
+    expect(doc, `${step} has a preview frame`).toBeTruthy();
+    // A blank preview paints no text and no image: measure the document, SVG or HTML.
+    await expect
+      .poll(
+        () =>
+          doc!.evaluate(() => {
+            const root = document.documentElement;
+            const painted = (root.textContent ?? "").trim().length > 0 || root.querySelector("img") !== null;
+            return painted && root.getBoundingClientRect().height > 0;
+          }),
+        { message: `${step} preview is blank` },
+      )
+      .toBe(true);
+    const broken = await doc!.evaluate(
+      () => [...document.images].filter((i) => !i.complete || i.naturalWidth === 0).length,
+    );
+    expect(broken, `${step} has a broken image`).toBe(0);
+    await expect(card.locator("iframe")).toHaveJSProperty("clientHeight", 360);
+  }
+  await approverSession.close();
 });
