@@ -60,3 +60,35 @@ test("a viewer sees the dashboard with no edit controls", async ({ page }) => {
   await expect(page.getByTestId("dashboard").getByRole("button")).toHaveCount(0);
   await expect(page.getByTestId("dashboard").locator("input, textarea, select")).toHaveCount(0);
 });
+
+test("the dashboard opens with four headline tiles that match the table", async ({ page }) => {
+  await signIn(page, OWNER);
+  await page.getByRole("button", { name: "Dashboard" }).click();
+
+  const tiles = page.getByTestId("dashboard-tiles");
+  await expect(tiles.getByRole("listitem")).toHaveCount(4);
+  await expect(tiles).toContainText("Campaigns run");
+  await expect(tiles).toContainText("Average quality");
+  await expect(tiles).toContainText("Average click rate");
+  await expect(tiles).toContainText("Total cost");
+
+  const rows = page.getByTestId("dashboard").locator("tbody tr");
+  await expect(page.getByTestId("dashboard-runs")).toHaveText(String(await rows.count()));
+  const costs = await page.getByTestId("dashboard-cost").allTextContents();
+  const sum = costs.reduce((acc, c) => acc + Number(c.replace("$", "")), 0);
+  const total = Number((await page.getByTestId("dashboard-total-cost").textContent())?.replace("$", ""));
+  expect(Math.abs(total - sum)).toBeLessThan(0.01 * (costs.length + 1));
+});
+
+test("the trend chart is an inline SVG with labeled axes and a text alternative", async ({ page }) => {
+  await signIn(page, OWNER);
+  await page.getByRole("button", { name: "Dashboard" }).click();
+
+  const chart = page.getByTestId("dashboard-trend-chart");
+  await expect(chart).toHaveAttribute("role", "img");
+  await expect(chart).toHaveAttribute("aria-label", /click rate.*quality/i);
+  await expect(chart.locator("text", { hasText: "Campaign" })).toHaveCount(1);
+  await expect(chart.locator("text", { hasText: "Click rate" })).not.toHaveCount(0);
+  await expect(chart.locator("text", { hasText: "Quality" })).not.toHaveCount(0);
+  await expect(page.getByTestId("dashboard-trend").getByRole("listitem")).not.toHaveCount(0);
+});

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { SignedOutError } from "./api";
 import { deleteLearning, listLearnings, type Learning } from "./learningsApi";
 import { messageOf } from "./messages";
+import { Card, EmptyBlock, ErrorBlock, LoadingBlock } from "./ui";
 
 interface LearningsProps {
   canDelete: boolean;
@@ -16,11 +17,15 @@ interface LearningItemProps {
   onDelete: (id: string) => void;
 }
 
+/** The engine words the reason "Variant A won ..."; the app says "Version". */
+const whyText = (reason: string): string => reason.replace(/^Variant /, "Version ");
+
 function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: LearningItemProps) {
   return (
-    <li>
-      <pre data-testid="learning-text">{learning.text}</pre>
-      <p data-testid="learning-reason">{learning.reason}</p>
+    <li className="learning-item">
+     <Card>
+      <p className="learning-text" data-testid="learning-text">{learning.text}</p>
+      <p className="learning-reason" data-testid="learning-reason">{whyText(learning.reason)}</p>
       <p>
         From campaign:{" "}
         <button type="button" onClick={() => onOpenCampaign(learning.campaign_id)}>
@@ -32,8 +37,16 @@ function LearningItem({ learning, canDelete, onOpenCampaign, onDelete }: Learnin
           Delete
         </button>
       )}
+     </Card>
     </li>
   );
+}
+
+function LearningsState({ error, learnings }: { error: string | null; learnings: Learning[] | null }) {
+  if (error) return <ErrorBlock>{error}</ErrorBlock>;
+  if (learnings === null) return <LoadingBlock>Loading learnings…</LoadingBlock>;
+  if (learnings.length > 0) return null;
+  return <EmptyBlock>No learnings yet. They appear once a campaign's A/B test picks a winner.</EmptyBlock>;
 }
 
 /** What the agents read before they write: each learning and the campaign it came from. */
@@ -70,9 +83,8 @@ export function Learnings({ canDelete, onOpenCampaign, onSignOut }: LearningsPro
   return (
     <section>
       <h2>Learnings</h2>
-      {error && <p role="alert">{error}</p>}
-      {learnings !== null && learnings.length === 0 && <p>No learnings yet.</p>}
-      <ul aria-label="Learnings">
+      <LearningsState error={error} learnings={learnings} />
+      <ul className="learning-list" aria-label="Learnings">
         {(learnings ?? []).map((l) => (
           <LearningItem
             key={l.id}

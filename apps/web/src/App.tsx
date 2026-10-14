@@ -80,10 +80,10 @@ async function watchAbResult(id: string, onUpdate: (c: Campaign) => void): Promi
   }
 }
 
-/** The A/B call: "Winner: B (97% confident)", or "No decision yet". */
+/** The A/B call: "Version B won, 97% confident", or "No decision yet". */
 function abResultText(result: AbResult): string {
   if (result.status !== "winner" || result.confidence === null) return "No decision yet";
-  return `Winner: ${result.winner} (${Math.floor(result.confidence * 100)}% confident)`;
+  return `Version ${result.winner} won, ${Math.floor(result.confidence * 100)}% confident`;
 }
 
 /** What the run cost, in dollars and cents. */
