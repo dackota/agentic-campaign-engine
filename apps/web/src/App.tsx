@@ -221,11 +221,11 @@ export function App() {
   if (session.state === "signed-out") {
     return (
       <main>
-        <h1>Agentic Campaign Engine</h1>
-        {error && <p role="alert">{error}</p>}
-        <button type="button" onClick={() => void signIn().catch(showError)}>
-          Sign in
-        </button>
+          <h1>Agentic Campaign Engine</h1>
+          {error && <p role="alert">{error}</p>}
+          <button type="button" onClick={() => void signIn().catch(showError)}>
+            Sign in
+          </button>
       </main>
     );
   }

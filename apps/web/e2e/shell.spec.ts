@@ -1,9 +1,21 @@
 import { expect, test, type Page } from "@playwright/test";
 import { APPROVER, signIn } from "./fixtures/sign-in";
 
+const TEAM = "demand-gen";
+const FOCUS_STOPS = 12;
+const VIEWPORT_HEIGHT_PX = 900;
+const WIDTHS_PX = [1280, 768];
 const PAGES = ["Campaigns", "Workflow builder", "Learnings", "Dashboard", "Inbox"];
 
-async function noHorizontalScroll(page: Page) {
+/** The page does not scroll sideways and the header and every nav control sit inside the viewport. */
+async function fitsViewport(page: Page, width: number) {
+  const header = await page.getByRole("banner").boundingBox();
+  expect(header, "the header is on the page").not.toBeNull();
+  expect(header!.x + header!.width).toBeLessThanOrEqual(width);
+  for (const button of await page.getByRole("navigation").getByRole("button").all()) {
+    const box = await button.boundingBox();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+  }
   const overflow = await page.evaluate(
     () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
   );
@@ -14,7 +26,7 @@ test("the header shows product, team and user; sign-out is in the user menu", as
   await signIn(page, APPROVER);
   const header = page.getByRole("banner");
   await expect(header).toContainText("Agentic Campaign Engine");
-  await expect(header.getByTestId("team")).toBeVisible();
+  await expect(header.getByTestId("team")).toHaveText(TEAM);
   await expect(header.getByTestId("signed-in-as")).toHaveText(APPROVER);
   await header.getByTestId("signed-in-as").click();
   await header.getByRole("button", { name: "Sign out" }).click();
@@ -35,7 +47,7 @@ test("the shell works by keyboard with visible focus", async ({ page }) => {
   await signIn(page, APPROVER);
   await page.locator("body").click({ position: { x: 0, y: 0 } });
   await page.keyboard.press("Tab");
-  for (let i = 0; i < 12; i++) {
+  for (let i = 0; i < FOCUS_STOPS; i++) {
     const outline = await page.evaluate(() => {
       const s = getComputedStyle(document.activeElement as Element);
       return { style: s.outlineStyle, width: parseFloat(s.outlineWidth) };
@@ -47,15 +59,22 @@ test("the shell works by keyboard with visible focus", async ({ page }) => {
   await page.getByRole("button", { name: "Dashboard" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("button", { name: "Dashboard" })).toHaveAttribute("aria-current", "page");
+  // The user menu opens and signs out by keyboard alone.
+  await page.getByTestId("signed-in-as").focus();
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("button", { name: "Sign out" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("button", { name: "Sign in" })).toBeVisible();
 });
 
 test("no horizontal scroll at 1280 and 768", async ({ page }) => {
   await signIn(page, APPROVER);
-  for (const width of [1280, 768]) {
-    await page.setViewportSize({ width, height: 900 });
+  for (const width of WIDTHS_PX) {
+    await page.setViewportSize({ width, height: VIEWPORT_HEIGHT_PX });
     for (const name of PAGES) {
       await page.getByRole("navigation").getByRole("button", { name }).click();
-      await noHorizontalScroll(page);
+      await fitsViewport(page, width);
     }
   }
 });

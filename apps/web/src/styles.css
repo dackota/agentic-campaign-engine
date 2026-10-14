@@ -6,6 +6,7 @@
   --color-border: #c9cfd9;
   --color-primary: #1d4ed8;
   --color-primary-text: #fff;
+  --color-danger-text: #fff;
   --color-danger: #b91c1c;
   --color-ok: #166534;
   --color-warn: #92400e;
@@ -64,7 +65,7 @@ button,
 button:disabled { opacity: 0.55; cursor: not-allowed; }
 .btn-primary { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-text); }
 .btn-secondary { background: var(--color-surface); }
-.btn-danger { background: var(--color-danger); border-color: var(--color-danger); color: #fff; }
+.btn-danger { background: var(--color-danger); border-color: var(--color-danger); color: var(--color-danger-text); }
 
 input, textarea, select {
   font: inherit;

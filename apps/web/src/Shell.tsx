@@ -1,3 +1,4 @@
+import type { ReactElement } from "react";
 import type { Me } from "./api";
 
 export type View = "campaigns" | "builder" | "inbox" | "learnings" | "dashboard";
@@ -10,7 +11,7 @@ interface HeaderProps {
 }
 
 /** Product name, team, and the user menu (a native disclosure, so the keyboard works). */
-export function Header({ me, onSignOut }: HeaderProps) {
+export function Header({ me, onSignOut }: HeaderProps): ReactElement {
   return (
     <header className="app-header">
       <span className="app-name">{PRODUCT_NAME}</span>
@@ -35,7 +36,7 @@ interface ViewNavProps {
   onView: (view: View) => void;
 }
 
-export function ViewNav({ me, view, onView }: ViewNavProps) {
+export function ViewNav({ me, view, onView }: ViewNavProps): ReactElement {
   const items: [View, string][] = [
     ["campaigns", "Campaigns"],
     ["builder", "Workflow builder"],
