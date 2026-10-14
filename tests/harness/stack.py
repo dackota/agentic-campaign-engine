@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING, Any
 import httpx
 import uvicorn
 from ace_engine.settings import Depth
+from docker.errors import NotFound
 from temporalio.testing import WorkflowEnvironment
 from testcontainers.community.postgres import PostgresContainer
 from testcontainers.core.docker_client import DockerClient
@@ -394,12 +395,17 @@ class Stack:
         of a live process, of another host, or without the run label is left alone."""
         client = DockerClient().client
         try:
-            for container in client.containers.list(all=True, filters={"label": RUN_LABEL}):
-                labels = container.labels or {}
+            # api.containers lists without inspecting each container, as containers.list
+            # does: another worker may remove one first, and that is not an error.
+            for container in client.api.containers(all=True, filters={"label": RUN_LABEL}):
+                labels = container.get("Labels") or {}
                 if labels.get(HOST_LABEL) == socket.gethostname() and not _is_alive(
                     labels.get(PID_LABEL, "")
                 ):
-                    container.remove(force=True, v=True)
+                    try:
+                        client.api.remove_container(container["Id"], force=True, v=True)
+                    except NotFound:
+                        pass
         finally:
             client.close()
 
