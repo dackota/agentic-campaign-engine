@@ -117,9 +117,20 @@ class RedoJob:
 
 
 class Activities:
-    def __init__(self, settings: Settings, engine: Engine) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        engine: Engine,
+        transport: httpx.AsyncBaseTransport | None = None,
+    ) -> None:
         self._settings = settings
         self._engine = engine
+        self._transport = transport  # a test passes httpx.MockTransport; None sends for real
+
+    def _client(self, timeout: float) -> httpx.AsyncClient:
+        if self._transport is None:
+            return httpx.AsyncClient(timeout=timeout)
+        return httpx.AsyncClient(timeout=timeout, transport=self._transport)
 
     def _record(
         self,
@@ -174,7 +185,7 @@ class Activities:
         session = session_key(campaign_id, step_id)
         team, uses_cache = await asyncio.to_thread(self._team_and_cache, campaign_id)
         job = ReviewJob(campaign_id, step_id, report, role, context, team)
-        async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+        async with self._client(self._settings.agent_timeout_seconds) as client:
             cache = await self._open_cache(client, job, review_rounds) if uses_cache else None
             hit = await asyncio.to_thread(cache.lookup) if cache is not None else None
             # A saved result costs nothing, so a spent budget does not stop it.
@@ -453,7 +464,7 @@ class Activities:
         """Ask the writer sessions for the corrected asset, then have the brand reviewer
         check it for the job's review rounds."""
         issues = [{"check": "approver", "detail": job.comment}]
-        async with httpx.AsyncClient(timeout=self._settings.agent_timeout_seconds) as client:
+        async with self._client(self._settings.agent_timeout_seconds) as client:
             try:
                 with telemetry.span(
                     SERVICE, f"invoke_agent {job.step_id}", operation="invoke_agent"
@@ -524,7 +535,7 @@ class Activities:
         """Save the design agent's cards to the asset library and keep a receipt for each.
         The agent only makes the cards; the engine stores them."""
         timeout = self._settings.content_timeout_seconds
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with self._client(timeout) as client:
             receipts = await cards.save_cards(client, self._settings, campaign_id, output)
         await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
 
@@ -628,7 +639,7 @@ class Activities:
         adapters: list[publisher.Adapter] = [MarketoAdapter(self._settings)]
         if self._settings.has_workfront:
             adapters.append(WorkfrontAdapter(self._settings))
-        async with httpx.AsyncClient(timeout=self._settings.marketo_timeout_seconds) as client:
+        async with self._client(self._settings.marketo_timeout_seconds) as client:
             receipts = await publisher.publish(client, adapters, campaign)
         await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
         return receipts[0].receipt_id
@@ -646,7 +657,7 @@ class Activities:
         report, _ = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
         text = f"Campaign {campaign_id} needs approval: {notify.first_line(report)}"
         link = notify.inbox_link(self._settings, campaign_id)
-        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+        async with self._client(self._settings.notify_timeout_seconds) as client:
             await notify.post_to_slack(client, self._settings, f"{text} {link}" if link else text)
 
     @activity.defn
@@ -657,7 +668,7 @@ class Activities:
         if not (self._settings.slack_enabled or self._settings.google_enabled):
             return
         report, drafts = await asyncio.to_thread(self._brief_and_drafts, campaign_id)
-        async with httpx.AsyncClient(timeout=self._settings.notify_timeout_seconds) as client:
+        async with self._client(self._settings.notify_timeout_seconds) as client:
             await notify.export_to_google_doc(
                 client,
                 self._settings,
@@ -699,6 +710,6 @@ class Activities:
         )
         adapters = content_adapters(self._settings, campaign.emails)
         timeout = self._settings.content_timeout_seconds
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        async with self._client(timeout) as client:
             receipts = await publisher.publish(client, adapters, campaign)
         await asyncio.to_thread(self._save_receipts, campaign_id, receipts)
