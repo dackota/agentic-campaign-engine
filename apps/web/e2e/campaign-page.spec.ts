@@ -1,6 +1,8 @@
 import { expect, test } from "@playwright/test";
 import { VIEWER, accessTokenOf, chooseQuickDraft, chooseWorkflow, signIn } from "./fixtures/sign-in";
 
+// A run to its approval takes seconds under load; the sibling specs wait this long too.
+const RUN_WAIT_MS = 30_000;
 const REPORT = "Volt Typhoon targets edge routers\nActors exploit unpatched VPN appliances.";
 
 test("the page goes from Drafting to Waiting for approval with a next-step sentence, no reload", async ({
@@ -17,7 +19,7 @@ test("the page goes from Drafting to Waiting for approval with a next-step sente
   await expect(page.getByTestId("next-step")).toHaveText("The AI is writing the draft.");
   await expect(page.getByTestId("step-email_draft")).toContainText("Running");
 
-  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });
   await expect(page.getByTestId("next-step")).toHaveText("Waiting for an approver.");
   await expect(page.getByTestId("step-email_draft")).toContainText("Done");
 });
@@ -28,7 +30,7 @@ test("quality, cost and draft show as cards with the rendered email", async ({ p
   await page.getByLabel("Threat report").fill(REPORT);
   await page.getByRole("button", { name: "Create campaign" }).click();
 
-  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
+  await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval", { timeout: RUN_WAIT_MS });
   for (const name of ["Quality", "Cost", "Draft"]) {
     await expect(page.getByRole("region", { name })).toBeVisible();
   }
