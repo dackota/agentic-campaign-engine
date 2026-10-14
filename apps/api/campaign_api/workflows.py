@@ -144,9 +144,8 @@ def register_workflow_routes(app: FastAPI) -> None:
                 found = [Rejection("not_json", "the workflow is not valid JSON")]
         return ValidationOut(rejections=[RejectionOut(**asdict(r)) for r in found])
 
-    @app.get("/workflows")
+    @app.get("/workflows")  # every saved name: the new-campaign picker
     async def list_workflows(request: Request, user: CurrentUser) -> list[str]:
-        """Every saved workflow's name: the new-campaign form's picker."""
         authorize(user, Action.READ)
         return await run_in_threadpool(_names, request.app.state.engine)
 
