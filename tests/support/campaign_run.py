@@ -22,6 +22,7 @@ from ace_engine.settings import (
     TASK_QUEUE,
     WORKFLOW_NAME,
 )
+from campaign_worker.activities import RedoJob
 from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
@@ -72,6 +73,7 @@ class StubActivities:
             self.run_agent_step,
             self.save_agent_output,
             self.record_scores,
+            self.redo_asset,
             self.save_cards,
             self.claim_step_slot,
             self.release_step_slot,
@@ -128,6 +130,11 @@ class StubActivities:
         self, campaign_id: str, step_id: str, assets: list[str], output: dict[str, Any]
     ) -> object:
         return await self._answer("record_scores", (campaign_id, step_id, assets, output), [])
+
+    @activity.defn(name="redo_asset")
+    async def redo_asset(self, job: RedoJob) -> object:
+        quiet = {"output": [{"step": job.step_id, "redone": True}] * 2}
+        return await self._answer("redo_asset", (job,), quiet)
 
     @activity.defn(name="save_cards")
     async def save_cards(self, campaign_id: str, output: dict[str, Any]) -> object:
