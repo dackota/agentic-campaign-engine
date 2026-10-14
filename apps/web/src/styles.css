@@ -217,6 +217,7 @@ a.btn-primary { color: var(--color-primary-text); }
 .new-campaign { max-width: 720px; }
 .new-campaign label { font-weight: 600; }
 .new-campaign textarea { font-weight: 400; }
+.new-campaign label input { margin-left: var(--space-2); font-weight: 400; }
 .hint { color: var(--color-muted); font-size: var(--font-size-sm); margin-top: 0; }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: var(--space-3); list-style: none; padding: 0; margin: 0 0 var(--space-3); }
 .tile { display: flex; flex-direction: column; background: var(--color-surface); border-radius: var(--radius); box-shadow: var(--shadow); padding: var(--space-3); }
@@ -242,14 +243,15 @@ th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom
 .trend-quality-dot { fill: var(--color-warn); }
 
 .run-graph-scroll { overflow-x: auto; max-width: 100%; margin-bottom: var(--space-4); }
-.run-graph { position: relative; margin: var(--space-2) 0; }
-.run-edges { position: absolute; inset: 0; }
-.run-edge { stroke: var(--color-muted); stroke-width: 2; }
+.run-graph { position: relative; width: 100%; margin: var(--space-2) 0; }
+.run-edges { position: absolute; inset: 0; width: 100%; height: 100%; }
+.run-edge { stroke: var(--color-muted); stroke-width: 2; vector-effect: non-scaling-stroke; }
 .run-steps { list-style: none; margin: 0; padding: 0; }
-.run-step { position: absolute; width: 180px; height: 100px; padding: var(--space-2); overflow: hidden; font-size: var(--font-size-sm); border: 2px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
+.run-step { position: absolute; width: calc(var(--node-w) / var(--graph-w) * 100%); height: 100px; padding: var(--space-2); overflow: hidden; font-size: var(--font-size-sm); border: 2px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-surface); }
 .run-step-started { border-color: var(--color-info); background: var(--color-info-bg); }
 .run-step-failed { border-color: var(--color-danger); background: var(--color-danger-bg); }
 .run-step-succeeded { border-color: var(--color-ok); }
+.run-step .badge { padding: 2px var(--space-2); }
 .page-title { margin-bottom: var(--space-1); }
 .next-step { font-size: var(--font-size-lg); margin: var(--space-2) 0 var(--space-3); }
 .action-row { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: end; margin-bottom: var(--space-3); }
@@ -263,5 +265,5 @@ th, td { text-align: left; padding: var(--space-2) var(--space-3); border-bottom
   .run-graph { width: auto !important; height: auto !important; }
   .run-edges { display: none; }
   .run-steps { display: flex; flex-wrap: wrap; gap: var(--space-2); }
-  .run-step { position: static; }
+  .run-step { position: static; width: 180px; }
 }

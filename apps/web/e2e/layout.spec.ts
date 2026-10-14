@@ -32,7 +32,11 @@ async function expectNoSidewaysScroll(page: Page) {
 async function startCampaign(page: Page): Promise<string> {
   const created = await page.request.post("/api/campaigns", {
     headers: { authorization: `Bearer ${await accessTokenOf(page)}` },
-    data: { report: `Layout check ${Date.now()}\nActors exploit unpatched VPN appliances.` },
+    // The full workflow, the widest graph the demo shows: the quick draft has two steps and cannot overflow.
+    data: {
+      report: `Layout check ${Date.now()}\nActors exploit unpatched VPN appliances.`,
+      workflow: "threat-report-to-campaign",
+    },
   });
   expect(created.ok()).toBe(true);
   return ((await created.json()) as { id: string }).id;
@@ -63,6 +67,9 @@ test("no page scrolls sideways at 1280 and 768, the run graph wraps, and focus r
     await page.goto(`/campaigns/${campaignId}`);
     await expect(page.getByTestId("run-status")).toHaveText("Waiting for approval");
     await fitsViewport(page, width);
+    // The whole graph shows, last step included, with no inner sideways scroll.
+    const hidden = await page.locator(".run-graph-scroll").evaluate((el) => el.scrollWidth - el.clientWidth);
+    expect(hidden, `the run graph fits its box at ${width}px`).toBeLessThanOrEqual(0);
   }
 
   // At tablet width the graph wraps: no inner scroll, and every step sits inside the viewport.
