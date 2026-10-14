@@ -97,7 +97,7 @@ raise the budget. If one AI provider goes down, a backup takes over.
 
 ## Beat 9: change the process without an engineer
 
-On screen: the `Workflow builder`, `Use template`, then drag a step and `Add approval gate`.
+On screen: the `Workflow builder`, `Use template`, then drag a step and add an approval step from the `Step palette`.
 
 Every team works a little differently. In the builder, a marketer starts from a template, drags
 steps into a new order, and adds an approval gate where they want one. The builder says in plain

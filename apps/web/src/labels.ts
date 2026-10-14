@@ -42,6 +42,16 @@ const named = (labels: Record<string, string>, id: string): string | undefined =
 export const stepLabel = (id: string): string => named(STEP_LABELS, id) ?? humanize(id);
 export const workflowLabel = (name: string): string => named(WORKFLOW_LABELS, name) ?? humanize(name);
 
+const KIND_DESCRIPTIONS: Record<StepKind, string> = {
+  agent: "An AI writes or prepares something, like an email or a social post.",
+  render: "Turns finished content into a ready-to-use file or page.",
+  approval: "A person says yes before anything goes further.",
+  publish: "Sends the approved content out.",
+  wait: "Pauses the workflow for a set time.",
+};
+
+export const kindDescription = (kind: StepKind): string => KIND_DESCRIPTIONS[kind];
+
 const STATUS_LABELS: Record<CampaignStatus, string> = {
   drafting: "Drafting",
   awaiting_approval: "Waiting for approval",
