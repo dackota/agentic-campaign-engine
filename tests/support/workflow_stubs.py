@@ -11,6 +11,7 @@ from typing import Any
 from ace_engine.cost import BUDGET_SPENT
 from ace_engine.settings import APPROVE_SIGNAL, TASK_QUEUE, WORKFLOW_NAME
 from campaign_worker.activities import RedoJob
+from campaign_worker.publisher import PUBLISH_STEP
 from campaign_worker.workflow import CampaignWorkflow
 from temporalio import activity
 from temporalio.client import WorkflowExecutionStatus
@@ -73,9 +74,14 @@ class StubActivities:
 
     @activity.defn(name="run_agent_step")
     async def run_agent_step(
-        self, campaign_id: str, report: str, step_id: str, context: dict[str, Any], rounds: int
+        self,
+        campaign_id: str,
+        report: str,
+        step_id: str,
+        context: dict[str, Any],
+        review_rounds: int = 0,
     ) -> dict[str, Any]:
-        self._record("run_agent_step", campaign_id, report, step_id, context, rounds)
+        self._record("run_agent_step", campaign_id, report, step_id, context, review_rounds)
         output = self.agent_outputs.get(step_id, {"made_by": step_id})
         return {"output": output, "session": f"session-{step_id}"}
 
@@ -100,7 +106,7 @@ class StubActivities:
         return {"output": self.redo_outputs.get(job.step_id, {"redone": job.step_id})}
 
     @activity.defn(name="save_cards")
-    async def save_cards(self, campaign_id: str, output: object) -> None:
+    async def save_cards(self, campaign_id: str, output: dict[str, Any]) -> None:
         self._record("save_cards", campaign_id, output)
 
     @activity.defn(name="mark_step")
@@ -137,13 +143,15 @@ class StubActivities:
         self._record("finish_run", campaign_id)
 
     @activity.defn(name="send_email")
-    async def send_email(self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str) -> str:
+    async def send_email(
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = PUBLISH_STEP
+    ) -> str:
         self._record("send_email", campaign_id, drafts, step_id)
         return self.receipt
 
     @activity.defn(name="publish_content")
     async def publish_content(
-        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str
+        self, campaign_id: str, drafts: list[dict[str, Any]], step_id: str = PUBLISH_STEP
     ) -> None:
         self._record("publish_content", campaign_id, drafts, step_id)
 
